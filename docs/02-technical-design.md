@@ -11,7 +11,7 @@ Android App / Web Browser
           |
       Caddy / Nginx
           |
-        Go API
+     FastAPI API
           |
       PostgreSQL
 ```
@@ -24,22 +24,23 @@ Android App / Web Browser
 
 Android 是主要终端，Web 用于长时间查看、任务整理、事件管理和数据分析。
 
-后端推荐 Go，目录边界如下：
+后端使用 Python 3.12 和 FastAPI，目录边界如下：
 
 ```text
-cmd/server/
-internal/auth/
-internal/user/
-internal/task/
-internal/event/
-internal/recurring/
-internal/comment/
-internal/activity/
-internal/analytics/
-migrations/
+backend/app/main.py
+backend/app/core/
+backend/app/auth/
+backend/app/user/
+backend/app/task/
+backend/app/event/
+backend/app/recurring/
+backend/app/comment/
+backend/app/activity/
+backend/app/analytics/
+backend/alembic/
 ```
 
-第一版使用 REST API，服务端负责校验状态转换、延期事务、循环任务幂等生成和冲突检测。
+第一版使用 REST API，服务端负责校验状态转换、延期事务、循环任务幂等生成和冲突检测。Python 后端使用 FastAPI、SQLAlchemy 2.0、psycopg、Alembic、Pydantic Settings、bcrypt 和 PyJWT；测试使用 pytest 和 HTTPX。
 
 ## 3. 数据模型
 

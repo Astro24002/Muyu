@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Phase 0/1 实施计划已完成，工程代码尚未开始编写。
+- 当前阶段：Python 3.12 版 Phase 0/1 实施计划已确认，工程代码尚未开始编写。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -27,9 +27,32 @@
 1. 仓库与运行时骨架；
 2. PostgreSQL 迁移与两名固定用户初始化；
 3. 密码、JWT 和 Refresh Session；
-4. Go HTTP API 与统一错误契约；
+4. FastAPI HTTP API 与统一错误契约；
 5. Flutter Android/Web 登录与账户页；
 6. Compose、CI 和端到端验收。
+
+## 当前阻塞
+
+## 设计变更
+
+### 2026-08-16 - 后端从 Go 切换为 Python 3.12
+
+- 类型：设计变更
+- 变更：后端由 Go 切换为 Python 3.12 + FastAPI + SQLAlchemy 2.0 + Alembic + psycopg + pytest；REST API、数据库模型、客户端和验收标准保持不变。
+- 原因：项目维护者更熟悉 Python；当前只有 Go 测试契约，尚无 Go 业务实现，切换风险低。
+- 影响文件：`docs/02-technical-design.md`、`docs/superpowers/specs/2026-08-16-project-foundation-design.md`、`docs/superpowers/plans/2026-08-16-project-foundation-auth.md`。
+- 替代方案：保留 Go、改用 Flask 或采用 Django REST Framework；综合开发熟悉度、自动 API 契约和项目规模后选择 FastAPI。
+- 迁移影响：无数据库迁移；后端工程骨架和依赖安装方式重新生成。
+- 验收影响：服务端测试命令改为 `pytest`，容器镜像改为 Python 3.12；API 行为验收不变。
+
+### 2026-08-16 - Task 1 工具链阻塞
+
+- 类型：阻塞
+- 变更：已移除未提交的 Go 测试骨架；Python 工具链验证将在新计划的 Task 1 重新执行。
+- 原因：宿主机没有 Go、Flutter 或 Dart；Docker CLI 已恢复访问，但 Go 镜像拉取曾因网络卡住。
+- 影响文件：后端实现尚未提交；客户端工具链仍是 Task 5 的环境前置条件。
+- 验证命令与结果：`docker info` 已可返回 Docker Server 版本；Go 容器镜像测试未完成。
+- 下一步：先使用 Python 3.12 容器执行配置测试和 API 测试；若宿主机无 Flutter，再单独记录客户端构建阻塞。
 
 ## 文档变更规则
 

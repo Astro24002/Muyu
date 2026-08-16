@@ -7,7 +7,7 @@
 本轮包含：
 
 - 初始化 Git 和单仓库目录边界；
-- Go API、PostgreSQL、Docker Compose 本地运行链路；
+- Python 3.12/FastAPI API、PostgreSQL、Docker Compose 本地运行链路；
 - 两名固定用户的幂等初始化；
 - 手机号 + 统一密码登录；
 - Access Token、Refresh Token、刷新、登出和会话撤销；
@@ -23,20 +23,19 @@
 
 ```text
 .
-├── backend/                  # Go API
-│   ├── cmd/server/            # 进程入口
-│   ├── internal/config/       # 环境变量解析与校验
-│   ├── internal/auth/         # 登录、Token、会话
-│   ├── internal/user/         # 固定用户和资料
-│   ├── internal/httpapi/      # 路由、中间件、错误响应
-│   └── migrations/            # PostgreSQL 迁移
+├── backend/                  # Python 3.12/FastAPI API
+│   ├── app/main.py            # 进程入口
+│   ├── app/core/              # 配置、数据库、错误和安全基础设施
+│   ├── app/auth/              # 登录、Token、会话
+│   ├── app/user/              # 固定用户和资料
+│   └── alembic/               # PostgreSQL 迁移
 ├── client/                   # Flutter Android/Web
 ├── deploy/                   # Compose、反向代理和环境模板
 ├── docs/                     # 产品、技术、路线及规格
 └── .github/workflows/        # 基础 CI（可在实现阶段加入）
 ```
 
-服务端使用 Go 标准库 HTTP 栈，数据库驱动采用 pgx，密码哈希采用 bcrypt，JWT 使用成熟的 Go JWT 库。业务逻辑通过领域服务与 HTTP 适配层分离，避免路由处理器直接操作数据库。
+服务端使用 Python 3.12、FastAPI、SQLAlchemy 2.0 和 psycopg，迁移使用 Alembic，密码哈希使用 bcrypt，JWT 使用 PyJWT。业务逻辑通过领域服务、仓储和 HTTP 路由分离，避免路由处理器直接操作数据库。
 
 客户端使用 Flutter，按 `data`、`domain`、`presentation` 分层。首轮不引入复杂状态管理框架：认证状态由一个可测试的会话控制器维护，HTTP 客户端、JSON 模型和本地 Token 存储通过接口注入。
 
@@ -44,7 +43,7 @@
 
 ### 3.1 本地启动
 
-`deploy/docker-compose.yml` 启动 PostgreSQL 和 API。API 启动时等待数据库可用，执行版本化迁移，然后进行固定用户幂等初始化，最后提供健康检查。
+`deploy/docker-compose.yml` 启动 PostgreSQL 和 API。API 启动时等待数据库可用，执行 Alembic 版本化迁移，然后进行固定用户幂等初始化，最后提供健康检查。
 
 Flutter 通过 `API_BASE_URL`（Web）或构建参数（Android）指定 API 地址。开发环境不要求 HTTPS；生产环境只允许 Caddy/Nginx 暴露 API，数据库不暴露公网端口。
 
@@ -58,7 +57,8 @@ Flutter 通过 `API_BASE_URL`（Web）或构建参数（Android）指定 API 地
 - `JWT_REFRESH_SECRET`；
 - `ACCESS_TOKEN_TTL`，默认 15 分钟；
 - `REFRESH_TOKEN_TTL`，默认 30 天；
-- `HTTP_ADDR`，默认 `:8080`。
+- `HTTP_HOST`，默认 `0.0.0.0`；
+- `HTTP_PORT`，默认 `8080`。
 
 生产配置只通过 Secret 注入。仓库只提交 `.env.example`，不提交真实密码、密钥或数据库凭据。
 
@@ -94,7 +94,7 @@ created_at         timestamptz not null
 
 Refresh Token 轮换时撤销旧 session 并创建新 session。数据库永远不保存明文 Refresh Token。
 
-迁移必须可重复执行，失败时 API 不应报告健康状态。回滚脚本不是首轮要求，但每个迁移要有明确版本号和事务边界。
+Alembic 迁移必须可重复执行，失败时 API 不应报告健康状态。回滚脚本不是首轮要求，但每个迁移要有明确版本号和事务边界。
 
 ## 5. 认证与 API 契约
 

@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first runnable vertical slice: Go API, PostgreSQL migrations, Docker Compose, and Flutter Android/Web login with fixed two-user authentication and profile editing.
+**Goal:** Build the first runnable vertical slice with Python 3.12/FastAPI, PostgreSQL migrations, Docker Compose, and Flutter Android/Web login for the two fixed users.
 
-**Architecture:** Keep a single repository with `backend/`, `client/`, `deploy/`, and `docs/`. The Go API owns configuration, migrations, user seeding, password hashing, JWT issuance, refresh-session rotation, and HTTP error mapping; Flutter consumes the JSON API through injected clients and a session controller. PostgreSQL is the source of truth and Docker Compose is the local integration boundary.
+**Architecture:** Keep one repository with `backend/`, `client/`, `deploy/`, and `docs/`. FastAPI owns configuration, migrations, user seeding, password hashing, JWT issuance, refresh-session rotation, and HTTP error mapping; SQLAlchemy 2.0 is the database boundary and Alembic owns schema history. Flutter consumes the stable JSON API through injected clients and a session controller.
 
-**Tech Stack:** Go standard-library HTTP server, pgx/pgxpool, PostgreSQL, bcrypt, JWT, Flutter/Dart, Docker Compose.
+**Tech Stack:** Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2.0, psycopg, Alembic, Pydantic Settings, bcrypt, PyJWT, pytest, HTTPX, Flutter/Dart, Docker Compose.
 
 **Spec:** `docs/superpowers/specs/2026-08-16-project-foundation-design.md`
 
@@ -20,134 +20,118 @@
 - Access Token defaults to 15 minutes and Refresh Token defaults to 30 days; refresh rotates and revokes the prior session.
 - API times use ISO 8601; database absolute timestamps use UTC; client display uses `Asia/Shanghai`.
 - API errors use `{code,message,details}` and never expose SQL, passwords, or tokens.
-- Every task ends with its focused test command and a small Git commit.
-- Before implementation or scope changes, update `docs/05-development-status.md` or the relevant design/decision document; after each task, record tests, acceptance result, and next step there.
+- Every task ends with its focused test command, a status-document update, and a small Git commit.
 
 ---
 
-### Task 1: Repository And Runtime Skeleton
+### Task 1: Python Runtime And Configuration Skeleton
 
 **Files:**
-- Create: `.gitignore`, `Makefile`
-- Create: `backend/go.mod`, `backend/cmd/server/main.go`
-- Create: `backend/internal/config/config.go`, `backend/internal/config/config_test.go`
-- Create: `deploy/docker-compose.yml`, `deploy/.env.example`
-- Create: `backend/Dockerfile`
+- Create: `backend/pyproject.toml`, `backend/app/__init__.py`, `backend/app/main.py`
+- Create: `backend/app/core/config.py`, `backend/tests/core/test_config.py`
+- Create: `backend/Dockerfile`, `deploy/docker-compose.yml`, `deploy/.env.example`, `Makefile`
 
 **Interfaces:**
-- Produces `config.Load() (config.Config, error)` with validated runtime settings.
-- Produces a `backend` Go module and an executable entry point that can later wire database and HTTP services.
-- Produces Compose service names `db` and `api`, with PostgreSQL private to the Compose network.
+- `Settings` is a Pydantic Settings model with validated `database_url`, secrets, token TTLs, `http_host`, and `http_port`.
+- `get_settings() -> Settings` caches one settings instance for process lifetime.
+- `app.main:create_app() -> FastAPI` returns an app with `/healthz`; it must not report healthy before startup initialization completes.
 
 - [ ] **Step 1: Write configuration tests first**
 
-Test `config.Load` with a complete environment and assert parsed database URL, address, token durations, and required secrets. Add cases for missing `DATABASE_URL`, missing `AUTH_PASSWORD`, malformed duration, and an access secret shorter than 32 bytes.
+Use `monkeypatch` to assert complete environment parsing, defaults (`0.0.0.0`, `8080`, 15 minutes, 30 days), missing required values, malformed durations, and secrets shorter than 32 bytes.
 
 - [ ] **Step 2: Run the focused test and verify it fails**
 
-Run: `cd backend && go test ./internal/config -run TestLoad -v`
+Run: `cd backend && python -m pytest tests/core/test_config.py -q`
 
-Expected: FAIL because the module and `config.Load` do not exist.
+Expected: FAIL because the package and `Settings` model do not exist.
 
-- [ ] **Step 3: Implement validated configuration**
+- [ ] **Step 3: Implement settings and minimal FastAPI app**
 
-Define:
+Use `pydantic-settings` with explicit aliases for environment names. Parse TTLs as `timedelta`, reject empty required secrets, and expose a health flag controlled by application lifespan.
 
-```go
-type Config struct {
-    DatabaseURL      string
-    HTTPAddr         string
-    AuthPassword     string
-    JWTAccessSecret  []byte
-    JWTRefreshSecret []byte
-    AccessTokenTTL   time.Duration
-    RefreshTokenTTL  time.Duration
-}
+- [ ] **Step 4: Add package metadata and runtime files**
 
-func Load(getenv func(string) string) (Config, error)
-```
+Declare Python `>=3.12`, runtime dependencies, and test dependencies in `pyproject.toml`. Add Uvicorn entry point, Python 3.12-slim Dockerfile, Compose PostgreSQL service with healthcheck, API service environment wiring, `.env.example`, and Make targets `test`, `backend-test`, `compose-up`, and `compose-down`.
 
-Use defaults `:8080`, `15m`, and `720h`; reject empty required values, invalid durations, and secrets shorter than 32 bytes.
+- [ ] **Step 5: Run tests, lint-level checks, and Compose config**
 
-- [ ] **Step 4: Add module, entry point, Compose, and development commands**
+Run: `cd backend && python -m pytest`; `python -m compileall app`; `docker compose -f ../deploy/docker-compose.yml config`
 
-Create the Go module with dependencies needed by later tasks, a `main` that loads config and exits with a clear error, Compose PostgreSQL healthcheck, API environment wiring, `.env.example`, Dockerfile, and Make targets `test`, `backend-test`, `compose-up`, and `compose-down`.
+Expected: tests pass, bytecode compilation succeeds, and Compose renders without committed secret values.
 
-- [ ] **Step 5: Run tests and static checks**
+- [ ] **Step 6: Update progress and commit**
 
-Run: `cd backend && go test ./...`; `go vet ./...`; `docker compose -f ../deploy/docker-compose.yml config`
-
-Expected: PASS, with Compose rendering a private `db` network and no committed secret values.
-
-- [ ] **Step 6: Commit**
+Record the test commands and result in `docs/05-development-status.md`, then commit:
 
 ```bash
-git add .gitignore Makefile backend deploy
-git commit -m "build: add Go and local PostgreSQL runtime skeleton"
+git add backend deploy Makefile docs/05-development-status.md
+git commit -m "build: add Python runtime and local PostgreSQL skeleton"
 ```
 
-### Task 2: PostgreSQL Schema, Migrations, And Fixed Users
+### Task 2: SQLAlchemy Models, Alembic Migration, And Fixed Users
 
 **Files:**
-- Create: `backend/migrations/000001_users_sessions.sql`
-- Create: `backend/internal/db/migrate.go`, `backend/internal/db/migrate_test.go`
-- Create: `backend/internal/user/model.go`, `backend/internal/user/repository.go`, `backend/internal/user/repository_test.go`
-- Modify: `backend/cmd/server/main.go`
+- Create: `backend/alembic.ini`, `backend/alembic/env.py`, `backend/alembic/versions/0001_users_sessions.py`
+- Create: `backend/app/db/session.py`, `backend/app/db/base.py`
+- Create: `backend/app/user/models.py`, `backend/app/user/repository.py`, `backend/app/user/service.py`
+- Create: `backend/tests/db/test_migrations.py`, `backend/tests/user/test_repository.py`, `backend/tests/user/test_service.py`
+- Modify: `backend/app/main.py`
 
 **Interfaces:**
-- `db.RunMigrations(ctx context.Context, pool *pgxpool.Pool) error` applies versioned SQL once and fails startup on migration errors.
-- `user.Repository` exposes `FindByPhone`, `FindByID`, `List`, and `UpdateProfile`.
-- `user.SeedFixedUsers(ctx, repo, authPassword)` creates exactly the two configured users without resetting existing mutable fields.
+- `run_migrations()` invokes Alembic upgrade to head before the app is healthy.
+- `UserRepository.find_by_phone`, `find_by_id`, `list_users`, and `update_profile` use SQLAlchemy sessions and parameterized ORM expressions.
+- `seed_fixed_users(session, auth_password)` creates exactly the two users with `INSERT ... ON CONFLICT` semantics and never resets existing mutable fields.
 
-- [ ] **Step 1: Write repository and seeding tests first**
+- [ ] **Step 1: Write repository and seed tests first**
 
-Use a pgx-compatible mock for query expectations. Cover lookup by phone, stable two-user listing, profile update whitelist, empty-database seeding, repeated seeding, and preservation of a changed nickname/role/password hash on the second run.
+Use a temporary PostgreSQL database in Compose for integration tests. Cover lookup by phone, stable two-user listing, profile update whitelist, empty-database seeding, repeated seeding, and preservation of changed nickname/role/password hash on the second run.
 
 - [ ] **Step 2: Run focused tests and verify they fail**
 
-Run: `cd backend && go test ./internal/db ./internal/user -v`
+Run: `cd backend && python -m pytest tests/db tests/user -q`
 
-Expected: FAIL because schema, repository, and seeding functions are absent.
+Expected: FAIL because the models, migration, and repository do not exist.
 
-- [ ] **Step 3: Add transactional schema migration**
+- [ ] **Step 3: Add SQLAlchemy metadata and Alembic revision**
 
-Create `users` and `sessions` with UUID primary keys, unique phone, UTC timestamps, `revoked_at`, and foreign-key cascade from sessions to users. Add a migration lock/table so a migration runs once and concurrent API starts cannot partially apply it.
+Create `users` and `sessions` with UUID keys, unique phone, UTC timestamps, `revoked_at`, and a foreign key from sessions to users. Configure Alembic from `DATABASE_URL`, with transactional upgrade and a clear failure path.
 
-- [ ] **Step 4: Implement repository and fixed-user seed**
+- [ ] **Step 4: Implement repository and fixed-user seed service**
 
-Use parameterized SQL only. Seed phone numbers `15028180169` and `15068128726`, deterministic avatar keys, and explicit default nickname/role values. Use `INSERT ... ON CONFLICT (phone) DO NOTHING`; never update password, nickname, role, or avatar for existing rows. Hash `AUTH_PASSWORD` before insertion.
+Use bcrypt before persistence. Seed phones `15028180169` and `15068128726`, deterministic avatar keys, and explicit defaults. Query first and insert only missing rows; never overwrite an existing password, nickname, role, or avatar.
 
-- [ ] **Step 5: Wire startup order**
+- [ ] **Step 5: Wire lifespan startup order**
 
-In `main`, connect with `pgxpool`, run migrations, seed users, then construct the HTTP server. Close the pool on shutdown and return a non-zero process result if any step fails.
+Open the SQLAlchemy engine, run Alembic, seed users, then set the health flag. Dispose the engine during shutdown; any migration or seed exception prevents healthy status.
 
-- [ ] **Step 6: Run tests and database smoke check**
+- [ ] **Step 6: Run integration verification**
 
-Run: `cd backend && go test ./...`; `docker compose -f deploy/docker-compose.yml up -d db`; run the migration/seed command twice and query `SELECT count(*) FROM users`.
+Run: `make compose-up`; `cd backend && python -m pytest`; execute the seed path twice and query `SELECT count(*) FROM users`.
 
 Expected: tests pass and the count remains `2` after the second initialization.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Update progress and commit**
+
+Record migration and seed verification in the progress document, then commit:
 
 ```bash
-git add backend/cmd/server/main.go backend/migrations backend/internal/db backend/internal/user
-git commit -m "feat: add users sessions schema and fixed-user initialization"
+git add backend docs/05-development-status.md
+git commit -m "feat: add SQLAlchemy schema and fixed-user initialization"
 ```
 
 ### Task 3: Passwords, JWTs, And Refresh Sessions
 
 **Files:**
-- Create: `backend/internal/auth/password.go`, `backend/internal/auth/password_test.go`
-- Create: `backend/internal/auth/token.go`, `backend/internal/auth/token_test.go`
-- Create: `backend/internal/auth/service.go`, `backend/internal/auth/service_test.go`
-- Create: `backend/internal/auth/session_repository.go`, `backend/internal/auth/session_repository_test.go`
-- Modify: `backend/internal/user/repository.go`
+- Create: `backend/app/auth/passwords.py`, `backend/app/auth/tokens.py`, `backend/app/auth/service.py`, `backend/app/auth/session_repository.py`
+- Create: `backend/tests/auth/test_passwords.py`, `backend/tests/auth/test_tokens.py`, `backend/tests/auth/test_service.py`
+- Modify: `backend/app/user/repository.py`
 
 **Interfaces:**
-- `HashPassword(plain string) ([]byte, error)` and `ComparePassword(hash, plain []byte) error`.
-- `TokenManager.IssueAccess(userID uuid.UUID, now time.Time) (string, error)` and `TokenManager.ParseAccess(token string) (AccessClaims, error)`.
-- `AuthService.Login`, `Refresh`, and `Logout` return typed results and map invalid credentials/session state to `ErrUnauthenticated`.
-- Session persistence exposes create, find-by-hash, and revoke operations.
+- `hash_password(plain: str) -> str` and `verify_password(plain: str, hashed: str) -> bool`.
+- `TokenManager.issue_access(user_id: UUID, now: datetime) -> str` and `parse_access(token: str) -> AccessClaims`.
+- `AuthService.login`, `refresh`, and `logout` return typed results and map invalid credentials/session state to `UnauthenticatedError`.
+- Session persistence exposes create, find-by-hash, and revoke operations, with refresh rotation in one database transaction.
 
 - [ ] **Step 1: Write failing password and token tests**
 
@@ -155,80 +139,73 @@ Assert bcrypt hashes differ from plaintext, correct passwords verify, wrong pass
 
 - [ ] **Step 2: Run focused tests and verify they fail**
 
-Run: `cd backend && go test ./internal/auth -run 'Test(Hash|Compare|Token)' -v`
+Run: `cd backend && python -m pytest tests/auth/test_passwords.py tests/auth/test_tokens.py -q`
 
-Expected: FAIL because auth types and functions are absent.
+Expected: FAIL because auth modules are absent.
 
 - [ ] **Step 3: Implement password and token primitives**
 
-Use bcrypt with a documented cost, separate access and refresh signing secrets, UUID subject, token type claim, issued-at, and expiry. Parse tokens with strict algorithm and type checks.
+Use bcrypt, separate access and refresh secrets, UUID subject, token type, issued-at, and expiry claims. Parse JWTs with strict algorithm and type checks.
 
 - [ ] **Step 4: Write failing service tests**
 
 Cover successful login, wrong password, unknown phone, refresh rotation, expired/revoked refresh session, and idempotent logout. Assert the old refresh session is revoked before the new session is returned.
 
-- [ ] **Step 5: Implement service and session repository**
+- [ ] **Step 5: Implement auth service and session repository**
 
-Login loads the user by phone, compares password, creates a random refresh token, stores only its SHA-256 hash, and returns user plus access/refresh tokens. Refresh hashes the presented token, verifies session state, revokes it, and creates a replacement atomically. Logout revokes the matching session and succeeds when it is already revoked.
+Login loads by phone, verifies the password, generates a cryptographically random refresh token, stores only its SHA-256 hash, and returns user plus tokens. Refresh hashes the presented token, checks expiry/revocation, revokes it, and creates a replacement atomically. Logout is idempotent.
 
-- [ ] **Step 6: Run all backend tests**
+- [ ] **Step 6: Run all backend tests and update progress**
 
-Run: `cd backend && go test ./...`; `go vet ./...`
-
-Expected: PASS with no plaintext token/password assertions in logs or database arguments.
+Run: `cd backend && python -m pytest`; `python -m compileall app`; record results in `docs/05-development-status.md`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/internal/auth backend/internal/user
+git add backend docs/05-development-status.md
 git commit -m "feat: implement password JWT and refresh-session services"
 ```
 
-### Task 4: HTTP API, Middleware, And Error Contract
+### Task 4: FastAPI Routes, Middleware, And Error Contract
 
 **Files:**
-- Create: `backend/internal/httpapi/router.go`, `backend/internal/httpapi/middleware.go`
-- Create: `backend/internal/httpapi/errors.go`, `backend/internal/httpapi/handlers_auth.go`, `backend/internal/httpapi/handlers_user.go`
-- Create: `backend/internal/httpapi/router_test.go`, `backend/internal/httpapi/handlers_test.go`
-- Modify: `backend/cmd/server/main.go`
+- Create: `backend/app/httpapi/errors.py`, `backend/app/httpapi/dependencies.py`, `backend/app/auth/routes.py`, `backend/app/user/routes.py`
+- Create: `backend/tests/httpapi/test_auth_routes.py`, `backend/tests/httpapi/test_user_routes.py`
+- Modify: `backend/app/main.py`
 
 **Interfaces:**
 - Routes: `GET /healthz`, `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/me`, `PATCH /api/me`, `GET /api/users`.
-- Middleware `RequireAccessToken` injects `user_id` into request context and rejects missing/invalid access tokens with `401`.
-- Error writer emits `{code,message,details}` and a request ID header.
+- `require_access_token` injects the authenticated user ID and rejects missing/invalid access tokens with `401`.
+- Exception handlers emit `{code,message,details}` and an `X-Request-ID` header.
 
-- [ ] **Step 1: Write handler tests first**
+- [ ] **Step 1: Write route tests first**
 
-Use `httptest` and service fakes. Cover status codes and JSON for login success/invalid credentials, refresh, logout, protected `/api/me`, profile field whitelist, users listing, malformed JSON, and health check.
+Use FastAPI `TestClient`/HTTPX and dependency overrides. Cover login success/invalid credentials, refresh, logout, protected `/api/me`, profile field whitelist, users listing, malformed JSON, and health check.
 
-- [ ] **Step 2: Run focused HTTP tests and verify they fail**
+- [ ] **Step 2: Run focused tests and verify they fail**
 
-Run: `cd backend && go test ./internal/httpapi -v`
+Run: `cd backend && python -m pytest tests/httpapi -q`
 
-Expected: FAIL because the router, handlers, middleware, and response types are absent.
+Expected: FAIL because routes and exception handlers are absent.
 
-- [ ] **Step 3: Implement error and request-ID middleware**
+- [ ] **Step 3: Implement errors, request IDs, and authentication dependency**
 
 Generate or propagate `X-Request-ID`, set JSON content type, map domain errors to exact HTTP codes, and log only method/path/status/request ID.
 
-- [ ] **Step 4: Implement routes and handlers**
+- [ ] **Step 4: Implement request/response schemas and routes**
 
-Decode bounded request structs with `DisallowUnknownFields`, validate phone/password/profile fields, use the auth/user service interfaces, and return stable response structs. `PATCH /api/me` must reject immutable fields rather than silently ignore them.
+Use Pydantic models with strict field sets, validate phone/password/profile fields, call service interfaces, and reject immutable fields instead of silently ignoring them.
 
-- [ ] **Step 5: Wire router and graceful server shutdown**
+- [ ] **Step 5: Run API smoke verification**
 
-Use the standard library HTTP server with read/write/idle timeouts, `SIGINT`/`SIGTERM` cancellation, and `/healthz` returning unhealthy until migrations and seeding have completed.
-
-- [ ] **Step 6: Run tests and local API smoke test**
-
-Run: `cd backend && go test ./...`; start the API against Compose and execute login, `/api/me`, profile patch, refresh, and logout with `curl`.
+Run: `cd backend && python -m pytest`; start the Compose API and execute login, `/api/me`, profile patch, refresh, and logout with `curl`.
 
 Expected: protected endpoints reject absent/refresh tokens, profile changes are visible through a second login, and revoked refresh tokens fail.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Update progress and commit**
 
 ```bash
-git add backend/cmd/server/main.go backend/internal/httpapi
+git add backend docs/05-development-status.md
 git commit -m "feat: expose authentication and user profile API"
 ```
 
@@ -247,7 +224,7 @@ git commit -m "feat: expose authentication and user profile API"
 
 - [ ] **Step 1: Generate Flutter shell and write controller tests**
 
-Create the Android/Web project, then test successful login, invalid login, refresh recovery, refresh failure clearing storage, and logout. Use fake API and in-memory token store implementations.
+Create the Android/Web project, then test successful login, invalid login, refresh recovery, refresh failure clearing storage, and logout with fake API and in-memory token store implementations.
 
 - [ ] **Step 2: Run Flutter tests and verify they fail**
 
@@ -257,69 +234,60 @@ Expected: FAIL because the session controller and repository interfaces are abse
 
 - [ ] **Step 3: Implement models, token storage, API client, and repository**
 
-Use JSON serialization with explicit fields, configurable `API_BASE_URL`, platform-safe token storage, and exactly one refresh retry for a failed authenticated request. Never log authorization headers or token bodies.
+Use explicit JSON fields, configurable `API_BASE_URL`, platform-safe token storage, and exactly one refresh retry for a failed authenticated request. Never log authorization headers or token bodies.
 
 - [ ] **Step 4: Implement session controller and screens**
 
-Render a login form with phone/password validation, a loading state, a user-readable authentication error, and an account screen showing the current user and both users. Add editable nickname/role fields, save/error state, and a logout action.
+Render login validation, loading, user-readable errors, an account screen with current/both users, editable nickname/role fields, save/error state, and logout.
 
-- [ ] **Step 5: Run Flutter tests and static analysis**
+- [ ] **Step 5: Run Flutter tests, analysis, and builds**
 
-Run: `cd client && dart format --output=none --set-exit-if-changed .`; `flutter analyze`; `flutter test`
+Run: `cd client && dart format --output=none --set-exit-if-changed .`; `flutter analyze`; `flutter test`; `flutter build web --dart-define=API_BASE_URL=http://localhost:8080`; `flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080`.
 
-Expected: PASS for controller and widget tests with no analyzer errors.
+Expected: tests and analysis pass, and both builds complete.
 
-- [ ] **Step 6: Verify Web and Android builds**
-
-Run: `cd client && flutter build web --dart-define=API_BASE_URL=http://localhost:8080`; `flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080`
-
-Expected: both builds complete and the login screen opens without runtime configuration errors.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Update progress and commit**
 
 ```bash
-git add client
+git add client docs/05-development-status.md
 git commit -m "feat: add Flutter login and account shell"
 ```
 
 ### Task 6: Compose Integration, CI, And End-To-End Acceptance
 
 **Files:**
-- Create: `.github/workflows/ci.yml`
-- Modify: `deploy/docker-compose.yml`, `deploy/.env.example`, `Makefile`, `docs/README.md`
-- Create: `backend/internal/httpapi/e2e_test.go` or `scripts/smoke-auth.sh`
+- Create: `.github/workflows/ci.yml`, `scripts/smoke-auth.sh`
+- Modify: `deploy/docker-compose.yml`, `deploy/.env.example`, `Makefile`, `docs/README.md`, `docs/05-development-status.md`
 
 **Interfaces:**
 - Compose starts a healthy API only after PostgreSQL migration and fixed-user seeding succeed.
-- CI runs backend tests/vet and Flutter format/analyze/test on every push.
+- CI runs Python tests/compile checks and Flutter format/analyze/test on every push.
 - Smoke test accepts `API_BASE_URL` and credentials through environment variables and does not print secrets.
 
 - [ ] **Step 1: Write the smoke acceptance script**
 
-Exercise health, both fixed-user logins, `/api/users`, profile update, refresh rotation, and logout. Fail if a revoked refresh token succeeds or if the user count is not exactly two.
+Exercise health, both fixed-user logins, `/api/users`, profile update, refresh rotation, and logout. Fail if a revoked refresh token succeeds or if user count is not exactly two.
 
-- [ ] **Step 2: Run the script against a clean Compose database and verify failure before wiring**
+- [ ] **Step 2: Run the script against a clean Compose database**
 
 Run: `make compose-down`; `make compose-up`; `API_BASE_URL=http://localhost:8080 ./scripts/smoke-auth.sh`
 
-Expected: the script initially fails until the API container, migration command, and environment loading are wired.
+Expected: the script completes only after API health, migration, seed, and all auth flows are wired.
 
 - [ ] **Step 3: Finish Compose and CI wiring**
 
-Add API healthcheck, dependency condition on healthy PostgreSQL, persistent database volume, non-secret environment template, and CI jobs for Go and Flutter. Keep PostgreSQL ports unexposed in the Compose file.
+Add API healthcheck, dependency condition on healthy PostgreSQL, persistent database volume, non-secret environment template, and CI jobs. Keep PostgreSQL ports unexposed in Compose.
 
 - [ ] **Step 4: Run the complete verification suite**
 
 Run: `make test`; `make compose-down`; `make compose-up`; `API_BASE_URL=http://localhost:8080 ./scripts/smoke-auth.sh`; `cd client && flutter build web --dart-define=API_BASE_URL=http://localhost:8080`.
 
-Expected: all tests pass, smoke flow completes for both users, the API remains healthy after restart, and the second startup does not duplicate users or reset profile data.
+Expected: all tests pass, smoke flow completes for both users, API remains healthy after restart, and repeated startup does not duplicate users or reset profile data.
 
 - [ ] **Step 5: Update project index and commit**
 
-Document the local commands and current Phase 0/1 status in `docs/README.md`, then commit:
-
 ```bash
-git add .github deploy Makefile docs/README.md scripts
+git add .github deploy Makefile docs/README.md docs/05-development-status.md scripts
 git commit -m "ci: verify local authentication deployment flow"
 ```
 
@@ -327,5 +295,5 @@ git commit -m "ci: verify local authentication deployment flow"
 
 - Spec coverage: runtime skeleton (Task 1), schema/seed (Task 2), auth semantics (Task 3), API contract (Task 4), client flow (Task 5), and end-to-end acceptance (Task 6).
 - Placeholder scan: no unresolved placeholder or unspecified implementation step is required by this plan.
-- Type consistency: `Config`, `TokenManager`, `TokenStore`, `AuthRepository`, and `SessionController` interfaces are named once and consumed consistently by later tasks.
+- Type consistency: `Settings`, `TokenManager`, `TokenStore`, `AuthRepository`, and `SessionController` interfaces are named once and consumed consistently by later tasks.
 - Scope: no task introduces task management, events, recurring work, comments, conflict UI, analytics, or production ECS deployment.

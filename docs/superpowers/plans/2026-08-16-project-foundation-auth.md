@@ -20,6 +20,7 @@
 - Access Token defaults to 15 minutes and Refresh Token defaults to 30 days; refresh rotates and revokes the prior session.
 - API times use ISO 8601; database absolute timestamps use UTC; client display uses `Asia/Shanghai`.
 - API errors use `{code,message,details}` and never expose SQL, passwords, or tokens.
+- Docker base images use the `m.daocloud.io/docker.io` registry prefix.
 - Every task ends with its focused test command, a status-document update, and a small Git commit.
 
 ---

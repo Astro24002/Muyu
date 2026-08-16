@@ -82,6 +82,13 @@
 - 暂不使用 WebSocket、Push 或消息队列；
 - 未处理冲突通过接口和页面提示，不依赖实时推送。
 
+## 工程与镜像
+
+- 后端使用 Python 3.12；
+- Docker 基础镜像统一使用 `m.daocloud.io/docker.io` 镜像源；
+- 当前使用 `m.daocloud.io/docker.io/library/python:3.12-slim` 和 `m.daocloud.io/docker.io/library/postgres:16-alpine`；
+- 镜像源变更必须同步更新 Dockerfile、Compose、实施计划和开发状态记录。
+
 ## 设计边界
 
 不进入 MVP：

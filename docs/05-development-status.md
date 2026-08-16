@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Python 3.12 版 Task 1 已创建测试契约和项目元数据，等待工具链验证后继续。
+- 当前阶段：Python 3.12 版 Task 1 已完成，准备进入 Task 2（数据库迁移和固定用户初始化）。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -19,6 +19,7 @@
 - 将当前设计内容同步到 `Astro24002/Muyu` 的 `origin/main`。
 - 形成并提交首轮工程规格。
 - 形成首轮工程实施计划。
+- 完成 Python 3.12/FastAPI 运行时骨架、配置校验、Dockerfile、Compose 和健康检查。
 
 ## 当前实施顺序
 
@@ -30,8 +31,6 @@
 4. FastAPI HTTP API 与统一错误契约；
 5. Flutter Android/Web 登录与账户页；
 6. Compose、CI 和端到端验收。
-
-## 当前阻塞
 
 ## 设计变更
 
@@ -45,14 +44,25 @@
 - 迁移影响：无数据库迁移；后端工程骨架和依赖安装方式重新生成。
 - 验收影响：服务端测试命令改为 `pytest`，容器镜像改为 Python 3.12；API 行为验收不变。
 
-### 2026-08-16 - Task 1 Python 工具链阻塞
+## 实施进度
 
-- 类型：阻塞
-- 变更：已创建 `backend/pyproject.toml`、`backend/app/__init__.py` 和 `backend/tests/core/test_config.py`；测试尚未完成红灯验证。
-- 原因：宿主机 Python 为 3.14 且没有 pip/venv；Python 3.12 Docker 镜像拉取在 Registry 网络阶段卡住；Flutter/Dart 仍未安装。
-- 影响文件：`backend/pyproject.toml`、`backend/app/__init__.py`、`backend/tests/core/test_config.py`。
-- 验证命令与结果：`docker info` 已可返回 Docker Server 版本；`docker run ... python:3.12-slim` 未完成镜像拉取；`python3 -m venv` 返回 `ensurepip is not available`。
-- 下一步：安装 Python pip/venv 或提供可用 Python 3.12 镜像后，执行 `python -m pytest tests/core/test_config.py -q` 的红灯验证；工具链恢复前不标记 Task 1 完成。
+### 2026-08-16 - Task 1 Python 运行时与配置骨架
+
+- 类型：实施进度 / 验收
+- 变更：新增 Python 3.12 项目元数据、Pydantic Settings 配置、FastAPI 应用和 `/healthz`、Python Dockerfile、PostgreSQL Compose 和开发 Makefile。
+- 原因：为 Phase 0/1 的迁移、固定用户初始化、认证 API 和 Flutter 联调提供可复现的运行底座。
+- 影响文件：`.gitignore`、`Makefile`、`backend/`、`deploy/`。
+- 验证命令与结果：在 `m.daocloud.io/docker.io/library/python:3.12-slim` 中运行 pytest，9 项通过；`python -m compileall -q app` 通过；`docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config` 通过；镜像构建成功；容器 `GET /healthz` 返回 `{"status":"ok"}`。
+- 下一步：Task 2，使用 Alembic 创建 `users`/`sessions` 迁移，并实现两名固定用户的幂等初始化。
+
+### 2026-08-16 - Docker 镜像源调整
+
+- 类型：设计变更 / 工程配置
+- 变更：所有 Docker 基础镜像统一改用 `m.daocloud.io/docker.io` 前缀。
+- 原因：默认 Docker Registry 拉取不稳定，Daocloud 镜像源已验证可用。
+- 影响文件：`backend/Dockerfile`、`deploy/docker-compose.yml`、技术规格和实施计划。
+- 验证命令与结果：成功拉取 `m.daocloud.io/docker.io/library/python:3.12-slim`，并用该镜像运行测试和构建 API 镜像。
+- 下一步：后续新增 Docker 镜像继续使用该镜像源并在文档中记录。
 
 ## 文档变更规则
 

@@ -45,6 +45,8 @@
 
 `deploy/docker-compose.yml` 启动 PostgreSQL 和 API。API 启动时等待数据库可用，执行 Alembic 版本化迁移，然后进行固定用户幂等初始化，最后提供健康检查。
 
+Docker 基础镜像统一从 `m.daocloud.io/docker.io` 拉取；首轮使用 Python 3.12-slim 和 PostgreSQL 16-alpine 镜像。
+
 Flutter 通过 `API_BASE_URL`（Web）或构建参数（Android）指定 API 地址。开发环境不要求 HTTPS；生产环境只允许 Caddy/Nginx 暴露 API，数据库不暴露公网端口。
 
 ### 3.2 配置

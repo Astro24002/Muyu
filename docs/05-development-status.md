@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Python 3.12 版 Phase 0/1 实施计划已确认，工程代码尚未开始编写。
+- 当前阶段：Python 3.12 版 Task 1 已创建测试契约和项目元数据，等待工具链验证后继续。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -45,14 +45,14 @@
 - 迁移影响：无数据库迁移；后端工程骨架和依赖安装方式重新生成。
 - 验收影响：服务端测试命令改为 `pytest`，容器镜像改为 Python 3.12；API 行为验收不变。
 
-### 2026-08-16 - Task 1 工具链阻塞
+### 2026-08-16 - Task 1 Python 工具链阻塞
 
 - 类型：阻塞
-- 变更：已移除未提交的 Go 测试骨架；Python 工具链验证将在新计划的 Task 1 重新执行。
-- 原因：宿主机没有 Go、Flutter 或 Dart；Docker CLI 已恢复访问，但 Go 镜像拉取曾因网络卡住。
-- 影响文件：后端实现尚未提交；客户端工具链仍是 Task 5 的环境前置条件。
-- 验证命令与结果：`docker info` 已可返回 Docker Server 版本；Go 容器镜像测试未完成。
-- 下一步：先使用 Python 3.12 容器执行配置测试和 API 测试；若宿主机无 Flutter，再单独记录客户端构建阻塞。
+- 变更：已创建 `backend/pyproject.toml`、`backend/app/__init__.py` 和 `backend/tests/core/test_config.py`；测试尚未完成红灯验证。
+- 原因：宿主机 Python 为 3.14 且没有 pip/venv；Python 3.12 Docker 镜像拉取在 Registry 网络阶段卡住；Flutter/Dart 仍未安装。
+- 影响文件：`backend/pyproject.toml`、`backend/app/__init__.py`、`backend/tests/core/test_config.py`。
+- 验证命令与结果：`docker info` 已可返回 Docker Server 版本；`docker run ... python:3.12-slim` 未完成镜像拉取；`python3 -m venv` 返回 `ensurepip is not available`。
+- 下一步：安装 Python pip/venv 或提供可用 Python 3.12 镜像后，执行 `python -m pytest tests/core/test_config.py -q` 的红灯验证；工具链恢复前不标记 Task 1 完成。
 
 ## 文档变更规则
 

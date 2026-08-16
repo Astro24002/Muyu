@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muyu-api"
+version = "0.1.0"
+description = "Private two-person action management API"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic>=1.14,<2.0",
+  "bcrypt>=4.2,<5.0",
+  "fastapi>=0.115,<1.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "PyJWT>=2.9,<3.0",
+  "pydantic-settings>=2.6,<3.0",
+  "SQLAlchemy>=2.0,<3.0",
+  "uvicorn[standard]>=0.32,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27,<1.0",
+  "pytest>=8.3,<9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]

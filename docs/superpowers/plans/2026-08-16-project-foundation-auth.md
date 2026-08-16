@@ -37,31 +37,31 @@
 - `get_settings() -> Settings` caches one settings instance for process lifetime.
 - `app.main:create_app() -> FastAPI` returns an app with `/healthz`; it must not report healthy before startup initialization completes.
 
-- [ ] **Step 1: Write configuration tests first**
+- [x] **Step 1: Write configuration tests first**
 
 Use `monkeypatch` to assert complete environment parsing, defaults (`0.0.0.0`, `8080`, 15 minutes, 30 days), missing required values, malformed durations, and secrets shorter than 32 bytes.
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run: `cd backend && python -m pytest tests/core/test_config.py -q`
 
 Expected: FAIL because the package and `Settings` model do not exist.
 
-- [ ] **Step 3: Implement settings and minimal FastAPI app**
+- [x] **Step 3: Implement settings and minimal FastAPI app**
 
 Use `pydantic-settings` with explicit aliases for environment names. Parse TTLs as `timedelta`, reject empty required secrets, and expose a health flag controlled by application lifespan.
 
-- [ ] **Step 4: Add package metadata and runtime files**
+- [x] **Step 4: Add package metadata and runtime files**
 
 Declare Python `>=3.12`, runtime dependencies, and test dependencies in `pyproject.toml`. Add Uvicorn entry point, Python 3.12-slim Dockerfile, Compose PostgreSQL service with healthcheck, API service environment wiring, `.env.example`, and Make targets `test`, `backend-test`, `compose-up`, and `compose-down`.
 
-- [ ] **Step 5: Run tests, lint-level checks, and Compose config**
+- [x] **Step 5: Run tests, lint-level checks, and Compose config**
 
 Run: `cd backend && python -m pytest`; `python -m compileall app`; `docker compose -f ../deploy/docker-compose.yml config`
 
 Expected: tests pass, bytecode compilation succeeds, and Compose renders without committed secret values.
 
-- [ ] **Step 6: Update progress and commit**
+- [x] **Step 6: Update progress and commit**
 
 Record the test commands and result in `docs/05-development-status.md`, then commit:
 
@@ -84,25 +84,25 @@ git commit -m "build: add Python runtime and local PostgreSQL skeleton"
 - `UserRepository.find_by_phone`, `find_by_id`, `list_users`, and `update_profile` use SQLAlchemy sessions and parameterized ORM expressions.
 - `seed_fixed_users(session, auth_password)` creates exactly the two users with `INSERT ... ON CONFLICT` semantics and never resets existing mutable fields.
 
-- [ ] **Step 1: Write repository and seed tests first**
+- [x] **Step 1: Write repository and seed tests first**
 
 Use a temporary PostgreSQL database in Compose for integration tests. Cover lookup by phone, stable two-user listing, profile update whitelist, empty-database seeding, repeated seeding, and preservation of changed nickname/role/password hash on the second run.
 
-- [ ] **Step 2: Run focused tests and verify they fail**
+- [x] **Step 2: Run focused tests and verify they fail**
 
 Run: `cd backend && python -m pytest tests/db tests/user -q`
 
 Expected: FAIL because the models, migration, and repository do not exist.
 
-- [ ] **Step 3: Add SQLAlchemy metadata and Alembic revision**
+- [x] **Step 3: Add SQLAlchemy metadata and Alembic revision**
 
 Create `users` and `sessions` with UUID keys, unique phone, UTC timestamps, `revoked_at`, and a foreign key from sessions to users. Configure Alembic from `DATABASE_URL`, with transactional upgrade and a clear failure path.
 
-- [ ] **Step 4: Implement repository and fixed-user seed service**
+- [x] **Step 4: Implement repository and fixed-user seed service**
 
 Use bcrypt before persistence. Seed phones `15028180169` and `15068128726`, deterministic avatar keys, and explicit defaults. Query first and insert only missing rows; never overwrite an existing password, nickname, role, or avatar.
 
-- [ ] **Step 5: Wire lifespan startup order**
+- [x] **Step 5: Wire lifespan startup order**
 
 Open the SQLAlchemy engine, run Alembic, seed users, then set the health flag. Dispose the engine during shutdown; any migration or seed exception prevents healthy status.
 

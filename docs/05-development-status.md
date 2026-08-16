@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Python 3.12 版 Task 1 已完成，准备进入 Task 2（数据库迁移和固定用户初始化）。
+- 当前阶段：Task 2（数据库迁移和固定用户初始化）代码已完成，等待 PostgreSQL 容器集成验收；当前受 DaoCloud PostgreSQL 镜像源 `403 DENIED` 阻塞。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -20,6 +20,7 @@
 - 形成并提交首轮工程规格。
 - 形成首轮工程实施计划。
 - 完成 Python 3.12/FastAPI 运行时骨架、配置校验、Dockerfile、Compose 和健康检查。
+- 完成 SQLAlchemy 模型、Alembic `users`/`sessions` 迁移、固定用户幂等初始化、用户仓库和启动生命周期接线。
 
 ## 当前实施顺序
 
@@ -63,6 +64,15 @@
 - 影响文件：`backend/Dockerfile`、`deploy/docker-compose.yml`、技术规格和实施计划。
 - 验证命令与结果：成功拉取 `m.daocloud.io/docker.io/library/python:3.12-slim`，并用该镜像运行测试和构建 API 镜像。
 - 下一步：后续新增 Docker 镜像继续使用该镜像源并在文档中记录。
+
+### 2026-08-16 - Task 2 数据库与固定用户初始化实现
+
+- 类型：实施进度 / 部分验收
+- 变更：新增 SQLAlchemy 2.0 数据模型、Alembic 首个迁移、用户仓库、固定用户初始化服务，并将迁移和初始化接入 FastAPI lifespan；新增启动顺序测试。
+- 原因：完成首个持久化垂直切片，保证 API 只有在迁移和两名固定用户初始化成功后才报告健康。
+- 影响文件：`backend/alembic.ini`、`backend/alembic/`、`backend/app/db/`、`backend/app/user/`、`backend/app/main.py`、`backend/tests/`。
+- 验证命令与结果：容器内 `python -m compileall -q app alembic` 通过；使用 `sqlite:////tmp/muyu-test.db` 运行 `tests/core tests/test_main.py tests/test_main_startup.py tests/db tests/user`，14 项通过；启动生命周期顺序测试通过。PostgreSQL 集成测试尚未完成：`m.daocloud.io/docker.io/library/postgres:16-alpine` manifest 返回 `403 DENIED`，无法启动 Compose 数据库。
+- 下一步：恢复可用的 DaoCloud PostgreSQL 镜像访问后，运行 Compose 集成测试，确认迁移、重复初始化和 `users` 数量为 2，再关闭 Task 2 验收并进入 Task 3。
 
 ## 文档变更规则
 

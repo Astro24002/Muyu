@@ -61,6 +61,16 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshForApi() async {
+    try {
+      await _saveSession(await _repository.refresh());
+    } on AuthFailure {
+      await _clearSession();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<bool> updateProfile({
     required String nickname,
     required String role,

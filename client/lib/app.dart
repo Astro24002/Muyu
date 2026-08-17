@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 
 import 'auth/session_controller.dart';
-import 'screens/account_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/main_shell.dart';
+import 'task/task_repository.dart';
 
 class MuyuApp extends StatefulWidget {
   const MuyuApp({
     super.key,
     required this.controller,
+    required this.taskRepository,
     this.initializeSession = true,
   });
 
   final SessionController controller;
+  final TaskRepository taskRepository;
   final bool initializeSession;
 
   @override
@@ -54,8 +57,9 @@ class _MuyuAppState extends State<MuyuApp> {
         animation: widget.controller,
         builder: (context, _) => switch (widget.controller.status) {
           SessionStatus.loading => const _LoadingScreen(),
-          SessionStatus.signedIn => AccountScreen(
-            controller: widget.controller,
+          SessionStatus.signedIn => MainShell(
+            sessionController: widget.controller,
+            taskRepository: widget.taskRepository,
           ),
           SessionStatus.signedOut ||
           SessionStatus.failure => LoginScreen(controller: widget.controller),

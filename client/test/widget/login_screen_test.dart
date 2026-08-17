@@ -6,6 +6,8 @@ import 'package:muyu_client/auth/session_controller.dart';
 import 'package:muyu_client/auth/token_store.dart';
 import 'package:muyu_client/models/user.dart';
 
+import '../support/fake_task_repository.dart';
+
 class MemoryTokenStore implements TokenStore {
   @override
   Future<void> clear() async {}
@@ -74,7 +76,11 @@ void main() {
       MemoryTokenStore(),
     );
     await tester.pumpWidget(
-      MuyuApp(controller: controller, initializeSession: false),
+      MuyuApp(
+        controller: controller,
+        taskRepository: FakeTaskRepository(),
+        initializeSession: false,
+      ),
     );
 
     await tester.tap(find.widgetWithText(FilledButton, '登录'));
@@ -92,7 +98,11 @@ void main() {
       MemoryTokenStore(),
     );
     await tester.pumpWidget(
-      MuyuApp(controller: controller, initializeSession: false),
+      MuyuApp(
+        controller: controller,
+        taskRepository: FakeTaskRepository(),
+        initializeSession: false,
+      ),
     );
 
     await tester.enterText(find.byKey(const Key('phone-field')), '15028180169');
@@ -104,13 +114,19 @@ void main() {
     expect(find.text('登录'), findsWidgets);
   });
 
-  testWidgets('successful login opens the account screen', (tester) async {
+  testWidgets('successful login opens tasks and keeps account navigation', (
+    tester,
+  ) async {
     final controller = SessionController(
       FakeAuthRepository(),
       MemoryTokenStore(),
     );
     await tester.pumpWidget(
-      MuyuApp(controller: controller, initializeSession: false),
+      MuyuApp(
+        controller: controller,
+        taskRepository: FakeTaskRepository(),
+        initializeSession: false,
+      ),
     );
 
     await tester.enterText(find.byKey(const Key('phone-field')), '15028180169');
@@ -118,7 +134,9 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '登录'));
     await tester.pumpAndSettle();
 
-    expect(find.text('账户'), findsOneWidget);
+    expect(find.text('暂无任务'), findsOneWidget);
+    await tester.tap(find.text('账户'));
+    await tester.pumpAndSettle();
     expect(find.text('用户一'), findsWidgets);
     expect(find.byTooltip('退出登录'), findsOneWidget);
   });
@@ -131,11 +149,18 @@ void main() {
       MemoryTokenStore(),
     );
     await tester.pumpWidget(
-      MuyuApp(controller: controller, initializeSession: false),
+      MuyuApp(
+        controller: controller,
+        taskRepository: FakeTaskRepository(),
+        initializeSession: false,
+      ),
     );
     await tester.enterText(find.byKey(const Key('phone-field')), '15028180169');
     await tester.enterText(find.byKey(const Key('password-field')), 'password');
     await tester.tap(find.widgetWithText(FilledButton, '登录'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('账户'));
     await tester.pumpAndSettle();
 
     expect(find.text('成员加载失败'), findsOneWidget);

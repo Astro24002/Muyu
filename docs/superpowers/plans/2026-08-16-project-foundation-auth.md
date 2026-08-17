@@ -265,27 +265,27 @@ git commit -m "feat: add Flutter login and account shell"
 - CI runs Python tests/compile checks and Flutter format/analyze/test on every push.
 - Smoke test accepts `API_BASE_URL` and credentials through environment variables and does not print secrets.
 
-- [ ] **Step 1: Write the smoke acceptance script**
+- [x] **Step 1: Write the smoke acceptance script**
 
 Exercise health, both fixed-user logins, `/api/users`, profile update, refresh rotation, and logout. Fail if a revoked refresh token succeeds or if user count is not exactly two.
 
-- [ ] **Step 2: Run the script against a clean Compose database**
+- [x] **Step 2: Run the script against a clean Compose database**
 
 Run: `make compose-down`; `make compose-up`; `API_BASE_URL=http://localhost:8080 ./scripts/smoke-auth.sh`
 
 Expected: the script completes only after API health, migration, seed, and all auth flows are wired.
 
-- [ ] **Step 3: Finish Compose and CI wiring**
+- [x] **Step 3: Finish Compose and CI wiring**
 
 Add API healthcheck, dependency condition on healthy PostgreSQL, persistent database volume, non-secret environment template, and CI jobs. Keep PostgreSQL ports unexposed in Compose.
 
-- [ ] **Step 4: Run the complete verification suite**
+- [x] **Step 4: Run the complete verification suite**
 
 Run: `make test`; `make compose-down`; `make compose-up`; `API_BASE_URL=http://localhost:8080 ./scripts/smoke-auth.sh`; `cd client && flutter build web --dart-define=API_BASE_URL=http://localhost:8080`.
 
 Expected: all tests pass, smoke flow completes for both users, API remains healthy after restart, and repeated startup does not duplicate users or reset profile data.
 
-- [ ] **Step 5: Update project index and commit**
+- [x] **Step 5: Update project index and commit**
 
 ```bash
 git add .github deploy Makefile docs/README.md docs/05-development-status.md scripts

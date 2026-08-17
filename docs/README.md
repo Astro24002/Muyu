@@ -41,4 +41,15 @@
 
 ## 当前状态
 
-当前阶段是 Phase 0/1 实施计划阶段，尚未开始工程代码开发。密码等部署敏感信息不写入文档和代码，使用部署环境 Secret 注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+当前已完成首轮 Python/FastAPI 后端、PostgreSQL 迁移、认证 API、Flutter Android/Web 客户端，以及 Compose、CI 和端到端验收。密码等部署敏感信息不写入文档和代码，使用部署环境 Secret 注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+
+## 本地验收
+
+```bash
+make test
+make compose-clean
+API_PORT=8090 make compose-up
+API_BASE_URL=http://localhost:8090 AUTH_PASSWORD=change-this-shared-password ./scripts/smoke-auth.sh
+```
+
+默认 Compose 不暴露 PostgreSQL 端口，只暴露可配置的 API 端口。`deploy/.env.example` 仅用于本地验收模板；正式部署必须替换密码和 JWT Secret。

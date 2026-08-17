@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Task 5（Flutter Android/Web 登录与账户页）已完成；下一步进入 Task 6（Compose、CI 和端到端验收）。
+- 当前阶段：首轮工程基础与认证实施计划（Task 1-6）已完成；等待进入路线图后续任务/事件功能。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -119,6 +119,24 @@
 - 兼容性决策：`flutter_secure_storage 11.0.0` 要求 Android compile SDK 37，而 Flutter 3.47 工程默认 compile SDK 为 36；锁定 `flutter_secure_storage 10.0.0`，保持 Android SDK 36 基线并避免依赖平台命名兼容问题。
 - 验证命令与结果：客户端 `dart format --output=none --set-exit-if-changed .`、`flutter analyze` 和 `flutter test` 通过（12 项）；`flutter build web --dart-define=API_BASE_URL=http://localhost:8090` 成功；`flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8090` 成功；后端完整测试 32 项通过；CORS 预检、API 健康检查和真实登录冒烟通过。Linux desktop feature 保持关闭。
 - 下一步：Task 6，补充 Compose/API/Flutter CI 和完整认证端到端脚本。
+
+### 2026-08-17 - Task 6 Compose、CI 和端到端验收启动
+
+- 类型：实施进度
+- 变更：开始补充 Compose API 健康检查、可配置宿主端口、认证 smoke 脚本、Makefile 统一入口和 GitHub Actions。
+- 原因：将前五项垂直切片收敛为可重复启动、测试和验收的工程流程。
+- 影响文件：`.github/workflows/ci.yml`、`scripts/smoke-auth.sh`、`deploy/`、`Makefile`、`docs/README.md`。
+- 验证命令与结果：随后完成干净 PostgreSQL Compose 卷、认证 smoke、完整测试和 API 重启持久性验收，详见下方 Task 6 完成记录。
+- 下一步：先完成 smoke 脚本和 Compose/CI wiring，再用干净 PostgreSQL 卷运行完整验收。
+
+### 2026-08-17 - Task 6 Compose、CI 和端到端验收
+
+- 类型：验收 / 实施完成
+- 变更：新增 API 容器健康检查和可配置宿主端口；新增不输出 Token/密码的双用户认证 smoke 脚本；Makefile 增加后端、客户端、Compose、清理和 smoke 入口；GitHub Actions 增加 PostgreSQL 后端测试与 Flutter format/analyze/test；补充跨 SQLite/PostgreSQL 的 UTC datetime 类型。
+- 原因：把首轮垂直切片收敛为可重复执行的本地和 CI 验收流程，并修复 SQLite 测试环境中的 naive/aware datetime 差异。
+- 影响文件：`.github/workflows/ci.yml`、`scripts/smoke-auth.sh`、`deploy/docker-compose.yml`、`deploy/.env.example`、`Makefile`、`backend/app/db/types.py`、`backend/app/user/models.py`、`docs/README.md`。
+- 验证命令与结果：`make backend-test` 通过（32 passed，SQLite）；`make client-test` 通过（12 tests，format/analyze clean）；隔离全新 PostgreSQL Compose 项目 `task6` healthcheck 通过；`AUTH_PASSWORD=change-this-shared-password API_BASE_URL=http://localhost:8091 ./scripts/smoke-auth.sh` 通过；PostgreSQL 网络内完整后端测试 32 passed；API 重启后仍 healthy，数据库用户数保持 2 且资料未被重置；Compose config、Shell syntax 和 CI YAML 检查通过。
+- 下一步：首轮基础与认证验收完成，进入路线图后续任务/事件功能开发。
 
 ## 文档变更规则
 

@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Task 2（数据库迁移和固定用户初始化）已完成验收；下一步进入 Task 3（密码、JWT 和 Refresh Session）。
+- 当前阶段：Task 3（密码、JWT 和 Refresh Session）已完成；下一步进入 Task 4（FastAPI 路由、鉴权依赖和错误契约）。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -82,6 +82,15 @@
 - 影响文件：无运行时代码变更。
 - 验证命令与结果：`docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build api` 成功；PostgreSQL 健康检查通过；Compose 网络内的 `python -m pytest -q` 测试容器以退出码 0 完成；API 两次启动后内部 `GET /healthz` 均返回 `{"status":"ok"}`；`SELECT count(*) FROM users` 返回 `2`。宿主机 8080 已被其他项目占用，因此本次 API 使用 `docker compose run --no-deps` 在内部网络验收，未修改默认 Compose 端口配置。
 - 下一步：进入 Task 3，实现密码、JWT 和 Refresh Session。
+
+### 2026-08-17 - Task 3 密码、JWT 和 Refresh Session
+
+- 类型：实施进度 / 验收
+- 变更：新增 bcrypt 密码散列校验、严格区分 Access/Refresh 的 JWT 管理器、Refresh Token SHA-256 哈希会话仓储，以及登录、刷新轮换和幂等登出服务；认证测试目录增加包标记，避免同名测试模块冲突。
+- 原因：完成认证服务垂直切片，为后续 FastAPI 路由提供稳定的领域接口。
+- 影响文件：`backend/app/auth/`、`backend/tests/auth/`、`backend/tests/user/__init__.py`。
+- 验证命令与结果：认证测试 `12 passed`；PostgreSQL Compose 网络内完整后端测试 `26 passed`；`python -m compileall -q app alembic` 通过。测试覆盖密码正确/错误校验、JWT 签名/类型/过期校验、登录、Refresh 轮换撤销、无效凭据、过期令牌和幂等登出。
+- 下一步：进入 Task 4，实现 FastAPI 认证与用户资料路由、鉴权依赖和统一错误响应。
 
 ## 文档变更规则
 

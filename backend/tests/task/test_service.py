@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.activity.models import ActivityEvent
 from app.task.models import TaskHandlerHistory, TaskStatusHistory, TaskUserPosition
+from app.task.repository import TaskRepository
 from app.task.service import TaskCreate, TaskNotFoundError, TaskRuleError, TaskService
 from app.user.repository import UserRepository
 from app.user.service import seed_fixed_users
@@ -130,3 +132,13 @@ def test_invalid_assignee_and_transition_are_rejected(db_engine) -> None:
         with pytest.raises(TaskRuleError) as invalid_transition:
             service.complete(task.id, user_a.id)
         assert invalid_transition.value.code == "INVALID_TASK_TRANSITION"
+
+
+def test_delay_repository_returns_empty_history_and_zero_summary(db_engine) -> None:
+    with Session(db_engine) as session:
+        repository = TaskRepository(session)
+        task_id = uuid4()
+
+        assert repository.list_delays(task_id) == []
+        assert repository.delay_count(task_id) == 0
+        assert repository.total_delay_minutes(task_id) == 0

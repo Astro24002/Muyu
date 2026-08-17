@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine
 from app.db.migrations import run_migrations
 from app.activity.models import ActivityEvent
 from app.task.models import (
+    DelayRecord,
     Task,
     TaskAssignee,
     TaskHandlerHistory,
@@ -34,13 +35,15 @@ def db_engine(database_url: str) -> Iterator[Engine]:
             connection.execute(
                 text(
                     "TRUNCATE TABLE activity_events, task_handler_history, task_status_history, "
-                    "task_user_positions, task_assignees, tasks, sessions, users RESTART IDENTITY CASCADE"
+                    "delay_records, task_user_positions, task_assignees, tasks, sessions, users "
+                    "RESTART IDENTITY CASCADE"
                 )
             )
         else:
             connection.execute(delete(ActivityEvent))
             connection.execute(delete(TaskHandlerHistory))
             connection.execute(delete(TaskStatusHistory))
+            connection.execute(delete(DelayRecord))
             connection.execute(delete(TaskUserPosition))
             connection.execute(delete(TaskAssignee))
             connection.execute(delete(Task))

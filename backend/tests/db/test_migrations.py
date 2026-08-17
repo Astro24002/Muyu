@@ -79,3 +79,33 @@ def test_migrations_create_task_core_tables(database_url: str) -> None:
         "created_at",
     }
     engine.dispose()
+
+
+def test_migrations_create_delay_records(database_url: str) -> None:
+    run_migrations(database_url)
+    from sqlalchemy import create_engine
+
+    engine = create_engine(database_url)
+    inspector = inspect(engine)
+
+    assert "delay_records" in inspector.get_table_names()
+    assert {column["name"] for column in inspector.get_columns("delay_records")} == {
+        "id",
+        "task_id",
+        "user_id",
+        "original_due_at",
+        "new_due_at",
+        "delayed_at",
+        "delay_duration_minutes",
+        "reason",
+        "note",
+        "created_at",
+    }
+    assert {index["name"] for index in inspector.get_indexes("delay_records")} >= {
+        "ix_delay_records_task_id"
+    }
+    assert {
+        tuple(foreign_key["constrained_columns"])
+        for foreign_key in inspector.get_foreign_keys("delay_records")
+    } >= {("task_id",), ("user_id",)}
+    engine.dispose()

@@ -53,6 +53,9 @@ class Task(Base):
     assignees: Mapped[list["TaskAssignee"]] = relationship(
         back_populates="task", cascade="all, delete-orphan", order_by="TaskAssignee.user_id"
     )
+    delays: Mapped[list["DelayRecord"]] = relationship(
+        back_populates="task", order_by="DelayRecord.delayed_at"
+    )
 
 
 class TaskAssignee(Base):
@@ -113,3 +116,24 @@ class TaskHandlerHistory(Base):
         PostgreSQLUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     changed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class DelayRecord(Base):
+    __tablename__ = "delay_records"
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    task_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    original_due_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    new_due_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    delayed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    delay_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    task: Mapped[Task] = relationship(back_populates="delays")

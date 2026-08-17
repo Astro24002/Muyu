@@ -37,11 +37,11 @@
 - Produces `DelayRecord` with all fields from the Phase 3 spec.
 - Produces `TaskRepository.list_delays(task_id)`, `delay_count(task_id)`, and `total_delay_minutes(task_id)`.
 
-- [ ] **Step 1: Write failing migration/model tests** for the `delay_records` columns, foreign keys, index, UTC timestamps, and test cleanup order.
-- [ ] **Step 2: Run focused migration tests and confirm failure is caused by the missing table/model.**
-- [ ] **Step 3: Add migration `0003_delay_blocking`, the ORM model, relationship, and repository read/aggregate methods.**
-- [ ] **Step 4: Run focused and complete backend tests.**
-- [ ] **Step 5: Commit with `feat: add task delay records`.**
+- [x] **Step 1: Write failing migration/model tests** for the `delay_records` columns, foreign keys, index, UTC timestamps, and test cleanup order.
+- [x] **Step 2: Run focused migration tests and confirm failure is caused by the missing table/model.**
+- [x] **Step 3: Add migration `0003_delay_blocking`, the ORM model, relationship, and repository read/aggregate methods.**
+- [x] **Step 4: Run focused and complete backend tests.**
+- [x] **Step 5: Commit with `feat: add task delay records`.**
 
 ### Task 2: Delay And Blocking Domain Rules
 

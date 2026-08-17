@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.task.models import Task, TaskAssignee, TaskUserPosition
+from app.task.models import DelayRecord, Task, TaskAssignee, TaskUserPosition
 
 
 class TaskRepository:
@@ -71,3 +71,24 @@ class TaskRepository:
                 select(TaskAssignee.user_id).where(TaskAssignee.task_id == task_id)
             )
         )
+
+    def list_delays(self, task_id: UUID) -> list[DelayRecord]:
+        return list(
+            self.session.scalars(
+                select(DelayRecord)
+                .where(DelayRecord.task_id == task_id)
+                .order_by(DelayRecord.delayed_at, DelayRecord.id)
+            )
+        )
+
+    def delay_count(self, task_id: UUID) -> int:
+        return self.session.scalar(
+            select(func.count(DelayRecord.id)).where(DelayRecord.task_id == task_id)
+        ) or 0
+
+    def total_delay_minutes(self, task_id: UUID) -> int:
+        return self.session.scalar(
+            select(func.sum(DelayRecord.delay_duration_minutes)).where(
+                DelayRecord.task_id == task_id
+            )
+        ) or 0

@@ -2,11 +2,11 @@ from app.auth.routes import UserResponse
 from tests.httpapi.test_auth_routes import make_client
 
 
-def auth_client(db_engine):
+def auth_client(db_engine, phone="15028180169"):
     client = make_client(db_engine)
     login = client.post(
         "/api/auth/login",
-        json={"phone": "15028180169", "password": "shared-password"},
+        json={"phone": phone, "password": "shared-password"},
     )
     return client, {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -131,3 +131,118 @@ def test_task_order_and_authentication_contract(db_engine) -> None:
     unauthorized = client.get("/api/tasks")
     assert unauthorized.status_code == 401
     assert unauthorized.json()["code"] == "UNAUTHORIZED"
+
+
+def test_delay_http_preserves_three_records_and_returns_aggregates(db_engine) -> None:
+    client, headers = auth_client(db_engine)
+    task = client.post("/api/tasks", headers=headers, json=task_payload(client, headers)).json()
+    assert task["delay_count"] == 0
+    assert task["total_delay_minutes"] == 0
+    assert task["blocked_reason"] is None
+
+    due_dates = [
+        "2026-09-04T09:00:00+08:00",
+        "2026-09-06T09:00:00+08:00",
+        "2026-09-09T09:00:00+08:00",
+    ]
+    for index, due_at in enumerate(due_dates, start=1):
+        response = client.post(
+            f"/api/tasks/{task['id']}/delay",
+            headers=headers,
+            json={
+                "new_due_at": due_at,
+                "reason": "OTHER" if index == 3 else "NO_TIME",
+                "note": f"第 {index} 次延期",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["delay_count"] == index
+
+    delayed = response.json()
+    assert delayed["total_delay_minutes"] == 8640
+    records = client.get(f"/api/tasks/{task['id']}/delays", headers=headers)
+    assert records.status_code == 200
+    assert [record["delay_duration_minutes"] for record in records.json()] == [1440, 2880, 4320]
+    assert [record["reason"] for record in records.json()] == ["NO_TIME", "NO_TIME", "OTHER"]
+
+    bypass = client.patch(
+        f"/api/tasks/{task['id']}",
+        headers=headers,
+        json={"due_at": "2026-09-10T09:00:00+08:00"},
+    )
+    assert bypass.status_code == 422
+    assert bypass.json()["code"] == "USE_DELAY_ACTION"
+
+
+def test_block_http_is_visible_to_second_user_and_unblock_restores_handler(db_engine) -> None:
+    client, headers_a = auth_client(db_engine)
+    task = client.post("/api/tasks", headers=headers_a, json=task_payload(client, headers_a)).json()
+    second_user_id = next(
+        user_id for user_id in task["assignee_ids"] if user_id != task["current_handler_id"]
+    )
+
+    blocked = client.post(
+        f"/api/tasks/{task['id']}/block",
+        headers=headers_a,
+        json={
+            "blocked_reason": "等待对方确认时间",
+            "resume_handler_id": second_user_id,
+            "waiting_for_user_id": second_user_id,
+        },
+    )
+    assert blocked.status_code == 200
+    assert blocked.json()["status"] == "WAITING"
+    assert blocked.json()["blocked_reason"] == "等待对方确认时间"
+    assert blocked.json()["resume_handler_id"] == second_user_id
+
+    _, headers_b = auth_client(db_engine, "15068128726")
+    observed = client.get(f"/api/tasks/{task['id']}", headers=headers_b)
+    assert observed.status_code == 200
+    assert observed.json()["status"] == "WAITING"
+    assert observed.json()["waiting_for_user_id"] == second_user_id
+
+    unblocked = client.post(f"/api/tasks/{task['id']}/unblock", headers=headers_b)
+    assert unblocked.status_code == 200
+    assert unblocked.json()["status"] == "IN_PROGRESS"
+    assert unblocked.json()["current_handler_id"] == second_user_id
+    assert unblocked.json()["blocked_reason"] is None
+    assert unblocked.json()["resume_handler_id"] is None
+
+    events = client.get(f"/api/tasks/{task['id']}/events", headers=headers_a)
+    assert [event["action"] for event in events.json()] == [
+        "TASK_CREATED",
+        "TASK_BLOCKED",
+        "TASK_UNBLOCKED",
+    ]
+
+
+def test_delay_and_block_http_return_stable_validation_and_auth_errors(db_engine) -> None:
+    client, headers = auth_client(db_engine)
+    task = client.post("/api/tasks", headers=headers, json=task_payload(client, headers)).json()
+
+    invalid_reason = client.post(
+        f"/api/tasks/{task['id']}/delay",
+        headers=headers,
+        json={"new_due_at": "2026-09-04T09:00:00+08:00", "reason": "UNKNOWN"},
+    )
+    assert invalid_reason.status_code == 422
+    assert invalid_reason.json()["code"] == "INVALID_DELAY_REASON"
+
+    missing_note = client.post(
+        f"/api/tasks/{task['id']}/delay",
+        headers=headers,
+        json={"new_due_at": "2026-09-04T09:00:00+08:00", "reason": "OTHER"},
+    )
+    assert missing_note.status_code == 422
+    assert missing_note.json()["code"] == "DELAY_NOTE_REQUIRED"
+
+    invalid_block = client.post(
+        f"/api/tasks/{task['id']}/block",
+        headers=headers,
+        json={"blocked_reason": "  ", "resume_handler_id": task["current_handler_id"]},
+    )
+    assert invalid_block.status_code == 422
+    assert invalid_block.json()["code"] == "INVALID_BLOCK_REASON"
+
+    assert client.post(f"/api/tasks/{task['id']}/unblock").status_code == 401
+    assert client.get(f"/api/tasks/{task['id']}/delays").status_code == 401

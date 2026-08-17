@@ -11,7 +11,7 @@ from app.activity.models import ActivityEvent
 from app.httpapi.dependencies import get_db, require_access_token
 from app.httpapi.errors import ApiError
 from app.task.models import Task
-from app.task.service import TaskCreate, TaskNotFoundError, TaskPatch, TaskRuleError, TaskService, UNSET
+from app.task.service import TaskCreate, TaskNotFoundError, TaskPatch, TaskRuleError, TaskService
 
 
 class TaskCreateRequest(BaseModel):
@@ -44,6 +44,22 @@ class TransferRequest(BaseModel):
     new_handler_id: UUID
 
 
+class DelayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_due_at: datetime
+    reason: str = Field(min_length=1, max_length=50)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class BlockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocked_reason: str = Field(max_length=2000)
+    resume_handler_id: UUID
+    waiting_for_user_id: UUID | None = None
+
+
 class TaskOrderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -61,6 +77,10 @@ class TaskResponse(BaseModel):
     description: str
     status: str
     current_handler_id: UUID
+    blocked_reason: str | None
+    blocked_since: datetime | None
+    resume_handler_id: UUID | None
+    waiting_for_user_id: UUID | None
     planned_start_at: datetime | None
     due_at: datetime | None
     estimated_minutes: int | None
@@ -71,6 +91,21 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     assignee_ids: list[UUID]
+    delay_count: int
+    total_delay_minutes: int
+
+
+class DelayRecordResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    user_id: UUID
+    original_due_at: datetime
+    new_due_at: datetime
+    delayed_at: datetime
+    delay_duration_minutes: int
+    reason: str
+    note: str | None
+    created_at: datetime
 
 
 class ActivityEventResponse(BaseModel):
@@ -96,7 +131,11 @@ def list_tasks(
     user_id: UUID = Depends(require_access_token),
     session: Session = Depends(get_db),
 ) -> list[TaskResponse]:
-    return [_task_response(task) for task in TaskService(session).list_tasks(user_id, parent_task_id=parent_task_id)]
+    service = TaskService(session)
+    return [
+        _task_response(task, service)
+        for task in service.list_tasks(user_id, parent_task_id=parent_task_id)
+    ]
 
 
 @router.post("/api/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -106,8 +145,9 @@ def create_task(
     user_id: UUID = Depends(require_access_token),
     session: Session = Depends(get_db),
 ) -> TaskResponse:
+    service = TaskService(session)
     try:
-        task = TaskService(session).create(
+        task = service.create(
             user_id,
             TaskCreate(
                 title=payload.title,
@@ -123,13 +163,14 @@ def create_task(
         )
     except (TaskNotFoundError, TaskRuleError) as error:
         _raise_task_error(error)
-    return _task_response(task)
+    return _task_response(task, service)
 
 
 @router.get("/api/tasks/{task_id}", response_model=TaskResponse)
 def get_task(task_id: UUID, session: Session = Depends(get_db), _user_id: UUID = Depends(require_access_token)) -> TaskResponse:
+    service = TaskService(session)
     try:
-        return _task_response(TaskService(session).get(task_id))
+        return _task_response(service.get(task_id), service)
     except (TaskNotFoundError, TaskRuleError) as error:
         _raise_task_error(error)
 
@@ -148,13 +189,14 @@ def update_task(
     }
     if "assignee_ids" in fields and fields["assignee_ids"] is not None:
         fields["assignee_ids"] = tuple(fields["assignee_ids"])
+    service = TaskService(session)
     try:
-        task = TaskService(session).update(
+        task = service.update(
             task_id, user_id, TaskPatch(**fields), request_id=request.state.request_id
         )
     except (TaskNotFoundError, TaskRuleError) as error:
         _raise_task_error(error)
-    return _task_response(task)
+    return _task_response(task, service)
 
 
 @router.delete("/api/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -199,13 +241,85 @@ def transfer_task(
     user_id: UUID = Depends(require_access_token),
     session: Session = Depends(get_db),
 ) -> TaskResponse:
+    service = TaskService(session)
     try:
-        task = TaskService(session).transfer(
+        task = service.transfer(
             task_id, user_id, payload.new_handler_id, request_id=request.state.request_id
         )
     except (TaskNotFoundError, TaskRuleError) as error:
         _raise_task_error(error)
-    return _task_response(task)
+    return _task_response(task, service)
+
+
+@router.post("/api/tasks/{task_id}/delay", response_model=TaskResponse)
+def delay_task(
+    task_id: UUID,
+    payload: DelayRequest,
+    request: Request,
+    user_id: UUID = Depends(require_access_token),
+    session: Session = Depends(get_db),
+) -> TaskResponse:
+    service = TaskService(session)
+    try:
+        task = service.delay(
+            task_id,
+            user_id,
+            new_due_at=payload.new_due_at,
+            reason=payload.reason,
+            note=payload.note,
+            request_id=request.state.request_id,
+        )
+    except (TaskNotFoundError, TaskRuleError) as error:
+        _raise_task_error(error)
+    return _task_response(task, service)
+
+
+@router.get("/api/tasks/{task_id}/delays", response_model=list[DelayRecordResponse])
+def list_task_delays(
+    task_id: UUID,
+    session: Session = Depends(get_db),
+    _user_id: UUID = Depends(require_access_token),
+) -> list[DelayRecordResponse]:
+    try:
+        return [
+            DelayRecordResponse.model_validate(record, from_attributes=True)
+            for record in TaskService(session).list_delays(task_id)
+        ]
+    except (TaskNotFoundError, TaskRuleError) as error:
+        _raise_task_error(error)
+
+
+@router.post("/api/tasks/{task_id}/block", response_model=TaskResponse)
+def block_task(
+    task_id: UUID,
+    payload: BlockRequest,
+    request: Request,
+    user_id: UUID = Depends(require_access_token),
+    session: Session = Depends(get_db),
+) -> TaskResponse:
+    service = TaskService(session)
+    try:
+        task = service.block(
+            task_id,
+            user_id,
+            blocked_reason=payload.blocked_reason,
+            resume_handler_id=payload.resume_handler_id,
+            waiting_for_user_id=payload.waiting_for_user_id,
+            request_id=request.state.request_id,
+        )
+    except (TaskNotFoundError, TaskRuleError) as error:
+        _raise_task_error(error)
+    return _task_response(task, service)
+
+
+@router.post("/api/tasks/{task_id}/unblock", response_model=TaskResponse)
+def unblock_task(
+    task_id: UUID,
+    request: Request,
+    user_id: UUID = Depends(require_access_token),
+    session: Session = Depends(get_db),
+) -> TaskResponse:
+    return _status_action(TaskService(session).unblock, task_id, user_id, request, session)
 
 
 @router.get("/api/tasks/{task_id}/events", response_model=list[ActivityEventResponse])
@@ -239,10 +353,11 @@ def _status_action(method, task_id: UUID, user_id: UUID, request: Request, sessi
         task = method(task_id, user_id, request_id=request.state.request_id)
     except (TaskNotFoundError, TaskRuleError) as error:
         _raise_task_error(error)
-    return _task_response(task)
+    return _task_response(task, TaskService(session))
 
 
-def _task_response(task: Task) -> TaskResponse:
+def _task_response(task: Task, service: TaskService) -> TaskResponse:
+    delay_count, total_delay_minutes = service.delay_summary(task.id)
     return TaskResponse(
         id=task.id,
         parent_task_id=task.parent_task_id,
@@ -250,6 +365,10 @@ def _task_response(task: Task) -> TaskResponse:
         description=task.description,
         status=task.status,
         current_handler_id=task.current_handler_id,
+        blocked_reason=task.blocked_reason,
+        blocked_since=task.blocked_since,
+        resume_handler_id=task.resume_handler_id,
+        waiting_for_user_id=task.waiting_for_user_id,
         planned_start_at=task.planned_start_at,
         due_at=task.due_at,
         estimated_minutes=task.estimated_minutes,
@@ -260,6 +379,8 @@ def _task_response(task: Task) -> TaskResponse:
         created_at=task.created_at,
         updated_at=task.updated_at,
         assignee_ids=[assignee.user_id for assignee in task.assignees],
+        delay_count=delay_count,
+        total_delay_minutes=total_delay_minutes,
     )
 
 

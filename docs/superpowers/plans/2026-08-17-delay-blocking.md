@@ -70,11 +70,11 @@
 - Adds `POST /api/tasks/{task_id}/delay`, `GET /api/tasks/{task_id}/delays`, `POST /api/tasks/{task_id}/block`, and `POST /api/tasks/{task_id}/unblock`.
 - Extends `TaskResponse` with blocking fields, `delay_count`, and `total_delay_minutes`.
 
-- [ ] **Step 1: Write failing authenticated HTTP tests** for delay/list/aggregates, block/unblock, both-user consistency, unauthorized access, validation, and stable business error codes.
-- [ ] **Step 2: Run focused tests and confirm route/response contract failures.**
-- [ ] **Step 3: Implement typed request/response models and route-to-domain error mapping.**
-- [ ] **Step 4: Run focused and complete backend tests.**
-- [ ] **Step 5: Commit with `feat: expose delay and blocking API`.**
+- [x] **Step 1: Write failing authenticated HTTP tests** for delay/list/aggregates, block/unblock, both-user consistency, unauthorized access, validation, and stable business error codes.
+- [x] **Step 2: Run focused tests and confirm route/response contract failures.**
+- [x] **Step 3: Implement typed request/response models and route-to-domain error mapping.**
+- [x] **Step 4: Run focused and complete backend tests.**
+- [x] **Step 5: Commit with `feat: expose delay and blocking API`.**
 
 ### Task 4: Flutter Delay And Blocking Data Layer
 

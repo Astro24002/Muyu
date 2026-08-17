@@ -4,12 +4,13 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证实施计划（Task 1-6）已完成；Phase 2 Task Core 已完成，下一步进入 Phase 3 延期和阻塞。
+- 当前阶段：首轮工程基础与认证实施计划（Task 1-6）和 Phase 2 Task Core 已完成；Phase 3 延期和阻塞已启动。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
 - Phase 2 规格：[Phase 2 Task Core Design](./superpowers/specs/2026-08-17-task-core-design.md)。
 - Phase 2 实施计划：[Phase 2 Task Core Implementation Plan](./superpowers/plans/2026-08-17-task-core.md)。
+- Phase 3 规格：[Phase 3 Delay And Blocking Design](./superpowers/specs/2026-08-17-delay-blocking-design.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；设计基线提交为 `1804216`，实施计划与状态记录提交为 `cd8820b`。
 
 ## 已完成
@@ -158,6 +159,15 @@
 - 影响文件：`backend/app/task/`、`backend/app/activity/`、`backend/alembic/versions/0002_task_core.py`、`client/lib/task/`、`client/lib/screens/`、`scripts/smoke-tasks.sh`、`Makefile`、`docs/README.md`。
 - 验证命令与结果：`make test` 通过（后端 SQLite `41 passed`，Flutter `19 passed`，`flutter analyze` clean）；`bash -n scripts/smoke-tasks.sh` 和 `docker compose config` 通过；Web 构建成功，Android debug APK 成功生成于 `client/build/app/outputs/flutter-apk/app-debug.apk`。隔离 PostgreSQL Compose 项目 `phase2` 在端口 `8093` 运行，双用户任务 smoke 通过（创建、启动、转交、子任务、完成、双方可见、审计事件）；API 重启后 Alembic 版本为 `0002_task_core`，任务和活动事件仍可读取；PostgreSQL 网络内完整后端测试 `41 passed`。现有 `8090` API 已升级到同一版本，固定用户数量保持为 `2`，原有昵称保持不变，登录和任务列表均返回 `200`。Flutter Web 在桌面 `1280x900` 和移动 `390x844` 视口完成登录、任务列表和创建任务检查，`scrollWidth == clientWidth`；旧 3000 端口 DDC 进程已重启，当前页面可正常加载。
 - 下一步：进入 Phase 3，实现延期和阻塞规则、相关状态历史及客户端交互，并按文档继续记录每项验收结果。
+
+### 2026-08-17 - Phase 3 延期和阻塞启动
+
+- 类型：实施进度
+- 变更：完成 Phase 3 延期和阻塞设计，明确 `DelayRecord` 不可变记录、延期原因校验、`WAITING` 状态、恢复负责人、HTTP 契约、Flutter 交互和验收边界。
+- 原因：Phase 2 已完成，按照路线图进入 MVP-Core 的最后阶段，使任务可以保留真实延期与等待事实。
+- 影响文件：`docs/superpowers/specs/2026-08-17-delay-blocking-design.md`，后续将新增 `0003_delay_blocking`、领域动作、任务 API、Flutter 详情交互和 Phase 3 smoke。
+- 验证命令与结果：规格已对照产品、技术设计、路线图和已确认决策完成一致性检查；未包含状态冲突、评论、事件、循环任务、首页或统计。
+- 下一步：评审规格后编写 Phase 3 实施计划，并按 TDD 顺序完成迁移、领域服务、API、Flutter 和 PostgreSQL 验收。
 
 ## 文档变更规则
 

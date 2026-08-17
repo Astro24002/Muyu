@@ -50,6 +50,7 @@ make test
 make compose-clean
 API_PORT=8090 make compose-up
 API_BASE_URL=http://localhost:8090 AUTH_PASSWORD=change-this-shared-password ./scripts/smoke-auth.sh
+API_BASE_URL=http://localhost:8090 AUTH_PASSWORD=change-this-shared-password ./scripts/smoke-tasks.sh
 ```
 
 默认 Compose 不暴露 PostgreSQL 端口，只暴露可配置的 API 端口。`deploy/.env.example` 仅用于本地验收模板；正式部署必须替换密码和 JWT Secret。

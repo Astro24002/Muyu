@@ -6,7 +6,7 @@ TEST_DATABASE_URL ?= sqlite:////tmp/muyu-test.db
 FLUTTER ?= $(shell command -v flutter 2>/dev/null || printf '%s/develop/flutter/bin/flutter' "$(HOME)")
 DART ?= $(dir $(FLUTTER))dart
 
-.PHONY: test backend-test client-test compose-up compose-down compose-clean smoke
+.PHONY: test backend-test client-test compose-up compose-down compose-clean smoke smoke-tasks
 
 test: backend-test client-test
 
@@ -32,3 +32,6 @@ compose-clean:
 
 smoke:
 	API_BASE_URL=$${API_BASE_URL:-http://localhost:$(API_PORT)} AUTH_PASSWORD="$${AUTH_PASSWORD:?set AUTH_PASSWORD}" ./scripts/smoke-auth.sh
+
+smoke-tasks:
+	API_BASE_URL=$${API_BASE_URL:-http://localhost:$(API_PORT)} AUTH_PASSWORD="$${AUTH_PASSWORD:?set AUTH_PASSWORD}" ./scripts/smoke-tasks.sh

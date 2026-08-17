@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.activity.models import ActivityEvent
 from app.task.models import TaskHandlerHistory, TaskStatusHistory, TaskUserPosition
 from app.task.repository import TaskRepository
-from app.task.service import TaskCreate, TaskNotFoundError, TaskRuleError, TaskService
+from app.task.service import TaskCreate, TaskNotFoundError, TaskPatch, TaskRuleError, TaskService
 from app.user.repository import UserRepository
 from app.user.service import seed_fixed_users
 
@@ -142,3 +142,209 @@ def test_delay_repository_returns_empty_history_and_zero_summary(db_engine) -> N
         assert repository.list_delays(task_id) == []
         assert repository.delay_count(task_id) == 0
         assert repository.total_delay_minutes(task_id) == 0
+
+
+def test_delay_three_times_preserves_history_summary_and_activity(db_engine) -> None:
+    with Session(db_engine) as session:
+        user_a, _ = users(session)
+        service = TaskService(session)
+        task = service.create(user_a.id, create_data(user_a))
+        due_dates = [
+            datetime(2026, 9, 4, 1, tzinfo=timezone.utc),
+            datetime(2026, 9, 6, 1, tzinfo=timezone.utc),
+            datetime(2026, 9, 9, 1, tzinfo=timezone.utc),
+        ]
+
+        for index, due_at in enumerate(due_dates, start=1):
+            service = TaskService(
+                session,
+                clock=lambda index=index: datetime(2026, 9, index, 2, tzinfo=timezone.utc),
+            )
+            service.delay(
+                task.id,
+                user_a.id,
+                new_due_at=due_at,
+                reason="NO_TIME",
+                note=f"第 {index} 次延期",
+            )
+
+        records = service.list_delays(task.id)
+        assert [record.original_due_at for record in records] == [
+            datetime(2026, 9, 3, 1, tzinfo=timezone.utc),
+            datetime(2026, 9, 4, 1, tzinfo=timezone.utc),
+            datetime(2026, 9, 6, 1, tzinfo=timezone.utc),
+        ]
+        assert [record.new_due_at for record in records] == due_dates
+        assert [record.delay_duration_minutes for record in records] == [1440, 2880, 4320]
+        assert service.delay_summary(task.id) == (3, 8640)
+        assert service.get(task.id).due_at == due_dates[-1]
+        assert [event.action for event in service.list_events(task.id)] == [
+            "TASK_CREATED",
+            "TASK_DELAYED",
+            "TASK_DELAYED",
+            "TASK_DELAYED",
+        ]
+
+
+@pytest.mark.parametrize(
+    ("due_at", "reason", "note", "code"),
+    [
+        (datetime(2026, 9, 4, 1, tzinfo=timezone.utc), "UNKNOWN", None, "INVALID_DELAY_REASON"),
+        (datetime(2026, 9, 4, 1, tzinfo=timezone.utc), "OTHER", "  ", "DELAY_NOTE_REQUIRED"),
+        (datetime(2026, 9, 3, 1, tzinfo=timezone.utc), "NO_TIME", None, "INVALID_DELAY_TIME"),
+        (datetime(2026, 9, 3, 1, 0, 30, tzinfo=timezone.utc), "NO_TIME", None, "INVALID_DELAY_TIME"),
+    ],
+)
+def test_delay_rejects_invalid_reason_note_or_time(db_engine, due_at, reason, note, code) -> None:
+    with Session(db_engine) as session:
+        user_a, _ = users(session)
+        service = TaskService(session)
+        task = service.create(user_a.id, create_data(user_a))
+
+        with pytest.raises(TaskRuleError) as error:
+            service.delay(
+                task.id,
+                user_a.id,
+                new_due_at=due_at,
+                reason=reason,
+                note=note,
+            )
+
+        assert error.value.code == code
+
+
+def test_delay_requires_an_existing_due_date(db_engine) -> None:
+    with Session(db_engine) as session:
+        user_a, _ = users(session)
+        service = TaskService(session)
+        payload = create_data(user_a)
+        payload = TaskCreate(**{**payload.__dict__, "due_at": None})
+        task = service.create(user_a.id, payload)
+
+        with pytest.raises(TaskRuleError) as error:
+            service.delay(
+                task.id,
+                user_a.id,
+                new_due_at=datetime(2026, 9, 4, 1, tzinfo=timezone.utc),
+                reason="NO_TIME",
+                note=None,
+            )
+
+        assert error.value.code == "DUE_AT_REQUIRED"
+
+
+def test_existing_due_date_cannot_be_moved_later_through_regular_update(db_engine) -> None:
+    with Session(db_engine) as session:
+        user_a, _ = users(session)
+        service = TaskService(session)
+        task = service.create(user_a.id, create_data(user_a))
+
+        with pytest.raises(TaskRuleError) as error:
+            service.update(
+                task.id,
+                user_a.id,
+                TaskPatch(due_at=datetime(2026, 9, 4, 1, tzinfo=timezone.utc)),
+            )
+
+        assert error.value.code == "USE_DELAY_ACTION"
+        assert service.get(task.id).due_at == datetime(2026, 9, 3, 1, tzinfo=timezone.utc)
+
+
+def test_block_and_unblock_restore_handler_and_write_histories(db_engine) -> None:
+    with Session(db_engine) as session:
+        user_a, user_b = users(session)
+        service = TaskService(session, clock=lambda: datetime(2026, 9, 1, 1, tzinfo=timezone.utc))
+        task = service.create(user_a.id, create_data(user_a, user_b))
+
+        service = TaskService(session, clock=lambda: datetime(2026, 9, 1, 2, tzinfo=timezone.utc))
+        waiting = service.block(
+            task.id,
+            user_a.id,
+            blocked_reason="等待确认行程",
+            resume_handler_id=user_b.id,
+            waiting_for_user_id=user_b.id,
+        )
+
+        assert waiting.status == "WAITING"
+        assert waiting.current_handler_id == user_a.id
+        assert waiting.blocked_reason == "等待确认行程"
+        assert waiting.blocked_since == datetime(2026, 9, 1, 2, tzinfo=timezone.utc)
+        assert waiting.resume_handler_id == user_b.id
+        assert waiting.waiting_for_user_id == user_b.id
+
+        service = TaskService(session, clock=lambda: datetime(2026, 9, 1, 3, tzinfo=timezone.utc))
+        resumed = service.unblock(task.id, user_a.id)
+
+        assert resumed.status == "IN_PROGRESS"
+        assert resumed.current_handler_id == user_b.id
+        assert resumed.blocked_reason is None
+        assert resumed.blocked_since is None
+        assert resumed.resume_handler_id is None
+        assert resumed.waiting_for_user_id is None
+        assert [history.to_status for history in session.scalars(
+            select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id).order_by(TaskStatusHistory.changed_at)
+        )] == ["TODO", "WAITING", "IN_PROGRESS"]
+        assert [history.to_user_id for history in session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id).order_by(TaskHandlerHistory.changed_at)
+        )] == [user_a.id, user_b.id]
+        assert [event.action for event in service.list_events(task.id)] == [
+            "TASK_CREATED",
+            "TASK_BLOCKED",
+            "TASK_UNBLOCKED",
+        ]
+
+
+def test_block_validates_reason_resume_handler_waiting_user_and_transition(db_engine) -> None:
+    with Session(db_engine) as session:
+        user_a, user_b = users(session)
+        service = TaskService(session)
+        task = service.create(user_a.id, create_data(user_a))
+
+        cases = [
+            ({"blocked_reason": "  ", "resume_handler_id": user_a.id}, "INVALID_BLOCK_REASON"),
+            ({"blocked_reason": "等待", "resume_handler_id": user_b.id}, "INVALID_RESUME_HANDLER"),
+            (
+                {
+                    "blocked_reason": "等待",
+                    "resume_handler_id": user_a.id,
+                    "waiting_for_user_id": uuid4(),
+                },
+                "INVALID_WAITING_USER",
+            ),
+        ]
+        for kwargs, code in cases:
+            with pytest.raises(TaskRuleError) as error:
+                service.block(task.id, user_a.id, **kwargs)
+            assert error.value.code == code
+
+        service.complete(task.id, user_a.id)
+        with pytest.raises(TaskRuleError) as invalid_transition:
+            service.block(
+                task.id,
+                user_a.id,
+                blocked_reason="等待",
+                resume_handler_id=user_a.id,
+            )
+        assert invalid_transition.value.code == "INVALID_TASK_TRANSITION"
+
+
+@pytest.mark.parametrize(("action", "expected"), [("complete", "DONE"), ("cancel", "CANCELLED")])
+def test_waiting_task_can_finish_and_clears_blocking_fields(db_engine, action, expected) -> None:
+    with Session(db_engine) as session:
+        user_a, _ = users(session)
+        service = TaskService(session)
+        task = service.create(user_a.id, create_data(user_a))
+        service.block(
+            task.id,
+            user_a.id,
+            blocked_reason="等待外部确认",
+            resume_handler_id=user_a.id,
+        )
+
+        result = getattr(service, action)(task.id, user_a.id)
+
+        assert result.status == expected
+        assert result.blocked_reason is None
+        assert result.blocked_since is None
+        assert result.resume_handler_id is None
+        assert result.waiting_for_user_id is None

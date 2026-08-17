@@ -50,15 +50,14 @@
 - Modify: `backend/tests/task/test_service.py`
 
 **Interfaces:**
-- Produces `DelayCreate(new_due_at, reason, note)`.
-- Produces `TaskService.delay`, `list_delays`, `delay_summary`, `block`, and `unblock`.
+- Produces `TaskService.delay`, `list_delays`, `delay_summary`, `block`, and `unblock` with explicit typed arguments.
 - Existing `complete` and `cancel` accept `WAITING` and clear stale blocking metadata.
 
-- [ ] **Step 1: Write failing delay tests** for three records, original/new due dates, aggregate minutes, immutable history, fixed reasons, `OTHER`, missing due date, and invalid time.
-- [ ] **Step 2: Implement delay validation and one-transaction record/task/activity updates.**
-- [ ] **Step 3: Write failing blocking tests** for required reason, assignee resume handler, fixed waiting user, valid transitions, automatic handler restore, histories, event payloads, and clearing fields on complete/cancel.
-- [ ] **Step 4: Implement block/unblock and integrate WAITING cleanup into status changes.**
-- [ ] **Step 5: Run task tests and the complete backend suite, then commit with `feat: implement task delay and blocking workflow`.**
+- [x] **Step 1: Write failing delay tests** for three records, original/new due dates, aggregate minutes, immutable history, fixed reasons, `OTHER`, missing due date, and invalid time.
+- [x] **Step 2: Implement delay validation and one-transaction record/task/activity updates.**
+- [x] **Step 3: Write failing blocking tests** for required reason, assignee resume handler, fixed waiting user, valid transitions, automatic handler restore, histories, event payloads, and clearing fields on complete/cancel.
+- [x] **Step 4: Implement block/unblock and integrate WAITING cleanup into status changes.**
+- [x] **Step 5: Run task tests and the complete backend suite, then commit with `feat: implement task delay and blocking workflow`.**
 
 ### Task 3: Authenticated Delay And Blocking HTTP API
 

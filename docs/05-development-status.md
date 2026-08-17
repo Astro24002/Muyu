@@ -4,10 +4,12 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证实施计划（Task 1-6）已完成；等待进入路线图后续任务/事件功能。
+- 当前阶段：首轮工程基础与认证实施计划（Task 1-6）已完成；Phase 2 Task Core 已启动。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
+- Phase 2 规格：[Phase 2 Task Core Design](./superpowers/specs/2026-08-17-task-core-design.md)。
+- Phase 2 实施计划：[Phase 2 Task Core Implementation Plan](./superpowers/plans/2026-08-17-task-core.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；设计基线提交为 `1804216`，实施计划与状态记录提交为 `cd8820b`。
 
 ## 已完成
@@ -137,6 +139,15 @@
 - 影响文件：`.github/workflows/ci.yml`、`scripts/smoke-auth.sh`、`deploy/docker-compose.yml`、`deploy/.env.example`、`Makefile`、`backend/app/db/types.py`、`backend/app/user/models.py`、`docs/README.md`。
 - 验证命令与结果：`make backend-test` 通过（32 passed，SQLite）；`make client-test` 通过（12 tests，format/analyze clean）；隔离全新 PostgreSQL Compose 项目 `task6` healthcheck 通过；`AUTH_PASSWORD=change-this-shared-password API_BASE_URL=http://localhost:8091 ./scripts/smoke-auth.sh` 通过；PostgreSQL 网络内完整后端测试 32 passed；API 重启后仍 healthy，数据库用户数保持 2 且资料未被重置；Compose config、Shell syntax 和 CI YAML 检查通过。
 - 下一步：首轮基础与认证验收完成，进入路线图后续任务/事件功能开发。
+
+### 2026-08-17 - Phase 2 Task Core 启动
+
+- 类型：实施进度
+- 变更：按照产品、技术设计和路线图启动 Task Core；范围包括任务/一层子任务、参与人、当前负责人、基础状态动作、个人排序、追加式活动审计和 Flutter 任务工作区。
+- 原因：认证底座已完成，下一条产品价值链必须让两名用户真实创建、转交并完成共同任务。
+- 影响文件：`docs/superpowers/specs/2026-08-17-task-core-design.md`、`docs/superpowers/plans/2026-08-17-task-core.md`，后续将新增 `backend/app/task/`、`backend/app/activity/`、任务迁移、Flutter 任务模块和验收脚本。
+- 验证命令与结果：规格已对照 `docs/01-product.md`、`docs/02-technical-design.md`、`docs/03-roadmap.md` 和 `docs/04-decisions.md` 收敛；代码验证将在每个计划任务完成后追加。
+- 下一步：从失败的迁移/模型测试开始，建立 Task Core 数据基线。
 
 ## 文档变更规则
 

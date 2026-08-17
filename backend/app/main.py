@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.db.migrations import run_migrations
 from app.db.session import create_database_engine
 from app.httpapi.errors import register_error_handlers
+from app.task.routes import router as task_router
 from app.user.routes import router as user_router
 from app.user.service import seed_fixed_users
 
@@ -45,13 +46,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
     app.state.ready = False
     app.state.token_manager = None
     register_error_handlers(app)
     app.include_router(auth_router)
+    app.include_router(task_router)
     app.include_router(user_router)
 
     @app.get("/healthz")

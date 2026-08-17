@@ -6,6 +6,14 @@ from sqlalchemy import create_engine, delete, text
 from sqlalchemy.engine import Engine
 
 from app.db.migrations import run_migrations
+from app.activity.models import ActivityEvent
+from app.task.models import (
+    Task,
+    TaskAssignee,
+    TaskHandlerHistory,
+    TaskStatusHistory,
+    TaskUserPosition,
+)
 from app.user.models import User, UserSession
 
 
@@ -23,8 +31,19 @@ def db_engine(database_url: str) -> Iterator[Engine]:
     run_migrations(database_url)
     with engine.begin() as connection:
         if engine.dialect.name == "postgresql":
-            connection.execute(text("TRUNCATE TABLE sessions, users RESTART IDENTITY CASCADE"))
+            connection.execute(
+                text(
+                    "TRUNCATE TABLE activity_events, task_handler_history, task_status_history, "
+                    "task_user_positions, task_assignees, tasks, sessions, users RESTART IDENTITY CASCADE"
+                )
+            )
         else:
+            connection.execute(delete(ActivityEvent))
+            connection.execute(delete(TaskHandlerHistory))
+            connection.execute(delete(TaskStatusHistory))
+            connection.execute(delete(TaskUserPosition))
+            connection.execute(delete(TaskAssignee))
+            connection.execute(delete(Task))
             connection.execute(delete(UserSession))
             connection.execute(delete(User))
     try:

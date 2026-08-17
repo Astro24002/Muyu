@@ -147,7 +147,8 @@
 - 原因：认证底座已完成，下一条产品价值链必须让两名用户真实创建、转交并完成共同任务。
 - 影响文件：`docs/superpowers/specs/2026-08-17-task-core-design.md`、`docs/superpowers/plans/2026-08-17-task-core.md`，后续将新增 `backend/app/task/`、`backend/app/activity/`、任务迁移、Flutter 任务模块和验收脚本。
 - 验证命令与结果：规格已对照 `docs/01-product.md`、`docs/02-technical-design.md`、`docs/03-roadmap.md` 和 `docs/04-decisions.md` 收敛；代码验证将在每个计划任务完成后追加。
-- 下一步：从失败的迁移/模型测试开始，建立 Task Core 数据基线。
+- 验证命令与结果：迁移、仓储/服务和 HTTP 契约测试已完成；SQLite 后端全量 `41 passed`，任务专项测试 `8 passed`，`python -m compileall -q app alembic` 通过。PostgreSQL Compose 和 Flutter 任务界面尚未完成。
+- 下一步：接入 Flutter 任务模型、仓储、状态控制器和任务工作区，再运行 PostgreSQL 端到端验收。
 
 ## 文档变更规则
 

@@ -93,11 +93,11 @@
 - Extends `TaskRepository`/`HttpTaskRepository` with `delay`, `delays`, `block`, and `unblock`.
 - Extends `TaskController` with matching actions that retain API errors.
 
-- [ ] **Step 1: Write failing model/repository tests** for Phase 3 task JSON, delay records, request bodies, routes, and error mapping.
-- [ ] **Step 2: Implement models and repository methods, then run focused tests.**
-- [ ] **Step 3: Write failing controller tests** for delay, block, unblock, task replacement, and retained errors.
-- [ ] **Step 4: Implement controller and fake repository support.**
-- [ ] **Step 5: Run Dart formatting, Flutter analyze, and all client tests; commit with `feat: add Flutter delay and blocking data layer`.**
+- [x] **Step 1: Write failing model/repository tests** for Phase 3 task JSON, delay records, request bodies, routes, and error mapping.
+- [x] **Step 2: Implement models and repository methods, then run focused tests.**
+- [x] **Step 3: Write failing controller tests** for delay, block, unblock, task replacement, and retained errors.
+- [x] **Step 4: Implement controller and fake repository support.**
+- [x] **Step 5: Run Dart formatting, Flutter analyze, and all client tests; commit with `feat: add Flutter delay and blocking data layer`.**
 
 ### Task 5: Flutter Task Detail Actions And History
 

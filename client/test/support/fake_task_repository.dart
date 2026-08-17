@@ -8,6 +8,12 @@ TaskItem fakeTask(
   List<String> assigneeIds = const ['1'],
   String currentHandlerId = '1',
   String? parentTaskId,
+  String? blockedReason,
+  String? resumeHandlerId,
+  String? waitingForUserId,
+  DateTime? dueAt,
+  int delayCount = 0,
+  int totalDelayMinutes = 0,
 }) => TaskItem(
   id: id,
   parentTaskId: parentTaskId,
@@ -15,8 +21,11 @@ TaskItem fakeTask(
   description: '确定交通和住宿',
   status: status,
   currentHandlerId: currentHandlerId,
+  blockedReason: blockedReason,
+  resumeHandlerId: resumeHandlerId,
+  waitingForUserId: waitingForUserId,
   plannedStartAt: null,
-  dueAt: null,
+  dueAt: dueAt,
   estimatedMinutes: 60,
   completedAt: status == 'DONE' ? DateTime.utc(2026, 8, 17) : null,
   createdBy: '1',
@@ -25,6 +34,8 @@ TaskItem fakeTask(
   createdAt: DateTime.utc(2026, 8, 17),
   updatedAt: DateTime.utc(2026, 8, 17),
   assigneeIds: assigneeIds,
+  delayCount: delayCount,
+  totalDelayMinutes: totalDelayMinutes,
 );
 
 class FakeTaskRepository implements TaskRepository {
@@ -83,6 +94,61 @@ class FakeTaskRepository implements TaskRepository {
 
   @override
   Future<TaskItem> complete(String taskId) => _status(taskId, 'DONE');
+
+  @override
+  Future<TaskItem> delay(
+    String taskId, {
+    required DateTime newDueAt,
+    required String reason,
+    String? note,
+  }) async {
+    final current = await get(taskId);
+    final updated = fakeTask(
+      current.id,
+      title: current.title,
+      status: current.status,
+      assigneeIds: current.assigneeIds,
+      currentHandlerId: current.currentHandlerId,
+      parentTaskId: current.parentTaskId,
+      dueAt: newDueAt,
+      delayCount: current.delayCount + 1,
+      totalDelayMinutes: current.totalDelayMinutes + 1440,
+    );
+    _replace(updated);
+    return updated;
+  }
+
+  @override
+  Future<List<TaskDelayRecord>> delays(String taskId) async => const [];
+
+  @override
+  Future<TaskItem> block(
+    String taskId, {
+    required String blockedReason,
+    required String resumeHandlerId,
+    String? waitingForUserId,
+  }) async {
+    final current = await get(taskId);
+    final updated = fakeTask(
+      current.id,
+      title: current.title,
+      status: 'WAITING',
+      assigneeIds: current.assigneeIds,
+      currentHandlerId: current.currentHandlerId,
+      parentTaskId: current.parentTaskId,
+      blockedReason: blockedReason,
+      resumeHandlerId: resumeHandlerId,
+      waitingForUserId: waitingForUserId,
+      dueAt: current.dueAt,
+      delayCount: current.delayCount,
+      totalDelayMinutes: current.totalDelayMinutes,
+    );
+    _replace(updated);
+    return updated;
+  }
+
+  @override
+  Future<TaskItem> unblock(String taskId) => _status(taskId, 'IN_PROGRESS');
 
   @override
   Future<TaskItem> reopen(String taskId) => _status(taskId, 'TODO');

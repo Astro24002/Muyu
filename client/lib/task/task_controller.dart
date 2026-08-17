@@ -8,6 +8,7 @@ class TaskController extends ChangeNotifier {
 
   final TaskRepository _repository;
   List<TaskItem> tasks = const [];
+  List<TaskDelayRecord> delayRecords = const [];
   String? errorMessage;
   bool loading = false;
 
@@ -16,6 +17,20 @@ class TaskController extends ChangeNotifier {
     notifyListeners();
     try {
       tasks = await _repository.list(parentTaskId: parentTaskId);
+      errorMessage = null;
+    } on TaskFailure catch (error) {
+      errorMessage = error.message;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadDelays(String taskId) async {
+    loading = true;
+    notifyListeners();
+    try {
+      delayRecords = await _repository.delays(taskId);
       errorMessage = null;
     } on TaskFailure catch (error) {
       errorMessage = error.message;
@@ -57,29 +72,63 @@ class TaskController extends ChangeNotifier {
     }
   }
 
-  Future<void> start(String taskId) =>
+  Future<bool> start(String taskId) =>
       _runAction(() => _repository.start(taskId));
 
-  Future<void> complete(String taskId) =>
+  Future<bool> complete(String taskId) =>
       _runAction(() => _repository.complete(taskId));
 
-  Future<void> reopen(String taskId) =>
+  Future<bool> reopen(String taskId) =>
       _runAction(() => _repository.reopen(taskId));
 
-  Future<void> cancel(String taskId) =>
+  Future<bool> cancel(String taskId) =>
       _runAction(() => _repository.cancel(taskId));
 
-  Future<void> transfer(String taskId, String userId) =>
+  Future<bool> transfer(String taskId, String userId) =>
       _runAction(() => _repository.transfer(taskId, userId));
 
-  Future<void> _runAction(Future<TaskItem> Function() action) async {
+  Future<bool> delay(
+    String taskId, {
+    required DateTime newDueAt,
+    required String reason,
+    String? note,
+  }) => _runAction(
+    () => _repository.delay(
+      taskId,
+      newDueAt: newDueAt,
+      reason: reason,
+      note: note,
+    ),
+  );
+
+  Future<bool> block(
+    String taskId, {
+    required String blockedReason,
+    required String resumeHandlerId,
+    String? waitingForUserId,
+  }) => _runAction(
+    () => _repository.block(
+      taskId,
+      blockedReason: blockedReason,
+      resumeHandlerId: resumeHandlerId,
+      waitingForUserId: waitingForUserId,
+    ),
+  );
+
+  Future<bool> unblock(String taskId) =>
+      _runAction(() => _repository.unblock(taskId));
+
+  Future<bool> _runAction(Future<TaskItem> Function() action) async {
     try {
       _upsert(await action());
       errorMessage = null;
+      notifyListeners();
+      return true;
     } on TaskFailure catch (error) {
       errorMessage = error.message;
+      notifyListeners();
+      return false;
     }
-    notifyListeners();
   }
 
   void _upsert(TaskItem value) {

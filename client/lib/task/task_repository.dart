@@ -48,6 +48,24 @@ abstract interface class TaskRepository {
 
   Future<TaskItem> transfer(String taskId, String newHandlerId);
 
+  Future<TaskItem> delay(
+    String taskId, {
+    required DateTime newDueAt,
+    required String reason,
+    String? note,
+  });
+
+  Future<List<TaskDelayRecord>> delays(String taskId);
+
+  Future<TaskItem> block(
+    String taskId, {
+    required String blockedReason,
+    required String resumeHandlerId,
+    String? waitingForUserId,
+  });
+
+  Future<TaskItem> unblock(String taskId);
+
   Future<List<TaskActivity>> events(String taskId);
 
   Future<List<String>> getOrder();
@@ -153,6 +171,56 @@ class HttpTaskRepository implements TaskRepository {
           body: {'new_handler_id': newHandlerId},
         ) as Map<String, dynamic>,
       );
+
+  @override
+  Future<TaskItem> delay(
+    String taskId, {
+    required DateTime newDueAt,
+    required String reason,
+    String? note,
+  }) async => TaskItem.fromJson(
+    await _authenticated(
+      'POST',
+      '/api/tasks/$taskId/delay',
+      body: {
+        'new_due_at': newDueAt.toUtc().toIso8601String(),
+        'reason': reason,
+        'note': ?note,
+      },
+    ) as Map<String, dynamic>,
+  );
+
+  @override
+  Future<List<TaskDelayRecord>> delays(String taskId) async {
+    final json = await _authenticated(
+      'GET',
+      '/api/tasks/$taskId/delays',
+    ) as List<dynamic>;
+    return json
+        .map((item) => TaskDelayRecord.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<TaskItem> block(
+    String taskId, {
+    required String blockedReason,
+    required String resumeHandlerId,
+    String? waitingForUserId,
+  }) async => TaskItem.fromJson(
+    await _authenticated(
+      'POST',
+      '/api/tasks/$taskId/block',
+      body: {
+        'blocked_reason': blockedReason,
+        'resume_handler_id': resumeHandlerId,
+        'waiting_for_user_id': ?waitingForUserId,
+      },
+    ) as Map<String, dynamic>,
+  );
+
+  @override
+  Future<TaskItem> unblock(String taskId) => _action(taskId, 'unblock');
 
   @override
   Future<List<TaskActivity>> events(String taskId) async {

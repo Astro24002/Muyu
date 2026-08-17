@@ -10,6 +10,10 @@ void main() {
       'description': '确定交通',
       'status': 'TODO',
       'current_handler_id': 'user-a',
+      'blocked_reason': '等待确认',
+      'blocked_since': '2026-09-01T02:00:00Z',
+      'resume_handler_id': 'user-b',
+      'waiting_for_user_id': 'user-b',
       'planned_start_at': '2026-09-01T01:00:00Z',
       'due_at': null,
       'estimated_minutes': 90,
@@ -20,11 +24,40 @@ void main() {
       'created_at': '2026-08-17T00:00:00Z',
       'updated_at': '2026-08-17T00:00:00Z',
       'assignee_ids': ['user-a', 'user-b'],
+      'delay_count': 3,
+      'total_delay_minutes': 8640,
     });
 
     expect(task.title, '整理旅行计划');
     expect(task.plannedStartAt, DateTime.utc(2026, 9, 1, 1));
     expect(task.dueAt, isNull);
     expect(task.assigneeIds, ['user-a', 'user-b']);
+    expect(task.blockedReason, '等待确认');
+    expect(task.blockedSince, DateTime.utc(2026, 9, 1, 2));
+    expect(task.resumeHandlerId, 'user-b');
+    expect(task.waitingForUserId, 'user-b');
+    expect(task.delayCount, 3);
+    expect(task.totalDelayMinutes, 8640);
+  });
+
+  test('TaskDelayRecord parses immutable delay facts', () {
+    final record = TaskDelayRecord.fromJson({
+      'id': 'delay-1',
+      'task_id': 'task-1',
+      'user_id': 'user-a',
+      'original_due_at': '2026-09-03T01:00:00Z',
+      'new_due_at': '2026-09-04T01:00:00Z',
+      'delayed_at': '2026-09-01T02:00:00Z',
+      'delay_duration_minutes': 1440,
+      'reason': 'NO_TIME',
+      'note': '当天没有时间',
+      'created_at': '2026-09-01T02:00:00Z',
+    });
+
+    expect(record.taskId, 'task-1');
+    expect(record.originalDueAt, DateTime.utc(2026, 9, 3, 1));
+    expect(record.newDueAt, DateTime.utc(2026, 9, 4, 1));
+    expect(record.delayDurationMinutes, 1440);
+    expect(taskDelayReasonLabels[record.reason], '没有时间');
   });
 }

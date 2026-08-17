@@ -11,6 +11,7 @@
 - Phase 2 规格：[Phase 2 Task Core Design](./superpowers/specs/2026-08-17-task-core-design.md)。
 - Phase 2 实施计划：[Phase 2 Task Core Implementation Plan](./superpowers/plans/2026-08-17-task-core.md)。
 - Phase 3 规格：[Phase 3 Delay And Blocking Design](./superpowers/specs/2026-08-17-delay-blocking-design.md)。
+- Phase 3 实施计划：[Phase 3 Delay And Blocking Implementation Plan](./superpowers/plans/2026-08-17-delay-blocking.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；设计基线提交为 `1804216`，实施计划与状态记录提交为 `cd8820b`。
 
 ## 已完成
@@ -167,7 +168,7 @@
 - 原因：Phase 2 已完成，按照路线图进入 MVP-Core 的最后阶段，使任务可以保留真实延期与等待事实。
 - 影响文件：`docs/superpowers/specs/2026-08-17-delay-blocking-design.md`，后续将新增 `0003_delay_blocking`、领域动作、任务 API、Flutter 详情交互和 Phase 3 smoke。
 - 验证命令与结果：规格已对照产品、技术设计、路线图和已确认决策完成一致性检查；未包含状态冲突、评论、事件、循环任务、首页或统计。
-- 下一步：评审规格后编写 Phase 3 实施计划，并按 TDD 顺序完成迁移、领域服务、API、Flutter 和 PostgreSQL 验收。
+- 下一步：按照 Phase 3 实施计划，以 TDD 顺序完成迁移、领域服务、API、Flutter 和 PostgreSQL 验收。
 
 ## 文档变更规则
 

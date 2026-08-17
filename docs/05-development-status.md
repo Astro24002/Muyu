@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Task 4（FastAPI 路由、鉴权依赖和错误契约）已完成；Task 5（Flutter Android/Web 登录与账户页）工具链已就绪，等待客户端实现。
+- 当前阶段：Task 5（Flutter Android/Web 登录与账户页）已完成；下一步进入 Task 6（Compose、CI 和端到端验收）。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -109,6 +109,16 @@
 - 影响文件：用户级 `~/.bashrc` 和 `/home/muyu/develop/` 工具目录；无客户端代码变更。
 - 验证命令与结果：`flutter --version`、`dart --version`、`java -version` 和 `adb --version` 均通过；`flutter doctor -v` 的 Flutter 与 Android toolchain 检查通过，Android 许可证全部接受。Chrome 和 Linux desktop 工具未安装，不影响计划中的 Web 编译和 Android 构建。
 - 下一步：生成 `client/` Flutter Android/Web 工程并继续 Task 5。
+
+### 2026-08-17 - Task 5 Flutter Android/Web 客户端
+
+- 类型：实施进度 / 验收
+- 变更：生成仅包含 Android/Web 的 Flutter 工程；实现 API 配置、JSON 模型、平台 Token 存储、登录/刷新/登出仓库、401 单次刷新、会话控制器、登录页和账户资料页；后端增加本地 Web CORS 预检支持；Android 主清单加入网络权限，debug 仅允许明文 HTTP。
+- 原因：完成首个可操作客户端垂直切片，覆盖两名固定用户的登录态恢复、资料修改和退出流程。
+- 影响文件：`client/`、`backend/app/main.py`、`backend/tests/httpapi/test_cors.py`。
+- 兼容性决策：`flutter_secure_storage 11.0.0` 要求 Android compile SDK 37，而 Flutter 3.47 工程默认 compile SDK 为 36；锁定 `flutter_secure_storage 10.0.0`，保持 Android SDK 36 基线并避免依赖平台命名兼容问题。
+- 验证命令与结果：客户端 `dart format --output=none --set-exit-if-changed .`、`flutter analyze` 和 `flutter test` 通过（12 项）；`flutter build web --dart-define=API_BASE_URL=http://localhost:8090` 成功；`flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8090` 成功；后端完整测试 32 项通过；CORS 预检、API 健康检查和真实登录冒烟通过。Linux desktop feature 保持关闭。
+- 下一步：Task 6，补充 Compose/API/Flutter CI 和完整认证端到端脚本。
 
 ## 文档变更规则
 

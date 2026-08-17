@@ -223,31 +223,31 @@ git commit -m "feat: expose authentication and user profile API"
 - `AuthRepository` exposes `login`, `refresh`, `logout`, `me`, `users`, and `updateProfile`.
 - `SessionController` exposes observable states `signedOut`, `loading`, `signedIn`, and `failure`.
 
-- [ ] **Step 1: Generate Flutter shell and write controller tests**
+- [x] **Step 1: Generate Flutter shell and write controller tests**
 
 Create the Android/Web project, then test successful login, invalid login, refresh recovery, refresh failure clearing storage, and logout with fake API and in-memory token store implementations.
 
-- [ ] **Step 2: Run Flutter tests and verify they fail**
+- [x] **Step 2: Run Flutter tests and verify they fail**
 
 Run: `cd client && flutter test test/auth/session_controller_test.dart`
 
 Expected: FAIL because the session controller and repository interfaces are absent.
 
-- [ ] **Step 3: Implement models, token storage, API client, and repository**
+- [x] **Step 3: Implement models, token storage, API client, and repository**
 
 Use explicit JSON fields, configurable `API_BASE_URL`, platform-safe token storage, and exactly one refresh retry for a failed authenticated request. Never log authorization headers or token bodies.
 
-- [ ] **Step 4: Implement session controller and screens**
+- [x] **Step 4: Implement session controller and screens**
 
 Render login validation, loading, user-readable errors, an account screen with current/both users, editable nickname/role fields, save/error state, and logout.
 
-- [ ] **Step 5: Run Flutter tests, analysis, and builds**
+- [x] **Step 5: Run Flutter tests, analysis, and builds**
 
 Run: `cd client && dart format --output=none --set-exit-if-changed .`; `flutter analyze`; `flutter test`; `flutter build web --dart-define=API_BASE_URL=http://localhost:8080`; `flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080`.
 
 Expected: tests and analysis pass, and both builds complete.
 
-- [ ] **Step 6: Update progress and commit**
+- [x] **Step 6: Update progress and commit**
 
 ```bash
 git add client docs/05-development-status.md

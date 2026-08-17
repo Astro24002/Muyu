@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Task 4（FastAPI 路由、鉴权依赖和错误契约）已完成；Task 5（Flutter Android/Web 登录与账户页）等待 Flutter SDK 环境。
+- 当前阶段：Task 4（FastAPI 路由、鉴权依赖和错误契约）已完成；Task 5（Flutter Android/Web 登录与账户页）工具链已就绪，等待客户端实现。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -101,14 +101,14 @@
 - 验证命令与结果：HTTP API 测试 `5 passed`；PostgreSQL Compose 网络内完整后端测试 `31 passed`；`python -m compileall -q app alembic` 通过；真实 Compose API 生命周期健康检查返回 `{"status":"ok"}`，认证冒烟验证登录、`/api/me`、Refresh 轮换、旧令牌拒绝、登出和撤销后拒绝全部通过。测试输出有 1 条现有 Starlette/httpx 弃用警告，不影响结果。
 - 下一步：进入 Task 5，实现 Flutter Android/Web 登录与账户页。
 
-### 2026-08-17 - Task 5 Flutter 环境阻塞
+### 2026-08-17 - Task 5 Flutter 环境准备
 
-- 类型：阻塞
-- 变更：开始 Task 5 环境检查；当前工作区未安装 `flutter` 或 `dart`，仓库尚不存在 `client/` Flutter 工程。
-- 原因：Flutter Android/Web 客户端必须通过 Flutter SDK 生成、测试、分析和构建，缺少 SDK 时不能进行可信实现验收。
-- 影响文件：无客户端代码变更。
-- 验证命令与结果：`command -v flutter` 和 `command -v dart` 均无输出。
-- 下一步：安装并配置 Flutter SDK（含 Android/Web 工具链）后，生成 `client/` 工程并继续 Task 5。
+- 类型：阻塞解除 / 工程环境
+- 变更：在当前用户目录安装 Flutter 3.47.0、Dart 3.13.0、Temurin JDK 17.0.20、Android SDK 36、Build Tools 36.0.0 和 Platform Tools，并在 `~/.bashrc` 配置用户级环境变量。
+- 原因：Flutter Android/Web 客户端必须通过 Flutter SDK 生成、测试、分析和构建。
+- 影响文件：用户级 `~/.bashrc` 和 `/home/muyu/develop/` 工具目录；无客户端代码变更。
+- 验证命令与结果：`flutter --version`、`dart --version`、`java -version` 和 `adb --version` 均通过；`flutter doctor -v` 的 Flutter 与 Android toolchain 检查通过，Android 许可证全部接受。Chrome 和 Linux desktop 工具未安装，不影响计划中的 Web 编译和 Android 构建。
+- 下一步：生成 `client/` Flutter Android/Web 工程并继续 Task 5。
 
 ## 文档变更规则
 

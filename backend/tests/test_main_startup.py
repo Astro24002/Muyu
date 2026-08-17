@@ -1,4 +1,5 @@
 import asyncio
+from datetime import timedelta
 from types import SimpleNamespace
 
 from app.main import create_app
@@ -6,7 +7,14 @@ from app.main import create_app
 
 def test_lifespan_initializes_database_before_ready(monkeypatch) -> None:
     calls: list[str] = []
-    settings = SimpleNamespace(database_url="postgresql+psycopg://db", auth_password="password")
+    settings = SimpleNamespace(
+        database_url="postgresql+psycopg://db",
+        auth_password="password",
+        jwt_access_secret="a" * 32,
+        jwt_refresh_secret="r" * 32,
+        access_token_ttl=timedelta(minutes=15),
+        refresh_token_ttl=timedelta(days=30),
+    )
 
     class FakeEngine:
         def dispose(self) -> None:

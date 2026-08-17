@@ -6,9 +6,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.auth.routes import router as auth_router
+from app.auth.tokens import TokenManager
 from app.core.config import get_settings
 from app.db.migrations import run_migrations
 from app.db.session import create_database_engine
+from app.httpapi.errors import register_error_handlers
+from app.user.routes import router as user_router
 from app.user.service import seed_fixed_users
 
 
@@ -22,6 +26,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with Session(engine) as session:
             seed_fixed_users(session, settings.auth_password)
         app.state.engine = engine
+        app.state.token_manager = TokenManager(
+            access_secret=settings.jwt_access_secret,
+            refresh_secret=settings.jwt_refresh_secret,
+            access_ttl=settings.access_token_ttl,
+            refresh_ttl=settings.refresh_token_ttl,
+        )
         app.state.ready = True
         yield
     finally:
@@ -32,6 +42,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="Muyu API", lifespan=lifespan)
     app.state.ready = False
+    app.state.token_manager = None
+    register_error_handlers(app)
+    app.include_router(auth_router)
+    app.include_router(user_router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

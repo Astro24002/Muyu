@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Task 3（密码、JWT 和 Refresh Session）已完成；下一步进入 Task 4（FastAPI 路由、鉴权依赖和错误契约）。
+- 当前阶段：Task 4（FastAPI 路由、鉴权依赖和错误契约）已完成；下一步进入 Task 5（Flutter Android/Web 登录与账户页）。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -91,6 +91,15 @@
 - 影响文件：`backend/app/auth/`、`backend/tests/auth/`、`backend/tests/user/__init__.py`。
 - 验证命令与结果：认证测试 `12 passed`；PostgreSQL Compose 网络内完整后端测试 `26 passed`；`python -m compileall -q app alembic` 通过。测试覆盖密码正确/错误校验、JWT 签名/类型/过期校验、登录、Refresh 轮换撤销、无效凭据、过期令牌和幂等登出。
 - 下一步：进入 Task 4，实现 FastAPI 认证与用户资料路由、鉴权依赖和统一错误响应。
+
+### 2026-08-17 - Task 4 FastAPI 路由、鉴权依赖和错误契约
+
+- 类型：实施进度 / 验收
+- 变更：新增统一错误响应与 `X-Request-ID` 中间件、数据库和 Bearer Token 依赖、认证路由、当前用户资料路由及双方用户列表路由；应用生命周期创建 TokenManager 并接入路由。
+- 原因：将认证领域服务接入可供 Flutter/Web 消费的 HTTP JSON 契约。
+- 影响文件：`backend/app/httpapi/`、`backend/app/auth/routes.py`、`backend/app/user/routes.py`、`backend/app/main.py`、`backend/tests/httpapi/`、启动测试 mock。
+- 验证命令与结果：HTTP API 测试 `5 passed`；PostgreSQL Compose 网络内完整后端测试 `31 passed`；`python -m compileall -q app alembic` 通过；真实 Compose API 生命周期健康检查返回 `{"status":"ok"}`，认证冒烟验证登录、`/api/me`、Refresh 轮换、旧令牌拒绝、登出和撤销后拒绝全部通过。测试输出有 1 条现有 Starlette/httpx 弃用警告，不影响结果。
+- 下一步：进入 Task 5，实现 Flutter Android/Web 登录与账户页。
 
 ## 文档变更规则
 

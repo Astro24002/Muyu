@@ -67,15 +67,23 @@ class TaskListScreen extends StatelessWidget {
             final handler = sessionController.users
                 .where((user) => user.id == task.currentHandlerId)
                 .firstOrNull;
+            final statusText = _statusLabel(task.status);
+            final subtitle =
+                task.status == 'WAITING' &&
+                    task.blockedReason != null &&
+                    task.blockedReason!.isNotEmpty
+                ? '$statusText · ${task.blockedReason}'
+                : '$statusText · ${handler?.nickname ?? '未识别负责人'}';
             return Card(
               margin: EdgeInsets.zero,
+              color: task.status == 'WAITING'
+                  ? Theme.of(context).colorScheme.surfaceContainerHighest
+                  : null,
               child: ListTile(
                 onTap: () => onOpen(task),
                 leading: Icon(_statusIcon(task.status)),
                 title: Text(task.title),
-                subtitle: Text(
-                  '${_statusLabel(task.status)} · ${handler?.nickname ?? '未识别负责人'}',
-                ),
+                subtitle: Text(subtitle),
                 trailing: const Icon(Icons.chevron_right),
               ),
             );
@@ -125,6 +133,7 @@ String _statusLabel(String status) => switch (status) {
 
 IconData _statusIcon(String status) => switch (status) {
   'IN_PROGRESS' => Icons.play_circle_outline,
+  'WAITING' => Icons.hourglass_empty,
   'DONE' => Icons.check_circle_outline,
   'CANCELLED' => Icons.cancel_outlined,
   _ => Icons.radio_button_unchecked,

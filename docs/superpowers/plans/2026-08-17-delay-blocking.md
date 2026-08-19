@@ -111,11 +111,11 @@
 - Produces `showTaskDelayDialog` and `showTaskBlockDialog` with typed results.
 - Task detail owns loading and rendering immutable delay history.
 
-- [ ] **Step 1: Write failing widget tests** for WAITING labels/details, conditional actions, block validation, `OTHER` note validation, delay submission, unblock, history rendering, and input retention after API failure.
-- [ ] **Step 2: Implement focused action dialogs using Material date/time, dropdown, text, and user controls.**
-- [ ] **Step 3: Integrate task detail actions, blocking metadata, delay aggregates/history, and WAITING list styling.**
-- [ ] **Step 4: Run focused widget tests, all client tests, analyze, and format.**
-- [ ] **Step 5: Build Web and Android debug artifacts and commit with `feat: add task delay and blocking experience`.**
+- [x] **Step 1: Write failing widget tests** for WAITING labels/details, conditional actions, block validation, `OTHER` note validation, delay submission, unblock, history rendering, and input retention after API failure.
+- [x] **Step 2: Implement focused action dialogs using Material date/time, dropdown, text, and user controls.**
+- [x] **Step 3: Integrate task detail actions, blocking metadata, delay aggregates/history, and WAITING list styling.**
+- [x] **Step 4: Run focused widget tests, all client tests, analyze, and format.**
+- [x] **Step 5: Build Web and Android debug artifacts; implementation remains uncommitted pending integration choice.**
 
 ### Task 6: PostgreSQL Acceptance And Progress Documentation
 
@@ -129,9 +129,9 @@
 **Interfaces:**
 - `make smoke-delay-blocking` verifies the Phase 3 two-user workflow without printing passwords or tokens.
 
-- [ ] **Step 1: Write the smoke script** covering create-with-due-date, three delays, aggregate/history checks, block, second-user read, unblock/handler restore, event sequence, and temporary credential cleanup.
-- [ ] **Step 2: Run `make test`, shell syntax, Compose config, and diff checks.**
-- [ ] **Step 3: Run a clean isolated PostgreSQL Compose project and `make smoke-delay-blocking`.**
-- [ ] **Step 4: Restart the API and verify migration `0003_delay_blocking`, delay rows, task state, and events persist without duplication.**
-- [ ] **Step 5: Upgrade the user-facing API/Web processes without resetting fixed-user data and run desktop/mobile visual checks.**
-- [ ] **Step 6: Record exact evidence in the development status and commit with `feat: complete phase 3 delay and blocking`.**
+- [x] **Step 1: Write the smoke script** covering create-with-due-date, three delays, aggregate/history checks, block, second-user read, unblock/handler restore, event sequence, and temporary response cleanup.
+- [x] **Step 2: Run `make test`, shell syntax, Compose config, and diff checks.**
+- [x] **Step 3: Run a clean isolated PostgreSQL Compose project and `make smoke-delay-blocking`.**
+- [x] **Step 4: Restart the API and verify migration `0003_delay_blocking`, delay rows, task state, and events persist without duplication.**
+- [ ] **Step 5: Upgrade the user-facing API/Web processes without resetting fixed-user data and run desktop/mobile visual checks.** (隔离环境的 Web/Android 构建已通过；宿主机 8090 和真实设备视觉巡检留待部署集成。)
+- [x] **Step 6: Record exact evidence in the development status; implementation remains uncommitted pending integration choice.**

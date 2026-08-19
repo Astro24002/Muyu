@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证实施计划（Task 1-6）和 Phase 2 Task Core 已完成；Phase 3 延期和阻塞已启动。
+- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞的实现与自动化验收已完成；下一阶段为 Phase 4 状态冲突。发布前仍需由维护者决定提交和部署集成方式。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -169,6 +169,15 @@
 - 影响文件：`docs/superpowers/specs/2026-08-17-delay-blocking-design.md`，后续将新增 `0003_delay_blocking`、领域动作、任务 API、Flutter 详情交互和 Phase 3 smoke。
 - 验证命令与结果：规格已对照产品、技术设计、路线图和已确认决策完成一致性检查；未包含状态冲突、评论、事件、循环任务、首页或统计。
 - 下一步：按照 Phase 3 实施计划，以 TDD 顺序完成迁移、领域服务、API、Flutter 和 PostgreSQL 验收。
+
+### 2026-08-19 - Phase 3 延期和阻塞实现与自动化验收
+
+- 类型：验收 / 实施完成
+- 变更：完成 Flutter 延期和阻塞对话框、任务详情阻塞元数据与延期历史、延期统计、`WAITING` 条件动作和列表状态样式；新增不输出凭据的双用户 Phase 3 smoke 脚本，并接入 Makefile 和本地验收文档。
+- 原因：完成 MVP-Core 最后一条任务行为闭环，让延期原因、等待事实和恢复负责人在客户端与服务端保持一致。
+- 影响文件：`client/lib/screens/task_action_dialogs.dart`、`client/lib/screens/task_detail_screen.dart`、`client/lib/screens/task_list_screen.dart`、`client/test/widget/task_workspace_test.dart`、`client/test/support/fake_task_repository.dart`、`scripts/smoke-delay-blocking.sh`、`Makefile`、`docs/README.md`。
+- 验证命令与结果：后端 Docker 测试 `57 passed`（1 条既有 Starlette/httpx 弃用警告）；Flutter `dart format` 无变化、`flutter analyze` 无问题、`flutter test` `28 passed`；Web 构建成功，Android debug APK 构建成功；`bash -n scripts/smoke-delay-blocking.sh` 和 Compose config 通过。隔离 PostgreSQL Compose 项目 `muyu-phase3-final` 使用端口 `8094` 运行 `scripts/smoke-delay-blocking.sh` 和 `make smoke-delay-blocking` 均通过，覆盖三次延期、累计 `4320` 分钟、双方读取、阻塞/解除、负责人恢复和事件顺序；API 重启后 `/healthz` 返回 `{"status":"ok"}`，Alembic 版本为 `0003_delay_blocking`，延期记录、任务状态和事件仍然存在。当前未修改宿主机已有的 8090 服务，也未进行真实设备上的人工视觉巡检。
+- 下一步：由维护者决定是否提交并部署 Phase 3；之后进入 Phase 4 状态冲突（`status_version`、409 冲突记录和冲突解决流程）。
 
 ## 文档变更规则
 

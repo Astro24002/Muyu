@@ -9,6 +9,7 @@ TaskItem fakeTask(
   String currentHandlerId = '1',
   String? parentTaskId,
   String? blockedReason,
+  DateTime? blockedSince,
   String? resumeHandlerId,
   String? waitingForUserId,
   DateTime? dueAt,
@@ -22,6 +23,7 @@ TaskItem fakeTask(
   status: status,
   currentHandlerId: currentHandlerId,
   blockedReason: blockedReason,
+  blockedSince: blockedSince,
   resumeHandlerId: resumeHandlerId,
   waitingForUserId: waitingForUserId,
   plannedStartAt: null,
@@ -40,8 +42,15 @@ TaskItem fakeTask(
 
 class FakeTaskRepository implements TaskRepository {
   List<TaskItem> values;
+  List<TaskDelayRecord> delayValues;
+  String? actionFailure;
 
-  FakeTaskRepository({List<TaskItem>? values}) : values = values ?? [];
+  FakeTaskRepository({
+    List<TaskItem>? values,
+    List<TaskDelayRecord>? delayValues,
+    this.actionFailure,
+  }) : values = values ?? [],
+       delayValues = delayValues ?? [];
 
   @override
   Future<List<TaskItem>> list({String? parentTaskId}) async =>
@@ -102,6 +111,7 @@ class FakeTaskRepository implements TaskRepository {
     required String reason,
     String? note,
   }) async {
+    if (actionFailure != null) throw TaskFailure(actionFailure!);
     final current = await get(taskId);
     final updated = fakeTask(
       current.id,
@@ -115,11 +125,27 @@ class FakeTaskRepository implements TaskRepository {
       totalDelayMinutes: current.totalDelayMinutes + 1440,
     );
     _replace(updated);
+    delayValues = [
+      ...delayValues,
+      TaskDelayRecord(
+        id: 'delay-${delayValues.length + 1}',
+        taskId: taskId,
+        userId: current.currentHandlerId,
+        originalDueAt: current.dueAt!,
+        newDueAt: newDueAt,
+        delayedAt: DateTime.utc(2026, 8, 17),
+        delayDurationMinutes: 1440,
+        reason: reason,
+        note: note,
+        createdAt: DateTime.utc(2026, 8, 17),
+      ),
+    ];
     return updated;
   }
 
   @override
-  Future<List<TaskDelayRecord>> delays(String taskId) async => const [];
+  Future<List<TaskDelayRecord>> delays(String taskId) async =>
+      delayValues.where((record) => record.taskId == taskId).toList();
 
   @override
   Future<TaskItem> block(
@@ -128,6 +154,7 @@ class FakeTaskRepository implements TaskRepository {
     required String resumeHandlerId,
     String? waitingForUserId,
   }) async {
+    if (actionFailure != null) throw TaskFailure(actionFailure!);
     final current = await get(taskId);
     final updated = fakeTask(
       current.id,
@@ -137,6 +164,7 @@ class FakeTaskRepository implements TaskRepository {
       currentHandlerId: current.currentHandlerId,
       parentTaskId: current.parentTaskId,
       blockedReason: blockedReason,
+      blockedSince: DateTime.utc(2026, 8, 17),
       resumeHandlerId: resumeHandlerId,
       waitingForUserId: waitingForUserId,
       dueAt: current.dueAt,
@@ -148,7 +176,23 @@ class FakeTaskRepository implements TaskRepository {
   }
 
   @override
-  Future<TaskItem> unblock(String taskId) => _status(taskId, 'IN_PROGRESS');
+  Future<TaskItem> unblock(String taskId) async {
+    if (actionFailure != null) throw TaskFailure(actionFailure!);
+    final current = await get(taskId);
+    final updated = fakeTask(
+      current.id,
+      title: current.title,
+      status: 'IN_PROGRESS',
+      assigneeIds: current.assigneeIds,
+      currentHandlerId: current.resumeHandlerId ?? current.currentHandlerId,
+      parentTaskId: current.parentTaskId,
+      dueAt: current.dueAt,
+      delayCount: current.delayCount,
+      totalDelayMinutes: current.totalDelayMinutes,
+    );
+    _replace(updated);
+    return updated;
+  }
 
   @override
   Future<TaskItem> reopen(String taskId) => _status(taskId, 'TODO');

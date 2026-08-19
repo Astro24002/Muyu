@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞的实现与自动化验收已完成；下一阶段为 Phase 4 状态冲突。发布前仍需由维护者决定提交和部署集成方式。
+- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞已完成；Phase 4 状态冲突设计已提交，等待规格复核后进入实施计划。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -178,6 +178,15 @@
 - 影响文件：`client/lib/screens/task_action_dialogs.dart`、`client/lib/screens/task_detail_screen.dart`、`client/lib/screens/task_list_screen.dart`、`client/test/widget/task_workspace_test.dart`、`client/test/support/fake_task_repository.dart`、`scripts/smoke-delay-blocking.sh`、`Makefile`、`docs/README.md`。
 - 验证命令与结果：后端 Docker 测试 `57 passed`（1 条既有 Starlette/httpx 弃用警告）；Flutter `dart format` 无变化、`flutter analyze` 无问题、`flutter test` `28 passed`；Web 构建成功，Android debug APK 构建成功；`bash -n scripts/smoke-delay-blocking.sh` 和 Compose config 通过。隔离 PostgreSQL Compose 项目 `muyu-phase3-final` 使用端口 `8094` 运行 `scripts/smoke-delay-blocking.sh` 和 `make smoke-delay-blocking` 均通过，覆盖三次延期、累计 `4320` 分钟、双方读取、阻塞/解除、负责人恢复和事件顺序；API 重启后 `/healthz` 返回 `{"status":"ok"}`，Alembic 版本为 `0003_delay_blocking`，延期记录、任务状态和事件仍然存在。当前未修改宿主机已有的 8090 服务，也未进行真实设备上的人工视觉巡检。
 - 下一步：由维护者决定是否提交并部署 Phase 3；之后进入 Phase 4 状态冲突（`status_version`、409 冲突记录和冲突解决流程）。
+
+### 2026-08-19 - Phase 4 状态冲突设计
+
+- 类型：设计 / 待复核
+- 变更：确定采用基于 `status_version` 的乐观并发控制；新增冲突快照、双方审批、`SUPERSEDED` 替代规则、409 HTTP 契约、Flutter 冲突专区和 PostgreSQL 验收边界的设计规格。
+- 原因：在两台设备同时修改同一任务状态时避免静默覆盖，并保留可审计的协商与解决过程。
+- 影响文件：`docs/superpowers/specs/2026-08-19-status-conflicts-design.md`。
+- 验证命令与结果：已对照产品、技术设计、路线图和已确认决策；代码和迁移验证将在规格复核通过后按 TDD 计划执行。
+- 下一步：请复核规格；确认后创建 Phase 4 实施计划，再开始迁移、领域服务、API、Flutter 和 PostgreSQL smoke 实现。
 
 ## 文档变更规则
 

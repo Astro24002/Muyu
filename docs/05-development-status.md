@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞已完成；已完成 Local-first P2P 架构讨论并提交规格，等待规格复核后进入 P2P 实施计划。
+- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞已完成；Local-first P2P 架构规格已通过复核，实现计划已提交，等待选择执行方式后进入 P2P 实现。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -13,7 +13,8 @@
 - Phase 3 规格：[Phase 3 Delay And Blocking Design](./superpowers/specs/2026-08-17-delay-blocking-design.md)。
 - Phase 3 实施计划：[Phase 3 Delay And Blocking Implementation Plan](./superpowers/plans/2026-08-17-delay-blocking.md)。
 - Local-first P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
-- Git：本地 `main` 已跟踪 GitHub `origin/main`；设计基线提交为 `1804216`，实施计划与状态记录提交为 `cd8820b`。
+- Local-first P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
+- Git：本地 `main` 已跟踪 GitHub `origin/main`；P2P 规格和计划按独立文档提交，后续实现按任务保持独立提交。
 
 ## 已完成
 
@@ -196,8 +197,8 @@
 - 原因：项目当前目标是不引入云端内容，数据只在两台机器之间同步；服务端状态版本冲突无法表达离线事件分支和端到端密钥边界。
 - 影响文件：docs/superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md、docs/02-technical-design.md、docs/03-roadmap.md、docs/04-decisions.md、docs/README.md。
 - 迁移影响：新 P2P 首版从新建 Workspace 开始，不自动导入现有 PostgreSQL 任务；旧服务端实现保留为 Phase 0-3 历史基线，不进入新客户端运行时路径。
-- 验证命令与结果：P2P 规格自审通过，规格文件无 TODO/TBD/待定/未决占位；git diff --check 通过。代码和设备联调将在规格复核及实施计划批准后开始。
-- 下一步：请复核 Local-first P2P 架构规格；确认后创建实现计划。
+- 验证命令与结果：P2P 规格自审通过，规格文件无 TODO/TBD/待定/未决占位；git diff --check 通过；实现计划已完成接口依赖自审和占位符扫描。
+- 下一步：架构规格已获确认；实现计划已创建，待选择 Subagent-Driven 或 Inline Execution 后开始 Task 1。
 
 ## 文档变更规则
 

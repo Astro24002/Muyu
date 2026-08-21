@@ -39,11 +39,16 @@
 7. [实施计划](./superpowers/plans/2026-08-16-project-foundation-auth.md)
    - 首轮工程任务分解和测试验收步骤。
 
+8. [Local-first P2P 双人同步架构规格](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)
+   - 两台 Android 设备直连同步、设备身份、事件加密、事件合并和换机规则。
+
 ## 当前状态
 
-当前已完成首轮 Python/FastAPI 后端、PostgreSQL 迁移、认证 API、Flutter Android/Web 客户端、Phase 2 Task Core，以及 Phase 3 延期和阻塞的服务端、客户端和 PostgreSQL 自动化验收。密码等部署敏感信息不写入文档和代码，使用部署环境 Secret 注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+当前已完成首轮 Python/FastAPI 后端、PostgreSQL 迁移、认证 API、Flutter Android/Web 客户端、Phase 2 Task Core，以及 Phase 3 延期和阻塞的服务端、客户端和 PostgreSQL 自动化验收。2026-08-21 起新架构转向两台 Android 客户端直接 P2P 同步，服务端任务数据路径和旧 Phase 4 状态冲突方案暂不继续实施。密码等部署敏感信息不写入文档和代码，使用部署环境 Secret 注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
 
 ## 本地验收
+
+以下命令只验收历史 Phase 0-3 的服务端基线；P2P 客户端验收将在后续实施计划中加入。
 
 ```bash
 make test

@@ -1,5 +1,9 @@
 # 开发路线
 
+## 2026-08-21 架构转向
+
+Phase 0-3 的服务端实现和验收记录保留为历史基线。后续任务开发改为 [Local-first P2P 双人同步架构](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)：两台 Android 设备通过二维码接触匹配和局域网/热点直连同步本地追加式事件，FastAPI/PostgreSQL 不再保存或合并新任务事实。原 Phase 4 的服务端 status_version 冲突方案在尚未实现前停止，后续由本地事件合并和双方签名确认方案替代。
+
 ## 发布分层
 
 本项目不把所有功能一次性视为同一个 MVP：

@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞已完成；Phase 4 状态冲突设计已提交，等待规格复核后进入实施计划。
+- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞已完成；已完成 Local-first P2P 架构讨论并提交规格，等待规格复核后进入 P2P 实施计划。
 - 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -12,6 +12,7 @@
 - Phase 2 实施计划：[Phase 2 Task Core Implementation Plan](./superpowers/plans/2026-08-17-task-core.md)。
 - Phase 3 规格：[Phase 3 Delay And Blocking Design](./superpowers/specs/2026-08-17-delay-blocking-design.md)。
 - Phase 3 实施计划：[Phase 3 Delay And Blocking Implementation Plan](./superpowers/plans/2026-08-17-delay-blocking.md)。
+- Local-first P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；设计基线提交为 `1804216`，实施计划与状态记录提交为 `cd8820b`。
 
 ## 已完成
@@ -187,6 +188,16 @@
 - 影响文件：`docs/superpowers/specs/2026-08-19-status-conflicts-design.md`。
 - 验证命令与结果：已对照产品、技术设计、路线图和已确认决策；代码和迁移验证将在规格复核通过后按 TDD 计划执行。
 - 下一步：请复核规格；确认后创建 Phase 4 实施计划，再开始迁移、领域服务、API、Flutter 和 PostgreSQL smoke 实现。
+
+### 2026-08-21 - Local-first P2P 架构转向
+
+- 类型：设计变更 / 架构规格
+- 变更：任务事实源从 FastAPI/PostgreSQL 转为两台 Android 客户端的本地追加式 Event Store；同步改为二维码接触匹配后的局域网或设备热点直连；新增设备身份、Epoch/事件密钥、每设备 hash 链、因果合并、双方状态冲突确认和换机撤销规则。
+- 原因：项目当前目标是不引入云端内容，数据只在两台机器之间同步；服务端状态版本冲突无法表达离线事件分支和端到端密钥边界。
+- 影响文件：docs/superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md、docs/02-technical-design.md、docs/03-roadmap.md、docs/04-decisions.md、docs/README.md。
+- 迁移影响：新 P2P 首版从新建 Workspace 开始，不自动导入现有 PostgreSQL 任务；旧服务端实现保留为 Phase 0-3 历史基线，不进入新客户端运行时路径。
+- 验证命令与结果：P2P 规格自审通过，规格文件无 TODO/TBD/待定/未决占位；git diff --check 通过。代码和设备联调将在规格复核及实施计划批准后开始。
+- 下一步：请复核 Local-first P2P 架构规格；确认后创建实现计划。
 
 ## 文档变更规则
 

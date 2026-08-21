@@ -1,5 +1,7 @@
 # 双人协作行动管理系统技术设计
 
+> 当前运行时架构以 [Local-first P2P 双人同步架构规格](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md) 为准：任务事实源、设备身份、事件加密和冲突合并全部位于两台 Android 客户端。本文件中的 FastAPI/PostgreSQL、JWT 和服务端任务模型是 Phase 0-3 的历史设计，保留用于理解现有实现，不作为新 P2P 客户端的数据路径。
+
 ## 1. 总体架构
 
 第一版采用单体架构：

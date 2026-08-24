@@ -1,14 +1,15 @@
 PYTHON_IMAGE := m.daocloud.io/docker.io/library/python:3.12-slim
 COMPOSE_ENV_FILE ?= deploy/.env.example
-COMPOSE_PROJECT_NAME ?= muyu
-API_PORT ?= 8080
+COMPOSE_PROJECT_NAME ?= muyu-cloud
 TEST_DATABASE_URL ?= postgresql+psycopg://muyu:muyu@localhost:5432/muyu_test
 FLUTTER ?= $(shell command -v flutter 2>/dev/null || printf '%s/develop/flutter/bin/flutter' "$(HOME)")
 DART ?= $(dir $(FLUTTER))dart
 
-.PHONY: test backend-test backend-migrate backend-smoke client-test client-build compose-up compose-down compose-clean smoke
+.PHONY: test verify backend-test backend-migrate backend-smoke client-test client-build client-build-web check-deployment compose-up compose-down compose-clean smoke
 
 test: backend-test client-test
+
+verify: backend-migrate backend-test client-test check-deployment
 
 backend-test:
 	docker run --rm --network host \
@@ -33,15 +34,21 @@ client-test:
 	cd client && $(FLUTTER) pub get && $(DART) format --output=none --set-exit-if-changed . && $(FLUTTER) analyze && $(FLUTTER) test
 
 client-build:
-	cd client && $(FLUTTER) pub get && $(FLUTTER) build apk --debug
+	cd client && $(FLUTTER) pub get && $(FLUTTER) build apk --debug --dart-define=API_BASE_URL=/api/v1
+
+client-build-web:
+	cd client && $(FLUTTER) pub get && $(FLUTTER) build web --release --dart-define=API_BASE_URL=/api/v1
+
+check-deployment:
+	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) COMPOSE_ENV_FILE=$(COMPOSE_ENV_FILE) ./scripts/check-deployment.sh
 
 compose-up:
-	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) API_PORT=$(API_PORT) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml up --build -d
+	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml up --build -d
 
 compose-down:
-	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) API_PORT=$(API_PORT) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml down --remove-orphans
+	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml down --remove-orphans
 
 compose-clean:
-	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) API_PORT=$(API_PORT) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml down --volumes --remove-orphans
+	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml down --volumes --remove-orphans
 
 smoke: backend-smoke

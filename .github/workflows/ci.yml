@@ -4,20 +4,23 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: m.daocloud.io/docker.io/library/postgres:16-alpine
+        image: postgres:16
         env:
-          POSTGRES_DB: muyu
+          POSTGRES_DB: muyu_test
           POSTGRES_USER: muyu
-          POSTGRES_PASSWORD: ci-password
+          POSTGRES_PASSWORD: test-only-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U muyu -d muyu"
+          --health-cmd="pg_isready -U muyu -d muyu_test"
           --health-interval=5s
           --health-timeout=3s
           --health-retries=20
@@ -25,9 +28,12 @@ jobs:
       run:
         working-directory: backend
     env:
-      TEST_DATABASE_URL: postgresql+psycopg://muyu:ci-password@localhost:5432/muyu
-      DATABASE_URL: postgresql+psycopg://muyu:ci-password@localhost:5432/muyu
-      OTP_PEPPER: ci-otp-pepper-with-at-least-thirty-two-characters
+      TEST_DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
+      DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
+      OTP_PEPPER: ci-only-otp-pepper-with-at-least-thirty-two-characters
+      OTP_PROVIDER: fake
+      PUBLIC_BASE_URL: http://localhost:8080
+      WEB_COOKIE_SECURE: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,3 +61,95 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
       - run: flutter test
+      - run: flutter test integration_test/web_session_flow_test.dart -d chrome
+      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid/api/v1
+      - run: flutter build web --release --dart-define=API_BASE_URL=/api/v1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: client/build/app/outputs/flutter-apk/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-release
+          path: client/build/web
+
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose version
+      - run: make check-deployment
+      - run: bash -n deploy/scripts/backup-verify.sh deploy/scripts/restore-drill.sh scripts/smoke-cloud-protocol.sh
+      - run: test ! -e scripts/smoke-auth.sh && test ! -e scripts/smoke-tasks.sh && test ! -e scripts/smoke-delay-blocking.sh
+      - run: '! rg -n "smoke-auth|smoke-tasks|smoke-delay|AUTH_PASSWORD" Makefile .github deploy'
+
+  cloud-protocol:
+    if: ${{ vars.RUN_CLOUD_PROTOCOL == 'true' }}
+    needs: [backend, deployment]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: muyu_test
+          POSTGRES_USER: muyu
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U muyu -d muyu_test"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e 'backend[dev]'
+      - run: |
+          nohup uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8080 >/tmp/muyu-api.log 2>&1 &
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
+          OTP_PEPPER: ci-only-otp-pepper-with-at-least-thirty-two-characters
+          OTP_PROVIDER: fake
+          PUBLIC_BASE_URL: http://localhost:8080
+      - run: |
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:8080/health/ready && exit 0
+            sleep 1
+          done
+          cat /tmp/muyu-api.log
+          exit 1
+      - run: alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
+      - run: python -m pytest tests/e2e/test_cloud_protocol.py -q
+        working-directory: backend
+        env:
+          RUN_CLOUD_PROTOCOL: '1'
+          CLOUD_PROTOCOL_BASE_URL: http://127.0.0.1:8080
+          OTP_CODE_A: '000000'
+          OTP_CODE_B: '000000'
+      - run: OTP_CODE_A=000000 OTP_CODE_B=000000 API_BASE_URL=http://127.0.0.1:8080 sh scripts/smoke-cloud-protocol.sh
+
+  android-emulator:
+    if: ${{ vars.RUN_ANDROID_EMULATOR == 'true' }}
+    needs: client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+        working-directory: client
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          script: flutter test integration_test/mobile_cloud_flow_test.dart
+          working-directory: client

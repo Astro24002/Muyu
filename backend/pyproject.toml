@@ -28,6 +28,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "cloud_protocol: opt-in test against a disposable cloud API stack",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: muyu_test
+          POSTGRES_USER: muyu
+          POSTGRES_PASSWORD: test-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U muyu -d muyu_test"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
+      DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
+      OTP_PEPPER: release-ci-only-otp-pepper-with-at-least-thirty-two-characters
+      OTP_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install -e '.[dev]'
+      - run: alembic upgrade head
+      - run: python -m pytest -q
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+        working-directory: client
+      - run: dart format --output=none --set-exit-if-changed .
+        working-directory: client
+      - run: flutter analyze
+        working-directory: client
+      - run: flutter test
+        working-directory: client
+
+  release:
+    needs: [backend, client]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+      - name: Validate release signing inputs
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE" || { echo 'ANDROID_KEYSTORE_BASE64 is required' >&2; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo 'ANDROID_KEYSTORE_PASSWORD is required' >&2; exit 1; }
+          test -n "$KEY_ALIAS" || { echo 'ANDROID_KEY_ALIAS is required' >&2; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo 'ANDROID_KEY_PASSWORD is required' >&2; exit 1; }
+      - name: Build signed Android and Web artifacts
+        id: build
+        working-directory: client
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          key_path="$RUNNER_TEMP/muyu-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode >"$key_path"
+          export ANDROID_KEYSTORE_PATH="$key_path"
+          trap 'rm -f "$key_path"' EXIT
+          flutter pub get
+          flutter build appbundle --release --dart-define=API_BASE_URL=/api/v1
+          flutter build web --release --dart-define=API_BASE_URL=/api/v1
+          tar -czf web-release.tar.gz -C build web
+          sha256sum build/app/outputs/bundle/release/app-release.aab web-release.tar.gz > SHA256SUMS
+          git rev-parse HEAD > SOURCE_COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: |
+            client/build/app/outputs/bundle/release/app-release.aab
+            client/web-release.tar.gz
+            client/SHA256SUMS
+            client/SOURCE_COMMIT
+      - name: Remove temporary signing file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/muyu-release.jks"

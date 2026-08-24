@@ -22,6 +22,9 @@ class TaskItem {
     required this.assigneeIds,
     this.delayCount = 0,
     this.totalDelayMinutes = 0,
+    this.fieldVersions = const {},
+    this.lifecycleVersion = 1,
+    this.deletedAt,
   });
 
   final String id;
@@ -46,6 +49,9 @@ class TaskItem {
   final List<String> assigneeIds;
   final int delayCount;
   final int totalDelayMinutes;
+  final Map<String, int> fieldVersions;
+  final int lifecycleVersion;
+  final DateTime? deletedAt;
 
   factory TaskItem.fromJson(Map<String, dynamic> json) => TaskItem(
     id: json['id'] as String,
@@ -70,9 +76,22 @@ class TaskItem {
     assigneeIds: (json['assignee_ids'] as List<dynamic>).cast<String>(),
     delayCount: json['delay_count'] as int? ?? 0,
     totalDelayMinutes: json['total_delay_minutes'] as int? ?? 0,
+    fieldVersions:
+        (json['field_versions'] as Map<Object?, Object?>?)?.map(
+          (key, value) => MapEntry(key as String, value as int),
+        ) ??
+        const {},
+    lifecycleVersion: json['lifecycle_version'] as int? ?? 1,
+    deletedAt: _date(json['deleted_at']),
   );
 
-  TaskItem copyWith({String? status, String? currentHandlerId}) => TaskItem(
+  TaskItem copyWith({
+    String? status,
+    String? currentHandlerId,
+    Map<String, int>? fieldVersions,
+    int? lifecycleVersion,
+    DateTime? deletedAt,
+  }) => TaskItem(
     id: id,
     parentTaskId: parentTaskId,
     title: title,
@@ -95,6 +114,9 @@ class TaskItem {
     assigneeIds: assigneeIds,
     delayCount: delayCount,
     totalDelayMinutes: totalDelayMinutes,
+    fieldVersions: fieldVersions ?? this.fieldVersions,
+    lifecycleVersion: lifecycleVersion ?? this.lifecycleVersion,
+    deletedAt: deletedAt ?? this.deletedAt,
   );
 
   static DateTime? _date(Object? value) =>

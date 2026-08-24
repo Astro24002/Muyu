@@ -1,0 +1,132 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../models/workspace_change.dart';
+import '../models/workspace_snapshot.dart';
+import 'workspace_cache.dart';
+import 'workspace_sync_repository.dart';
+
+class WorkspaceSyncState {
+  const WorkspaceSyncState({
+    this.snapshot,
+    this.isStale = true,
+    this.loading = false,
+    this.errorMessage,
+  });
+
+  final WorkspaceSnapshot? snapshot;
+  final bool isStale;
+  final bool loading;
+  final String? errorMessage;
+
+  int get cursor => snapshot?.cursor ?? 0;
+
+  WorkspaceSyncState copyWith({
+    WorkspaceSnapshot? snapshot,
+    bool? isStale,
+    bool? loading,
+    String? errorMessage,
+  }) => WorkspaceSyncState(
+    snapshot: snapshot ?? this.snapshot,
+    isStale: isStale ?? this.isStale,
+    loading: loading ?? this.loading,
+    errorMessage: errorMessage,
+  );
+}
+
+class WorkspaceSyncController extends ChangeNotifier {
+  WorkspaceSyncController(this._repository, {this._cache});
+
+  WorkspaceSyncController.unavailable() : _repository = null, _cache = null;
+
+  final WorkspaceSyncRepository? _repository;
+  final WorkspaceCache? _cache;
+  WorkspaceSyncState state = const WorkspaceSyncState();
+  final List<Object> inFlightMutations = [];
+  StreamSubscription? _hintsSubscription;
+
+  Future<bool> get canMutate async => _repository != null && !state.isStale;
+
+  Future<void> start() async {
+    if (_repository == null) return;
+    await refresh();
+    scheduleMicrotask(() {
+      _hintsSubscription = _repository.openWorkspaceHints().listen((hint) {
+        if (hint.cursor > state.cursor) pull();
+      });
+    });
+  }
+
+  Future<void> refresh() async {
+    if (_repository == null) return;
+    _setLoading();
+    try {
+      final snapshot = await _repository.snapshot();
+      await _cache?.write(snapshot);
+      state = WorkspaceSyncState(snapshot: snapshot, isStale: false);
+    } catch (error) {
+      state = state.copyWith(isStale: true, errorMessage: '$error');
+    }
+    notifyListeners();
+  }
+
+  Future<void> pull() async {
+    final repository = _repository;
+    final current = state.snapshot;
+    if (repository == null || current == null) return;
+    try {
+      final result = await repository.changes(afterCursor: current.cursor);
+      if (result.cursor <= current.cursor) return;
+      if (result.changes.any((change) => change.cursor <= current.cursor) ||
+          (result.changes.isNotEmpty &&
+              result.changes.first.cursor != current.cursor + 1)) {
+        await refresh();
+        return;
+      }
+      final tasks = [...current.tasks];
+      for (final change in result.changes) {
+        _apply(tasks, change);
+      }
+      state = WorkspaceSyncState(
+        snapshot: WorkspaceSnapshot(
+          workspaceId: current.workspaceId,
+          cursor: result.cursor,
+          tasks: tasks,
+          members: current.members,
+          conflicts: current.conflicts,
+          fetchedAt: DateTime.now(),
+        ),
+        isStale: false,
+      );
+      await _cache?.write(state.snapshot!);
+      notifyListeners();
+    } catch (error) {
+      state = state.copyWith(isStale: true, errorMessage: '$error');
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _hintsSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _setLoading() {
+    state = state.copyWith(loading: true, errorMessage: null);
+    notifyListeners();
+  }
+
+  static void _apply(List tasks, WorkspaceChange change) {
+    if (change.resourceType != 'task' || change.task == null) return;
+    final index = tasks.indexWhere((task) => task.id == change.resourceId);
+    if (change.action == 'deleted') {
+      if (index != -1) tasks[index] = change.task;
+    } else if (index == -1) {
+      tasks.add(change.task);
+    } else {
+      tasks[index] = change.task;
+    }
+  }
+}

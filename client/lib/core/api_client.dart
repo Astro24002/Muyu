@@ -22,17 +22,18 @@ class ApiClient {
   ApiClient({
     required String baseUrl,
     required this.httpClient,
-    required this.tokenStore,
+    this.tokenStore,
   }) : _baseUrl = baseUrl.replaceFirst(RegExp(r'/$'), '');
 
   final String _baseUrl;
   final http.Client httpClient;
-  final TokenStore tokenStore;
+  final TokenStore? tokenStore;
 
   Future<Object?> request(
     String method,
     String path, {
     Map<String, Object?>? body,
+    Map<String, String>? headers,
     bool authenticated = false,
     Future<void> Function()? refreshTokens,
   }) async {
@@ -41,13 +42,20 @@ class ApiClient {
         method,
         path,
         body: body,
+        requestHeaders: headers,
         authenticated: authenticated,
       );
       if (response.statusCode == 401 &&
           authenticated &&
           refreshTokens != null) {
         await refreshTokens();
-        response = await _send(method, path, body: body, authenticated: true);
+        response = await _send(
+          method,
+          path,
+          body: body,
+          requestHeaders: headers,
+          authenticated: true,
+        );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw _exceptionFrom(response);
@@ -69,12 +77,14 @@ class ApiClient {
     String method,
     String path, {
     Map<String, Object?>? body,
+    Map<String, String>? requestHeaders,
     required bool authenticated,
   }) async {
     final headers = <String, String>{'accept': 'application/json'};
+    if (requestHeaders != null) headers.addAll(requestHeaders);
     if (body != null) headers['content-type'] = 'application/json';
     if (authenticated) {
-      final accessToken = await tokenStore.readAccessToken();
+      final accessToken = await tokenStore?.readAccessToken();
       if (accessToken != null) headers['authorization'] = 'Bearer $accessToken';
     }
     final request = http.Request(method, Uri.parse('$_baseUrl$path'))

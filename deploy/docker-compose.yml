@@ -1,41 +1,121 @@
+name: muyu-cloud
+
 services:
-  db:
-    image: m.daocloud.io/docker.io/library/postgres:16-alpine
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - edge
+      - internal
+    restart: unless-stopped
 
   api:
     build:
       context: ../backend
+      dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      OTP_PEPPER: ${OTP_PEPPER}
-      OTP_PROVIDER: ${OTP_PROVIDER:-fake}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
-      WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-false}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      OTP_PEPPER: ${OTP_PEPPER:?OTP_PEPPER is required}
+      OTP_PROVIDER: ${OTP_PROVIDER:-production}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?ALLOWED_HOSTS is required}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?TRUSTED_PROXY_IPS is required}
+      WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:?WEB_COOKIE_SECURE is required}
+      SMS_PROVIDER_ACCOUNT_SID: ${SMS_PROVIDER_ACCOUNT_SID:?SMS_PROVIDER_ACCOUNT_SID is required}
+      SMS_PROVIDER_AUTH_TOKEN: ${SMS_PROVIDER_AUTH_TOKEN:?SMS_PROVIDER_AUTH_TOKEN is required}
+      SMS_PROVIDER_FROM_NUMBER: ${SMS_PROVIDER_FROM_NUMBER:?SMS_PROVIDER_FROM_NUMBER is required}
       HTTP_HOST: 0.0.0.0
       HTTP_PORT: 8080
+    expose:
+      - "8080"
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${API_PORT:-8080}:8080"
     healthcheck:
-      test:
-        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready')"]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 10s
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+
+  db:
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    volumes:
+      - muyu_cloud_pgdata:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - backup_repo:/var/lib/pgbackrest
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+      - backup
+    restart: unless-stopped
+
+  backup:
+    build:
+      context: .
+      dockerfile: backup/Dockerfile
+    environment:
+      PGBACKREST_REPO1_CIPHER_PASS: ${BACKUP_ENCRYPTION_KEY:?BACKUP_ENCRYPTION_KEY is required}
+      PGBACKREST_REPO1_S3_KEY: ${BACKUP_REPOSITORY_USER:?BACKUP_REPOSITORY_USER is required}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${BACKUP_REPOSITORY_PASSWORD:?BACKUP_REPOSITORY_PASSWORD is required}
+      BACKUP_RETENTION_FULL: ${BACKUP_RETENTION_FULL:-7}
+      BACKUP_RETENTION_DIFF: ${BACKUP_RETENTION_DIFF:-14}
+    volumes:
+      - backup_repo:/var/lib/pgbackrest
+      - ./postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backup
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  muyu_cloud_pgdata:
+    name: muyu_cloud_pgdata
+  backup_repo:
+    name: muyu_cloud_backup_repo
+  caddy_data:
+    name: muyu_cloud_caddy_data
+  caddy_config:
+    name: muyu_cloud_caddy_config
+
+networks:
+  edge:
+  internal:
+    internal: true
+  backup:
+    internal: true

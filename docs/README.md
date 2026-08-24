@@ -2,7 +2,14 @@
 
 本目录记录双人协作行动管理系统在进入工程开发前已经确认的产品和技术设计。
 
-## 文档
+## 当前规格
+
+1. [云端协调双人协作架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)
+   - 云端明文事实源、短信认证、设备审批和 Web 扫码会话；
+   - PostgreSQL 事务、字段级冲突、cursor 增量同步与通知；
+   - Android APK/AAB 与 Web 静态构建的共同发布和验收边界。
+
+## 关联资料
 
 1. [产品需求](./01-product.md)
    - 产品定位；
@@ -11,7 +18,7 @@
    - 首页和反拖延原则；
    - MVP 范围。
 
-2. [技术设计](./02-technical-design.md)
+2. [技术设计（历史 Phase 0-3 基线）](./02-technical-design.md)
    - 总体架构；
    - 数据模型；
    - 状态转换；
@@ -33,25 +40,25 @@
    - 已完成工作和验收结果；
    - 设计变更与进度记录规则。
 
-6. [工程规格](./superpowers/specs/2026-08-16-project-foundation-design.md)
+6. [工程规格（历史）](./superpowers/specs/2026-08-16-project-foundation-design.md)
    - 首轮工程基础与双人认证设计。
 
-7. [实施计划](./superpowers/plans/2026-08-16-project-foundation-auth.md)
+7. [实施计划（历史）](./superpowers/plans/2026-08-16-project-foundation-auth.md)
    - 首轮工程任务分解和测试验收步骤。
 
-8. [Local-first P2P 双人同步架构规格](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)
+8. [Local-first P2P 双人同步架构规格（历史）](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)
    - 两台 Android 设备直连同步、设备身份、事件加密、事件合并和换机规则。
 
-9. [Local-first P2P 实施计划](./superpowers/plans/2026-08-21-local-first-p2p.md)
+9. [Local-first P2P 实施计划（历史）](./superpowers/plans/2026-08-21-local-first-p2p.md)
    - 本地 SQLite Event Store、加密事件、确定性合并、P2P 续传和 Android 验收任务。
 
 ## 当前状态
 
-当前已完成首轮 Python/FastAPI 后端、PostgreSQL 迁移、认证 API、Flutter Android/Web 客户端、Phase 2 Task Core，以及 Phase 3 延期和阻塞的服务端、客户端和 PostgreSQL 自动化验收。2026-08-21 起新架构转向两台 Android 客户端直接 P2P 同步，架构规格已通过复核，实现计划已形成，服务端任务数据路径和旧 Phase 4 状态冲突方案暂不继续实施。密码等部署敏感信息不写入文档和代码，使用部署环境 Secret 注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。正式规格已写入，正在等待复核后再编写实施计划；尚未开始删除旧 P2P/旧后端代码或创建新架构数据库。Phase 0-3 的实现、验收记录和 P2P 文档均为历史基线，不可作为新系统验收依据。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
 
-## 本地验收
+## 历史基线验收
 
-以下命令只验收历史 Phase 0-3 的服务端基线；P2P 客户端验收按 [实施计划](./superpowers/plans/2026-08-21-local-first-p2p.md) 的任务逐步加入。
+以下命令只验收历史 Phase 0-3 服务端基线，不验证当前云端协调架构。新架构的 PostgreSQL、Android APK/AAB 和 Web 静态构建验收命令将在实施计划中定义。
 
 ```bash
 make test

@@ -4,17 +4,20 @@
 
 ## 当前状态
 
-- 当前阶段：首轮工程基础与认证、Phase 2 Task Core、Phase 3 延期和阻塞已完成；Local-first P2P 架构规格已通过复核，实现计划已提交，等待选择执行方式后进入 P2P 实现。
-- 产品与技术设计：已确认，分别见 [产品需求](./01-product.md)、[技术设计](./02-technical-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
-- 首轮工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
-- 首轮实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
-- Phase 2 规格：[Phase 2 Task Core Design](./superpowers/specs/2026-08-17-task-core-design.md)。
-- Phase 2 实施计划：[Phase 2 Task Core Implementation Plan](./superpowers/plans/2026-08-17-task-core.md)。
-- Phase 3 规格：[Phase 3 Delay And Blocking Design](./superpowers/specs/2026-08-17-delay-blocking-design.md)。
-- Phase 3 实施计划：[Phase 3 Delay And Blocking Implementation Plan](./superpowers/plans/2026-08-17-delay-blocking.md)。
-- Local-first P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
-- Local-first P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
-- Git：本地 `main` 已跟踪 GitHub `origin/main`；P2P 规格和计划按独立文档提交，后续实现按任务保持独立提交。
+- 当前阶段：云端协调架构已确认并形成 [正式规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)，等待规格复核后再编写实施计划；尚未开始新架构代码、数据库初始化或旧运行时代码删除。
+- 当前产品和运行时设计：[产品需求](./01-product.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
+- 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 需要静态构建；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
+- 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
+- 历史基线：首轮工程、Phase 2/3、固定密码认证和 Local-first P2P 的规格、计划、实现与验收记录只用于理解待替换资产，不可作为新实现依据。
+- 历史工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
+- 历史实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
+- 历史 Phase 2 规格：[Phase 2 Task Core Design](./superpowers/specs/2026-08-17-task-core-design.md)。
+- 历史 Phase 2 实施计划：[Phase 2 Task Core Implementation Plan](./superpowers/plans/2026-08-17-task-core.md)。
+- 历史 Phase 3 规格：[Phase 3 Delay And Blocking Design](./superpowers/specs/2026-08-17-delay-blocking-design.md)。
+- 历史 Phase 3 实施计划：[Phase 3 Delay And Blocking Implementation Plan](./superpowers/plans/2026-08-17-delay-blocking.md)。
+- 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
+- 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
+- Git：本地 `main` 已跟踪 GitHub `origin/main`；当前规格和后续实施计划按独立文档提交，代码改造按受控任务保持独立提交。
 
 ## 已完成
 
@@ -28,9 +31,9 @@
 - 完成 Python 3.12/FastAPI 运行时骨架、配置校验、Dockerfile、Compose 和健康检查。
 - 完成 SQLAlchemy 模型、Alembic `users`/`sessions` 迁移、固定用户幂等初始化、用户仓库和启动生命周期接线。
 
-## 当前实施顺序
+## 历史实施顺序（Phase 0-3）
 
-严格按以下顺序推进，前一项未通过验收不得跳到后一项：
+以下顺序已经完成并仅记录旧基线；它不约束当前云端架构的后续实现：
 
 1. 仓库与运行时骨架；
 2. PostgreSQL 迁移与两名固定用户初始化；
@@ -40,6 +43,17 @@
 6. Compose、CI 和端到端验收。
 
 ## 设计变更
+
+### 2026-08-24 - 云端协调架构替代 Local-first P2P
+
+- 类型：设计变更 / 新运行时规格
+- 变更：任务事实源回到 PostgreSQL；FastAPI 模块化单体通过 REST cursor 同步和通知型 WebSocket 协调 Android 与 Web；认证改为 Android 短信验证码、长期设备审批和 Web 扫码会话；任务内容允许云端明文保存。
+- 原因：产品需要稳定的多设备与 Web 协作体验，用户已明确选择云端中继和默认云端同步，而非仅两台机器 P2P 直连。
+- 影响文件：云端架构规格、技术设计、路线图、已确认决策、文档索引与本状态记录；后续将替换旧 P2P、固定密码认证和旧后端运行时。
+- 数据迁移影响：从空 Workspace 与新数据库模型开始，不导入旧任务、延期、活动、用户或 P2P 事件，不保留兼容 API。
+- 验收影响：新增 PostgreSQL 事务/锁、短信验证码、设备审批、扫码会话、cursor、冲突、Android APK/AAB 与 Web 静态构建的共同验收；iOS 不进入本轮。
+- 当前状态：规格已形成，实施计划和代码改造尚未开始；必须先完成规格复核。
+- 下一步：复核规格后编写可执行实施计划，再受控删除旧运行时并实现新架构。
 
 ### 2026-08-16 - 后端从 Go 切换为 Python 3.12
 
@@ -190,7 +204,7 @@
 - 验证命令与结果：已对照产品、技术设计、路线图和已确认决策；代码和迁移验证将在规格复核通过后按 TDD 计划执行。
 - 下一步：请复核规格；确认后创建 Phase 4 实施计划，再开始迁移、领域服务、API、Flutter 和 PostgreSQL smoke 实现。
 
-### 2026-08-21 - Local-first P2P 架构转向
+### 2026-08-21 - 历史：Local-first P2P 架构转向
 
 - 类型：设计变更 / 架构规格
 - 变更：任务事实源从 FastAPI/PostgreSQL 转为两台 Android 客户端的本地追加式 Event Store；同步改为二维码接触匹配后的局域网或设备热点直连；新增设备身份、Epoch/事件密钥、每设备 hash 链、因果合并、双方状态冲突确认和换机撤销规则。

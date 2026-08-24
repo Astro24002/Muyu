@@ -1,8 +1,12 @@
 # 开发路线
 
-## 2026-08-21 架构转向
+## 当前路线：云端协调架构（2026-08-24）
 
-Phase 0-3 的服务端实现和验收记录保留为历史基线。后续任务开发改为 [Local-first P2P 双人同步架构](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)：两台 Android 设备通过二维码接触匹配和局域网/热点直连同步本地追加式事件，FastAPI/PostgreSQL 不再保存或合并新任务事实。原 Phase 4 的服务端 status_version 冲突方案在尚未实现前停止，后续由本地事件合并和双方签名确认方案替代。
+后续实现以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为唯一依据：PostgreSQL 保存明文协作事实，FastAPI 以 REST 增量同步和通知型 WebSocket 协调 Android 与 Web。首版交付 Android APK/AAB 与 Web 静态构建；iOS 仅保留协议扩展空间，不进入当前构建、发布或验收。
+
+新系统从空 Workspace 与新 PostgreSQL 模型开始，不迁移旧数据，也不保留 P2P、固定密码后端或旧 API 兼容路径。旧 P2P 运行时和旧后端代码将在后续经审阅的实施计划中受控删除。详细实施顺序尚未创建，必须在规格复核后另行编写。
+
+## 历史路线（仅作记录）
 
 ## 发布分层
 

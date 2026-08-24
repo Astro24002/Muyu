@@ -7,7 +7,9 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.auth.routes import router as legacy_auth_router
+from app.auth.routes import mobile_router, router as legacy_auth_router
+from app.auth.providers.fake import FakeSmsProvider
+from app.auth.providers.production import ProductionSmsProvider
 from app.core.config import get_settings
 from app.db.migrations import run_migrations
 from app.db.session import create_database_engine
@@ -26,6 +28,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         app.state.engine = engine
+        app.state.settings = settings
+        if getattr(settings, "otp_provider", "fake") == "fake":
+            app.state.sms_provider = FakeSmsProvider()
+        else:
+            import os
+
+            endpoint = os.environ.get("OTP_PROVIDER_URL")
+            api_key = os.environ.get("OTP_PROVIDER_API_KEY")
+            if not endpoint or not api_key:
+                raise RuntimeError("production SMS provider requires OTP_PROVIDER_URL and OTP_PROVIDER_API_KEY")
+            app.state.sms_provider = ProductionSmsProvider(endpoint, api_key)
         app.state.ready = True
         yield
     finally:
@@ -43,9 +56,11 @@ def create_app() -> FastAPI:
     )
     app.state.ready = False
     app.state.token_manager = None
+    app.state.sms_provider = None
     register_error_handlers(app)
     # Legacy routes remain registered until the explicit cutover task deletes them.
     app.include_router(legacy_auth_router)
+    app.include_router(mobile_router)
     app.include_router(legacy_task_router)
     app.include_router(legacy_user_router)
 

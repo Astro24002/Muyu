@@ -1,47 +1,60 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from functools import lru_cache
-import re
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AnyHttpUrl, Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-_DURATION_PATTERN = re.compile(r"^(?P<value>[1-9]\d*)(?P<unit>[mhd])$")
-
-
 class Settings(BaseSettings):
+    """Runtime configuration for the cloud-coordinated API."""
+
     model_config = SettingsConfigDict(extra="ignore")
 
-    database_url: str = Field(validation_alias="DATABASE_URL")
-    auth_password: str = Field(min_length=1, validation_alias="AUTH_PASSWORD")
-    jwt_access_secret: str = Field(min_length=32, validation_alias="JWT_ACCESS_SECRET")
-    jwt_refresh_secret: str = Field(min_length=32, validation_alias="JWT_REFRESH_SECRET")
+    database_url: PostgresDsn = Field(validation_alias="DATABASE_URL")
+    public_base_url: AnyHttpUrl = Field(
+        default="http://localhost:8080", validation_alias="PUBLIC_BASE_URL"
+    )
+    web_cookie_secure: bool = Field(default=False, validation_alias="WEB_COOKIE_SECURE")
+    otp_provider: Literal["fake", "production"] = Field(
+        default="fake", validation_alias="OTP_PROVIDER"
+    )
+    otp_pepper: SecretStr = Field(min_length=32, validation_alias="OTP_PEPPER")
+    otp_ttl_seconds: int = Field(default=300, ge=60, le=600, validation_alias="OTP_TTL_SECONDS")
+    otp_max_attempts: int = Field(default=5, ge=1, le=10, validation_alias="OTP_MAX_ATTEMPTS")
+    otp_phone_window_limit: int = Field(default=5, ge=1, le=20, validation_alias="OTP_PHONE_WINDOW_LIMIT")
+    otp_ip_window_limit: int = Field(default=20, ge=1, le=100, validation_alias="OTP_IP_WINDOW_LIMIT")
+    mobile_session_ttl_hours: int = Field(
+        default=720, ge=1, le=2160, validation_alias="MOBILE_SESSION_TTL_HOURS"
+    )
+    web_session_ttl_hours: int = Field(
+        default=18, ge=1, le=18, validation_alias="WEB_SESSION_TTL_HOURS"
+    )
+    device_approval_ttl_seconds: int = Field(
+        default=600, ge=60, le=3600, validation_alias="DEVICE_APPROVAL_TTL_SECONDS"
+    )
+    web_login_ttl_seconds: int = Field(
+        default=120, ge=30, le=600, validation_alias="WEB_LOGIN_TTL_SECONDS"
+    )
+    sync_retention_days: int = Field(
+        default=30, ge=1, le=365, validation_alias="SYNC_RETENTION_DAYS"
+    )
     http_host: str = Field(default="0.0.0.0", validation_alias="HTTP_HOST")
     http_port: int = Field(default=8080, ge=1, le=65535, validation_alias="HTTP_PORT")
-    access_token_ttl: timedelta = Field(default=timedelta(minutes=15), validation_alias="ACCESS_TOKEN_TTL")
-    refresh_token_ttl: timedelta = Field(default=timedelta(days=30), validation_alias="REFRESH_TOKEN_TTL")
 
-    @field_validator("access_token_ttl", "refresh_token_ttl", mode="before")
+    @field_validator("otp_pepper")
     @classmethod
-    def parse_duration(cls, value: object) -> object:
-        if isinstance(value, timedelta):
-            return value
-        if not isinstance(value, str):
-            raise ValueError("duration must use a positive m, h, or d suffix")
+    def reject_short_otp_pepper(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value()) < 32:
+            raise ValueError("OTP_PEPPER must contain at least 32 characters")
+        return value
 
-        match = _DURATION_PATTERN.fullmatch(value)
-        if match is None:
-            raise ValueError("duration must use a positive m, h, or d suffix")
-
-        amount = int(match.group("value"))
-        unit = match.group("unit")
-        return {
-            "m": timedelta(minutes=amount),
-            "h": timedelta(hours=amount),
-            "d": timedelta(days=amount),
-        }[unit]
+    @model_validator(mode="after")
+    def only_postgresql_is_supported(self) -> "Settings":
+        if not self.database_url.unicode_string().startswith("postgresql"):
+            raise ValueError("DATABASE_URL must use PostgreSQL")
+        return self
 
 
 @lru_cache

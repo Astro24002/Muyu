@@ -1,11 +1,17 @@
+import os
+
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from app.db.base import Base
 
 
 config = context.config
+database_url = os.environ.get("DATABASE_URL")
+if database_url and not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
+schema = config.attributes.get("schema")
 
 
 def run_migrations_offline() -> None:
@@ -22,8 +28,14 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema=schema,
+        )
         with context.begin_transaction():
+            if schema:
+                connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             context.run_migrations()
 
 

@@ -18,9 +18,10 @@ services:
       context: ../backend
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      AUTH_PASSWORD: ${AUTH_PASSWORD}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      OTP_PEPPER: ${OTP_PEPPER}
+      OTP_PROVIDER: ${OTP_PROVIDER:-fake}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-false}
       HTTP_HOST: 0.0.0.0
       HTTP_PORT: 8080
     depends_on:
@@ -30,7 +31,7 @@ services:
       - "${API_PORT:-8080}:8080"
     healthcheck:
       test:
-        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready')"]
       interval: 5s
       timeout: 3s
       retries: 20

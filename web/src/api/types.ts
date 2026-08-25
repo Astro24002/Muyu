@@ -8,7 +8,7 @@ export interface TaskItem {
   blocked_since: string | null; resume_handler_id: string | null; waiting_for_user_id: string | null;
   planned_start_at: string | null; estimated_minutes: number | null; completed_at: string | null;
   created_by: string; created_at: string; updated_at: string; assignee_ids: string[];
-  delay_count: number; total_delay_minutes: number; version: number; field_versions: Record<string, number>;
+  delay_count: number; total_delay_minutes: number; version: number; status_version: number; field_versions: Record<string, number>;
   lifecycle_version: number; deleted_at: string | null; [key: string]: unknown;
 }
 export interface WorkspaceSnapshot {

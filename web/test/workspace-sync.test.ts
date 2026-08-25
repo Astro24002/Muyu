@@ -135,4 +135,22 @@ describe('WorkspaceSyncController', () => {
     expect(controller.state.snapshot?.tasks).toHaveLength(1);
     expect(api.createTask).toHaveBeenCalledOnce();
   });
+
+  it('clears session-bound workspace data before a new login', async () => {
+    const api = apiStub();
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    controller.clear();
+
+    expect(controller.state).toEqual({
+      snapshot: null,
+      cursor: 0,
+      loading: false,
+      stale: false,
+      error: null,
+      conflicts: [],
+      authRequired: false,
+    });
+  });
 });

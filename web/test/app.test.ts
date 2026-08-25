@@ -51,6 +51,10 @@ class FakeSync {
   readonly createTask = vi.fn(async () => undefined);
   readonly patchTask = vi.fn(async () => undefined);
   readonly resolveConflict = vi.fn(async () => undefined);
+  readonly clear = vi.fn(() => {
+    this.state = { snapshot: null, cursor: 0, loading: false, stale: false, error: null, conflicts: [], authRequired: false };
+    this.emit();
+  });
   readonly dispose = vi.fn();
   private listeners = new Set<(state: typeof this.state) => void>();
 
@@ -150,6 +154,53 @@ describe('App', () => {
     await settle();
 
     expect(root.textContent).toContain('二维码登录');
+    app.dispose();
+  });
+
+  it('does not render the prior workspace when the new session snapshot load fails', async () => {
+    const api = { logoutWebSession: vi.fn().mockResolvedValue(undefined) };
+    const login = new FakeLogin();
+    const sync = new FakeSync();
+    sync.state = { ...sync.state, snapshot, cursor: 5 };
+    sync.loadSnapshot.mockImplementation(async () => {
+      if (login.state.kind === 'signed_in') {
+        sync.state = { ...sync.state, error: '无法加载工作区，请检查网络后重试。' };
+        sync.emit();
+      }
+    });
+    const app = new App({ api: api as never, login: login as never, sync: sync as never, socketFactory: vi.fn(() => new FakeSocket()) });
+    const root = document.createElement('div');
+
+    app.mount(root);
+    await settle();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '退出登录')?.click();
+    await settle();
+    login.signIn();
+    await settle();
+
+    expect(sync.clear).toHaveBeenCalledOnce();
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('无法加载工作区');
+    expect(root.querySelector('input[placeholder="新任务标题"]')).toBeNull();
+    app.dispose();
+  });
+
+  it('clears the workspace snapshot when a mounted workspace requires authentication', async () => {
+    const api = { logoutWebSession: vi.fn().mockResolvedValue(undefined) };
+    const login = new FakeLogin();
+    const sync = new FakeSync();
+    sync.state = { ...sync.state, snapshot, cursor: 5 };
+    const app = new App({ api: api as never, login: login as never, sync: sync as never, socketFactory: vi.fn(() => new FakeSocket()) });
+    const root = document.createElement('div');
+
+    app.mount(root);
+    await settle();
+    sync.state = { ...sync.state, authRequired: true };
+    sync.emit();
+    await settle();
+
+    expect(sync.clear).toHaveBeenCalledOnce();
+    expect(root.textContent).toContain('二维码登录');
+    expect(root.querySelector('input[placeholder="新任务标题"]')).toBeNull();
     app.dispose();
   });
 

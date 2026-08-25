@@ -52,6 +52,10 @@ export class WorkspaceSyncController {
     this.listeners.clear();
   }
 
+  clear(): void {
+    this.setState(INITIAL_STATE);
+  }
+
   async loadSnapshot(): Promise<void> {
     await this.run('无法加载工作区，请检查网络后重试。', async () => {
       const snapshot = await this.api.getWorkspaceSnapshot();

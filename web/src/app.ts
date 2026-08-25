@@ -51,10 +51,11 @@ export class App {
     }
   }
 
-  private showLogin(): void {
+  private showLogin(clearSync = true): void {
     const root = this.#root;
     if (!root || !this.#active) return;
     this.stopWorkspace();
+    if (clearSync) this.dependencies.sync.clear();
     this.#loginView?.();
     this.#loginView = QrLoginView.mount(root, this.dependencies.login, () => void this.loadWorkspace());
     void this.dependencies.login.start();
@@ -83,6 +84,7 @@ export class App {
     if (!this.#active || this.#loggingOut) return;
     this.#loggingOut = true;
     this.stopWorkspace();
+    this.dependencies.sync.clear();
     this.#loginView?.();
     this.#loginView = undefined;
     this.dependencies.login.stop();
@@ -92,7 +94,7 @@ export class App {
       // The local session state is already cleared; still let the user sign in again.
     } finally {
       this.#loggingOut = false;
-      if (this.#active) this.showLogin();
+      if (this.#active) this.showLogin(false);
     }
   }
 

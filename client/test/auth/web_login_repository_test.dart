@@ -16,6 +16,7 @@ void main() {
         'origin': 'https://muyu.example',
         'expires_at': '2026-08-24T12:02:00Z',
       }),
+      now: DateTime.utc(2026, 8, 24, 12),
     );
 
     expect(payload.challengeId, 'challenge-1');
@@ -36,6 +37,7 @@ void main() {
           'origin': 'http://muyu.example',
           'expires_at': '2026-08-24T12:02:00Z',
         }),
+        now: DateTime.utc(2026, 8, 24, 12),
       ),
       throwsA(isA<WebQrPayloadFailure>()),
     );

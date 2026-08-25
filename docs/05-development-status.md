@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构已确认并形成 [正式规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)，等待规格复核后再编写实施计划；尚未开始新架构代码、数据库初始化或旧运行时代码删除。
+- 当前阶段：云端协调架构 Tasks 1-15 已实现并完成本地收口验证，正在提交主干变更；后续只剩部署到明确的新空数据库和真实设备验收。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 需要静态构建；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -17,7 +17,7 @@
 - 历史 Phase 3 实施计划：[Phase 3 Delay And Blocking Implementation Plan](./superpowers/plans/2026-08-17-delay-blocking.md)。
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
-- Git：本地 `main` 已跟踪 GitHub `origin/main`；当前规格和后续实施计划按独立文档提交，代码改造按受控任务保持独立提交。
+- Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
 ## 已完成
 
@@ -52,8 +52,8 @@
 - 影响文件：云端架构规格、技术设计、路线图、已确认决策、文档索引与本状态记录；后续将替换旧 P2P、固定密码认证和旧后端运行时。
 - 数据迁移影响：从空 Workspace 与新数据库模型开始，不导入旧任务、延期、活动、用户或 P2P 事件，不保留兼容 API。
 - 验收影响：新增 PostgreSQL 事务/锁、短信验证码、设备审批、扫码会话、cursor、冲突、Android APK/AAB 与 Web 静态构建的共同验收；iOS 不进入本轮。
-- 当前状态：规格已形成，实施计划和代码改造尚未开始；必须先完成规格复核。
-- 下一步：复核规格后编写可执行实施计划，再受控删除旧运行时并实现新架构。
+- 当前状态：云端实施计划和代码改造已完成，旧密码/P2P 运行时已删除；新数据库必须以空库启动，不执行旧数据迁移。
+- 下一步：将已验证的镜像部署到明确的新空 PostgreSQL 实例，再执行 Android 真机、Chrome Web 和短信供应商联调。
 
 ### 2026-08-16 - 后端从 Go 切换为 Python 3.12
 
@@ -66,6 +66,14 @@
 - 验收影响：服务端测试命令改为 `pytest`，容器镜像改为 Python 3.12；API 行为验收不变。
 
 ## 实施进度
+
+### 2026-08-25 - 云端协调架构 Tasks 1-15 收口
+
+- 类型：实施完成 / 发布前验收
+- 变更：完成 PostgreSQL 权威数据模型、短信验证码移动会话、双人工作区与设备签名审批、设备恢复/撤销、二维码 Web 会话、任务冲突与幂等、评论/延期/循环/重要日期、cursor 同步和通知型 WebSocket；客户端切换为 Android SMS + Web QR；删除旧密码、JWT、P2P 和旧任务运行时。
+- 验证：隔离 PostgreSQL 后端 `37 passed, 1 skipped`；真实 Uvicorn API 云协议端到端 `1 passed`；脚本 smoke、旧运行时检查、Compose 拓扑检查和 shell 语法检查通过；Flutter analyze 与 `17 tests passed`；Android debug APK 和 Web release bundle 构建成功。
+- 范围：本轮只交付 Android 与 Web，不生成 iOS 安装包；移动端新设备在已有工作区中先进入 `PENDING`，需另一位成员批准后才成为 ACTIVE。
+- 下一步：使用新的独立 PostgreSQL/Compose 项目部署，执行 Android 真机、Chrome Web、短信供应商和备份恢复演练。
 
 ### 2026-08-16 - Task 1 Python 运行时与配置骨架
 

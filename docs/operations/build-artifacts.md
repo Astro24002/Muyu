@@ -25,8 +25,8 @@ build time when it is not served from the same origin:
 
 ```sh
 flutter build apk --debug \
-  --dart-define=API_BASE_URL=https://example.invalid/api/v1
-flutter build web --release --dart-define=API_BASE_URL=/api/v1
+  --dart-define=API_BASE_URL=https://example.invalid
+flutter build web --release --dart-define=API_BASE_URL=/
 ```
 
 No IPA, Xcode setup, iOS runner, or iOS artifact is part of this release.

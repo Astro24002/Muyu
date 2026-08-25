@@ -22,7 +22,10 @@ class DeviceApprovalScreen extends StatelessWidget {
         children: [
           Text('请核对安全码', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
-          SelectableText(request.safetyCode, textAlign: TextAlign.center),
+          SelectableText(
+            request.safetyCode ?? '请在另一台设备核对安全码',
+            textAlign: TextAlign.center,
+          ),
           Text('有效期至 ${request.expiresAt.toLocal()}'),
           const SizedBox(height: 24),
           FilledButton.icon(

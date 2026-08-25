@@ -884,7 +884,7 @@ All phone number normalization uses E.164. A user has at most one active workspa
   - Run: `cd client && dart format --set-exit-if-changed lib test`.
   - Run focused Flutter tests from Step 2.
   - Run: `cd client && flutter analyze`.
-  - Run: `cd client && flutter build web --release --dart-define=API_BASE_URL=/api/v1`.
+  - Run: `cd client && flutter build web --release --dart-define=API_BASE_URL=/`.
   - Commit: `feat: add web qr session flow`.
 
 
@@ -973,7 +973,7 @@ All phone number normalization uses E.164. A user has at most one active workspa
   - Run focused Flutter tests from Step 2.
   - Run: `cd client && flutter test`.
   - Run: `cd client && flutter analyze`.
-  - Run both: `flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid/api/v1` and `flutter build web --release --dart-define=API_BASE_URL=/api/v1`.
+  - Run both: `flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid` and `flutter build web --release --dart-define=API_BASE_URL=/`.
   - Commit: `feat: add cloud task sync and conflict experience`.
 
 
@@ -1107,7 +1107,7 @@ All phone number normalization uses E.164. A user has at most one active workspa
 - [ ] **Step 5: Verify local/CI-equivalent commands and commit.**
   - Run: `make verify` against a local disposable PostgreSQL service.
   - Run: `cd client && flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid/api/v1`.
-  - Run: `cd client && flutter build web --release --dart-define=API_BASE_URL=/api/v1`.
+  - Run: `cd client && flutter build web --release --dart-define=API_BASE_URL=/`.
   - Run: `sh scripts/smoke-cloud-protocol.sh` against the disposable stack.
   - Commit: `ci: add cloud protocol verification and android web artifacts`.
 

@@ -26,8 +26,8 @@ class CloudTaskRepository {
     required String requestId,
   }) async {
     final body = <String, Object?>{
-      ...fields,
-      'field_versions': fieldVersions,
+      'changes': fields,
+      'base_field_versions': fieldVersions,
       'request_id': requestId,
     };
     final record = TaskMutationRecord(

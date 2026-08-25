@@ -32,6 +32,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
       OTP_PEPPER: ci-only-otp-pepper-with-at-least-thirty-two-characters
       OTP_PROVIDER: fake
+      FAKE_OTP_CODE: '000000'
       PUBLIC_BASE_URL: http://localhost:8080
       WEB_COOKIE_SECURE: false
     steps:
@@ -62,8 +63,8 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: flutter test integration_test/web_session_flow_test.dart -d chrome
-      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid/api/v1
-      - run: flutter build web --release --dart-define=API_BASE_URL=/api/v1
+      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid
+      - run: flutter build web --release --dart-define=API_BASE_URL=/
       - uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk
@@ -80,8 +81,7 @@ jobs:
       - run: docker compose version
       - run: make check-deployment
       - run: bash -n deploy/scripts/backup-verify.sh deploy/scripts/restore-drill.sh scripts/smoke-cloud-protocol.sh
-      - run: test ! -e scripts/smoke-auth.sh && test ! -e scripts/smoke-tasks.sh && test ! -e scripts/smoke-delay-blocking.sh
-      - run: '! rg -n "smoke-auth|smoke-tasks|smoke-delay|AUTH_PASSWORD" Makefile .github deploy'
+      - run: ./scripts/assert-no-legacy-runtime.sh
 
   cloud-protocol:
     if: ${{ vars.RUN_CLOUD_PROTOCOL == 'true' }}
@@ -112,6 +112,7 @@ jobs:
           DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
           OTP_PEPPER: ci-only-otp-pepper-with-at-least-thirty-two-characters
           OTP_PROVIDER: fake
+          FAKE_OTP_CODE: '000000'
           PUBLIC_BASE_URL: http://localhost:8080
       - run: |
           for attempt in $(seq 1 30); do

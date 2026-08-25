@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -13,10 +15,23 @@ class WebQrLoginScreen extends StatefulWidget {
 }
 
 class _WebQrLoginScreenState extends State<WebQrLoginScreen> {
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
     widget.controller.start();
+    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (widget.controller.status == WebSessionStatus.waitingForApproval) {
+        widget.controller.poll();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   @override

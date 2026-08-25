@@ -57,7 +57,11 @@ class HttpMobileAuthRepository implements MobileAuthRepository {
       final value = await _api.request(
         'POST',
         '/api/v1/auth/sms/verify',
-        body: {'phone': phone, 'code': code, 'public_key': publicKey},
+        body: {
+          'phone': phone,
+          'code': code,
+          'device': {'public_key_der': publicKey},
+        },
       );
       return await _save(value);
     } on ApiException catch (error) {
@@ -91,6 +95,7 @@ class HttpMobileAuthRepository implements MobileAuthRepository {
           'POST',
           '/api/v1/auth/mobile/logout',
           body: {'refresh_token': current.refreshToken},
+          authenticated: true,
         );
       }
     } on ApiException {

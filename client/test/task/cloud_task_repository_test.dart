@@ -31,8 +31,8 @@ void main() {
       final body = jsonDecode(request.body) as Map<String, dynamic>;
       expect(request.url.path, '/api/v1/tasks/task-1');
       expect(request.headers['x-request-id'], 'request-1');
-      expect(body['field_versions'], {'title': 4});
-      expect(body['title'], 'New title');
+      expect(body['base_field_versions'], {'title': 4});
+      expect(body['changes'], {'title': 'New title'});
     },
   );
 }

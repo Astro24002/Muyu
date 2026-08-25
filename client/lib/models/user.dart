@@ -16,9 +16,10 @@ class User {
   factory User.fromJson(Map<String, dynamic> json) => User(
     id: json['id'] as String,
     phone: json['phone'] as String,
-    nickname: json['nickname'] as String,
-    avatarKey: json['avatar_key'] as String,
-    role: json['role'] as String,
+    nickname:
+        json['nickname'] as String? ?? json['display_name'] as String? ?? '',
+    avatarKey: json['avatar_key'] as String? ?? '',
+    role: json['role'] as String? ?? 'member',
   );
 
   @override

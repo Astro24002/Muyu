@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 
 import 'app.dart';
 import 'auth/mobile_auth_repository.dart';
@@ -11,16 +10,18 @@ import 'auth/web_session_controller.dart';
 import 'core/api_client.dart';
 import 'core/config.dart';
 import 'platform/device_signing_key.dart';
+import 'platform/api_http_client.dart';
 
 void main() {
   if (kIsWeb) {
     final apiClient = ApiClient(
       baseUrl: AppConfig.apiBaseUrl,
-      httpClient: http.Client(),
+      httpClient: createApiHttpClient(),
     );
     runApp(
       MuyuApp(
         platform: AppPlatform.web,
+        apiClient: apiClient,
         webSessionController: WebSessionController(
           WebLoginRepository(apiClient),
         ),
@@ -32,7 +33,7 @@ void main() {
   final sessionStore = SecureMobileSessionStore();
   final apiClient = ApiClient(
     baseUrl: AppConfig.apiBaseUrl,
-    httpClient: http.Client(),
+    httpClient: createApiHttpClient(),
     tokenStore: MobileTokenStoreAdapter(sessionStore),
   );
   final mobileRepository = HttpMobileAuthRepository(apiClient, sessionStore);
@@ -45,6 +46,7 @@ void main() {
   runApp(
     MuyuApp(
       platform: AppPlatform.android,
+      apiClient: apiClient,
       mobileLoginController: loginController,
     ),
   );

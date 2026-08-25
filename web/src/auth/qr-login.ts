@@ -56,7 +56,7 @@ export class QrLoginController {
   }
 
   async start(): Promise<void> {
-    if (this.#disposed) return;
+    if (this.#disposed || this.#state.kind === 'exchanging') return;
     const generation = ++this.#generation;
     this.#stopPolling();
     this.#pollingGeneration = undefined;

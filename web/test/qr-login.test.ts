@@ -64,6 +64,29 @@ describe('QrLoginController', () => {
     expect(JSON.stringify(controller)).not.toContain('AQIDBA');
   });
 
+  it('does not start a new challenge while exchanging', async () => {
+    const api = apiStub();
+    const exchange = deferred<{ status: 'authenticated'; expires_at: string }>();
+    api.getWebChallengeStatus.mockResolvedValue({
+      challenge_id: challenge.challenge_id,
+      status: 'APPROVED',
+      expires_at: challenge.expires_at,
+    });
+    api.exchangeWebChallenge.mockReturnValueOnce(exchange.promise);
+    const controller = new QrLoginController(api as never, options(vi.fn()));
+
+    await controller.start();
+    const polling = controller.poll();
+    await Promise.resolve();
+    await controller.start();
+
+    expect(controller.state).toMatchObject({ kind: 'exchanging', challenge });
+    expect(api.createWebChallenge).toHaveBeenCalledTimes(1);
+
+    exchange.resolve({ status: 'authenticated', expires_at: '2026-08-26T12:00:00.000Z' });
+    await polling;
+  });
+
   it.each([
     ['EXPIRED', undefined],
     ['REVOKED', undefined],
@@ -109,7 +132,7 @@ describe('QrLoginController', () => {
     expect(JSON.stringify(controller)).not.toContain('AQIDBA');
   });
 
-  it('ignores an exchange response after a newer QR challenge starts', async () => {
+  it('finishes the in-flight exchange after a new challenge request is ignored', async () => {
     const api = apiStub();
     const exchange = deferred<{ status: 'authenticated'; expires_at: string }>();
     api.getWebChallengeStatus.mockResolvedValue({
@@ -130,10 +153,8 @@ describe('QrLoginController', () => {
     exchange.resolve({ status: 'authenticated', expires_at: '2026-08-26T12:00:00.000Z' });
     await polling;
 
-    expect(controller.state).toMatchObject({
-      kind: 'waiting_for_approval',
-      challenge: { challenge_id: 'challenge-2' },
-    });
+    expect(api.createWebChallenge).toHaveBeenCalledTimes(1);
+    expect(controller.state).toMatchObject({ kind: 'signed_in' });
   });
 
   it('allows a new challenge to poll while an obsolete poll is still pending', async () => {
@@ -183,6 +204,24 @@ describe('QrLoginView', () => {
     expect(start).toHaveBeenCalledOnce();
     root.querySelector<HTMLButtonElement>('button[data-action="poll"]')!.click();
     expect(poll).toHaveBeenCalledOnce();
+  });
+
+  it('renders signed-in content before a synchronous signed-in remount', () => {
+    const root = document.createElement('main');
+    const subscribe = vi.fn(() => () => undefined);
+    let signedInContentWasRendered = false;
+
+    QrLoginView.mount(
+      root,
+      { state: { kind: 'signed_in', expiresAt: '2026-08-26T12:00:00.000Z' }, start: vi.fn(), poll: vi.fn(), subscribe } as unknown as QrLoginController,
+      () => {
+        signedInContentWasRendered = root.textContent === '二维码登录登录成功。';
+        root.replaceChildren(document.createTextNode('app remounted'));
+      },
+    );
+
+    expect(signedInContentWasRendered).toBe(true);
+    expect(root.textContent).toBe('app remounted');
   });
 });
 

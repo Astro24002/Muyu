@@ -30,17 +30,19 @@ export class QrLoginView {
         status.textContent = '正在生成二维码。';
       } else if (state.kind === 'signed_in') {
         status.textContent = '登录成功。';
+        root.append(section);
         if (!signedInNotified) {
           signedInNotified = true;
           onSignedIn();
         }
+        return;
       } else if (state.kind === 'expired' || state.kind === 'failure') {
         status.textContent = state.message;
       } else {
         status.textContent = '请生成二维码登录。';
       }
 
-      if (state.kind !== 'signed_in') appendButton(section, '重新生成二维码', 'retry', () => void controller.start());
+      if (state.kind !== 'exchanging') appendButton(section, '重新生成二维码', 'retry', () => void controller.start());
       root.append(section);
     };
 

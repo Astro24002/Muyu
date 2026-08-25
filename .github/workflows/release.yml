@@ -100,7 +100,9 @@ jobs:
           trap 'rm -f "$key_path"' EXIT
           flutter pub get
           flutter build appbundle --release --dart-define=API_BASE_URL=https://example.invalid
-          flutter build web --release --dart-define=API_BASE_URL=/
+          flutter build web --release \
+            --dart-define=API_BASE_URL=/ \
+            --dart-define=WEB_ORIGIN=https://muyu.bkverse.space
           tar -czf web-release.tar.gz -C build web
           sha256sum build/app/outputs/bundle/release/app-release.aab web-release.tar.gz > SHA256SUMS
           git rev-parse HEAD > SOURCE_COMMIT

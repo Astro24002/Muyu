@@ -5,6 +5,7 @@ TEST_DATABASE_URL ?= postgresql+psycopg://muyu:muyu@localhost:5432/muyu_test
 FLUTTER ?= $(shell command -v flutter 2>/dev/null || printf '%s/develop/flutter/bin/flutter' "$(HOME)")
 DART ?= $(dir $(FLUTTER))dart
 API_BASE_URL ?= http://localhost:8080
+WEB_ORIGIN ?= http://localhost:8080
 
 .PHONY: test verify backend-test backend-migrate backend-smoke client-test client-build client-build-web check-deployment legacy-check compose-up compose-down compose-clean smoke
 
@@ -38,7 +39,7 @@ client-build:
 	cd client && $(FLUTTER) pub get && $(FLUTTER) build apk --debug --dart-define=API_BASE_URL=$(API_BASE_URL)
 
 client-build-web:
-	cd client && $(FLUTTER) pub get && $(FLUTTER) build web --release --dart-define=API_BASE_URL=$(API_BASE_URL)
+	cd client && $(FLUTTER) pub get && $(FLUTTER) build web --release --dart-define=API_BASE_URL=$(API_BASE_URL) --dart-define=WEB_ORIGIN=$(WEB_ORIGIN)
 
 check-deployment:
 	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) COMPOSE_ENV_FILE=$(COMPOSE_ENV_FILE) ./scripts/check-deployment.sh

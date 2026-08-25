@@ -18,9 +18,11 @@ volume to this project.
 
 ## First deployment
 
-1. Create a private environment file from `deploy/.env.example`. Set a real
-   domain, a PostgreSQL password, a random `OTP_PEPPER` of at least 32
-   characters, production SMS credentials, and backup credentials/key.
+1. Create a private environment file from
+   `deploy/.env.production.example` for `muyu.bkverse.space` (or from
+   `deploy/.env.example` for a different domain). Set a PostgreSQL password,
+   a random `OTP_PEPPER` of at least 32 characters, production SMS
+   credentials, and backup credentials/key.
 2. Set `OTP_PROVIDER=production`, `WEB_COOKIE_SECURE=true`, and an exact
    `ALLOWED_ORIGINS`/`ALLOWED_HOSTS` value for the public origin.
 3. Point DNS A/AAAA records at the host and allow TCP 80/443. Caddy obtains
@@ -36,8 +38,8 @@ volume to this project.
 
    ```sh
    docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
-   curl --fail https://example.com/health/live
-   curl --fail https://example.com/health/ready
+   curl --fail https://muyu.bkverse.space/health/live
+   curl --fail https://muyu.bkverse.space/health/ready
    ```
 
 6. Apply the Alembic head if the API image is not configured to run migrations

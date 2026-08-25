@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.sms_provider = ProductionSmsProvider(
                 str(settings.otp_provider_url),
                 settings.otp_provider_api_key.get_secret_value(),
+                sms_sign_id=settings.otp_sms_sign_id,
+                template_id=settings.otp_sms_template_id,
+                validity_minutes=max(1, math.ceil(settings.otp_ttl_seconds / 60)),
             )
         app.state.ready = True
         yield

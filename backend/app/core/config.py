@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     )
     otp_provider_url: AnyHttpUrl | None = Field(default=None, validation_alias="OTP_PROVIDER_URL")
     otp_provider_api_key: SecretStr | None = Field(default=None, validation_alias="OTP_PROVIDER_API_KEY")
+    otp_sms_sign_id: str | None = Field(default=None, min_length=1, max_length=128, validation_alias="SMS_SIGN_ID")
+    otp_sms_template_id: str | None = Field(default=None, min_length=1, max_length=128, validation_alias="SMS_TEMPLATE_ID")
     fake_otp_code: str | None = Field(default=None, validation_alias="FAKE_OTP_CODE")
     otp_pepper: SecretStr = Field(min_length=32, validation_alias="OTP_PEPPER")
     otp_ttl_seconds: int = Field(default=300, ge=60, le=600, validation_alias="OTP_TTL_SECONDS")
@@ -65,8 +67,16 @@ class Settings(BaseSettings):
     def only_postgresql_is_supported(self) -> "Settings":
         if not self.database_url.unicode_string().startswith("postgresql"):
             raise ValueError("DATABASE_URL must use PostgreSQL")
-        if self.otp_provider == "production" and (self.otp_provider_url is None or self.otp_provider_api_key is None):
-            raise ValueError("production SMS provider requires OTP_PROVIDER_URL and OTP_PROVIDER_API_KEY")
+        if self.otp_provider == "production" and (
+            self.otp_provider_url is None
+            or self.otp_provider_api_key is None
+            or self.otp_sms_sign_id is None
+            or self.otp_sms_template_id is None
+        ):
+            raise ValueError(
+                "production SMS provider requires OTP_PROVIDER_URL, OTP_PROVIDER_API_KEY, "
+                "SMS_SIGN_ID, and SMS_TEMPLATE_ID"
+            )
         return self
 
 

@@ -9,9 +9,9 @@
       run `make check-deployment`.
 - [ ] Confirm only Caddy publishes ports, API replicas are `1`, and the legacy
       volume is not referenced.
-- [ ] Confirm production SMS credentials, cookie-secure mode, allowed origin,
-      backup repository credentials, and backup encryption key are injected
-      from the secret store.
+- [ ] Confirm Guoyangyun AppCode, SMS sign/template identifiers,
+      cookie-secure mode, allowed origin, backup repository credentials, and
+      backup encryption key are injected from the secret store.
 - [ ] Run the complete backend/client test and analysis jobs.
 - [ ] Take and verify a fresh encrypted full backup.
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -44,13 +45,20 @@ def get_sms_provider(request: Request) -> SmsProvider:
         except Exception:
             return FakeSmsProvider()
     if settings.otp_provider == "production":
-        import os
-
-        endpoint = os.environ.get("OTP_PROVIDER_URL")
-        api_key = os.environ.get("OTP_PROVIDER_API_KEY")
-        if not endpoint or not api_key:
+        if (
+            settings.otp_provider_url is None
+            or settings.otp_provider_api_key is None
+            or settings.otp_sms_sign_id is None
+            or settings.otp_sms_template_id is None
+        ):
             raise ApiError(503, "SERVICE_UNAVAILABLE", "SMS provider is not configured")
-        return ProductionSmsProvider(endpoint, api_key)
+        return ProductionSmsProvider(
+            str(settings.otp_provider_url),
+            settings.otp_provider_api_key.get_secret_value(),
+            sms_sign_id=settings.otp_sms_sign_id,
+            template_id=settings.otp_sms_template_id,
+            validity_minutes=max(1, math.ceil(settings.otp_ttl_seconds / 60)),
+        )
     return FakeSmsProvider()
 
 

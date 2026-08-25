@@ -21,8 +21,8 @@ volume to this project.
 1. Create a private environment file from
    `deploy/.env.production.example` for `muyu.bkverse.space` (or from
    `deploy/.env.example` for a different domain). Set a PostgreSQL password,
-   a random `OTP_PEPPER` of at least 32 characters, production SMS
-   credentials, and backup credentials/key.
+   a random `OTP_PEPPER` of at least 32 characters, the Guoyangyun AppCode,
+   SMS sign/template identifiers, and backup credentials/key.
 2. Set `OTP_PROVIDER=production`, `WEB_COOKIE_SECURE=true`, and an exact
    `ALLOWED_ORIGINS`/`ALLOWED_HOSTS` value for the public origin.
 3. Point DNS A/AAAA records at the host and allow TCP 80/443. Caddy obtains

@@ -62,3 +62,29 @@ def test_settings_reject_web_session_longer_than_eighteen_hours(monkeypatch: pyt
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_settings_require_guoyangyun_sms_configuration_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    environment(monkeypatch)
+    monkeypatch.setenv("OTP_PROVIDER", "production")
+    monkeypatch.setenv("OTP_PROVIDER_URL", "https://gyytz.market.alicloudapi.com/sms/smsSend")
+    monkeypatch.setenv("OTP_PROVIDER_API_KEY", "test-appcode")
+    monkeypatch.setenv("SMS_SIGN_ID", "sign-1")
+    monkeypatch.setenv("SMS_TEMPLATE_ID", "template-1")
+
+    settings = Settings()
+
+    assert settings.otp_sms_sign_id == "sign-1"
+    assert settings.otp_sms_template_id == "template-1"
+
+
+def test_settings_reject_production_without_sms_template(monkeypatch: pytest.MonkeyPatch) -> None:
+    environment(monkeypatch)
+    monkeypatch.setenv("OTP_PROVIDER", "production")
+    monkeypatch.setenv("OTP_PROVIDER_URL", "https://gyytz.market.alicloudapi.com/sms/smsSend")
+    monkeypatch.setenv("OTP_PROVIDER_API_KEY", "test-appcode")
+    monkeypatch.setenv("SMS_SIGN_ID", "sign-1")
+    monkeypatch.delenv("SMS_TEMPLATE_ID", raising=False)
+
+    with pytest.raises(ValidationError):
+        Settings()

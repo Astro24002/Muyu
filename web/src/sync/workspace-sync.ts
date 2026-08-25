@@ -19,6 +19,7 @@ export interface WorkspaceSyncOptions {
 
 type Listener = (state: WorkspaceSyncState) => void;
 type TaskWriteResult = TaskItem & { cursor: number };
+type IsCurrent = () => boolean;
 
 const INITIAL_STATE: WorkspaceSyncState = {
   snapshot: null,
@@ -34,6 +35,7 @@ export class WorkspaceSyncController {
   private currentState = INITIAL_STATE;
   private readonly listeners = new Set<Listener>();
   private disposed = false;
+  private generation = 0;
   private readonly requestIdFactory: () => string;
 
   constructor(private readonly api: Pick<ApiClient, 'getWorkspaceSnapshot' | 'getWorkspaceChanges' | 'createTask' | 'patchTask' | 'resolveConflict'>, options: WorkspaceSyncOptions = {}) {
@@ -48,17 +50,20 @@ export class WorkspaceSyncController {
   }
 
   dispose(): void {
+    this.generation += 1;
     this.disposed = true;
     this.listeners.clear();
   }
 
   clear(): void {
+    this.generation += 1;
     this.setState(INITIAL_STATE);
   }
 
   async loadSnapshot(): Promise<void> {
-    await this.run('无法加载工作区，请检查网络后重试。', async () => {
+    await this.run('无法加载工作区，请检查网络后重试。', async (isCurrent) => {
       const snapshot = await this.api.getWorkspaceSnapshot();
+      if (!isCurrent()) return;
       this.setState({ snapshot, cursor: snapshot.cursor, conflicts: normalizeConflicts(snapshot.conflicts), stale: false, error: null, authRequired: false });
     });
   }
@@ -105,8 +110,9 @@ export class WorkspaceSyncController {
 
   private async write(message: string, operation: () => Promise<TaskWriteResult>, onSuccess?: () => void): Promise<void> {
     const cursorBeforeWrite = this.currentState.cursor;
-    await this.run(message, async () => {
+    await this.run(message, async (isCurrent) => {
       const result = await operation();
+      if (!isCurrent()) return;
       this.mergeTask(result, result.cursor);
       onSuccess?.();
       if (result.cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
@@ -114,8 +120,9 @@ export class WorkspaceSyncController {
   }
 
   private async pullFrom(afterCursor: number): Promise<void> {
-    await this.run('同步失败，请检查网络后重试。', async () => {
+    await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
       const changes = await this.api.getWorkspaceChanges(afterCursor);
+      if (!isCurrent()) return;
       if (!areContiguous(changes.changes, afterCursor) || (changes.changes.length === 0 && changes.cursor !== afterCursor)) {
         await this.loadSnapshot();
         return;
@@ -139,11 +146,14 @@ export class WorkspaceSyncController {
     this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, stale: false, error: null, authRequired: false });
   }
 
-  private async run(message: string, operation: () => Promise<void>, nested = false): Promise<void> {
+  private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false): Promise<void> {
+    const generation = this.generation;
+    const isCurrent = () => !this.disposed && generation === this.generation;
     if (!nested) this.setState({ loading: true, error: null });
     try {
-      await operation();
+      await operation(isCurrent);
     } catch (error) {
+      if (!isCurrent()) return;
       if (error instanceof ApiError && error.status === 410 && error.code === 'sync_cursor_expired') {
         await this.loadSnapshot();
         return;
@@ -154,7 +164,7 @@ export class WorkspaceSyncController {
       }
       this.setState({ error: message, stale: this.currentState.snapshot !== null, authRequired: error instanceof ApiError && error.status === 401 });
     } finally {
-      if (!nested) this.setState({ loading: false });
+      if (!nested && isCurrent()) this.setState({ loading: false });
     }
   }
 

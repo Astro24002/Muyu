@@ -3,6 +3,7 @@ import { ApiError } from '../src/api/client';
 import type { WorkspaceSnapshot } from '../src/api/types';
 import { App } from '../src/app';
 import { WorkspaceSocket, type SocketLike } from '../src/realtime/workspace-socket';
+import { WorkspaceSyncController } from '../src/sync/workspace-sync';
 
 const snapshot: WorkspaceSnapshot = {
   workspace_id: 'workspace-1',
@@ -23,6 +24,20 @@ class FakeSocket implements SocketLike {
   open(): void { this.onopen?.(new Event('open')); }
   fail(): void { this.onerror?.(new Event('error')); this.onclose?.(new CloseEvent('close')); }
   message(data: unknown): void { this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent); }
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 class FakeLogin {
@@ -179,6 +194,42 @@ describe('App', () => {
     await settle();
 
     expect(sync.clear).toHaveBeenCalledOnce();
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('无法加载工作区');
+    expect(root.querySelector('input[placeholder="新任务标题"]')).toBeNull();
+    app.dispose();
+  });
+
+  it('does not render a stale session snapshot after logout and a new-session load failure', async () => {
+    const api = { logoutWebSession: vi.fn().mockResolvedValue(undefined) };
+    const login = new FakeLogin();
+    const sessionASnapshot = deferred<WorkspaceSnapshot>();
+    const syncApi = {
+      getWorkspaceSnapshot: vi.fn()
+        .mockResolvedValueOnce(snapshot)
+        .mockReturnValueOnce(sessionASnapshot.promise)
+        .mockRejectedValueOnce(new TypeError('Network unavailable')),
+      getWorkspaceChanges: vi.fn(),
+      createTask: vi.fn(),
+      patchTask: vi.fn(),
+      resolveConflict: vi.fn(),
+    };
+    const sync = new WorkspaceSyncController(syncApi as never);
+    const app = new App({ api: api as never, login: login as never, sync, socketFactory: vi.fn(() => new FakeSocket()) });
+    const root = document.createElement('div');
+
+    app.mount(root);
+    await settle();
+    await settle();
+    expect(root.querySelector('input[placeholder="新任务标题"]')).not.toBeNull();
+    const pendingSessionARefresh = sync.refresh();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '退出登录')?.click();
+    await settle();
+    sessionASnapshot.resolve({ ...snapshot, cursor: 6 });
+    await pendingSessionARefresh;
+    login.signIn();
+    await settle();
+    await settle();
+
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('无法加载工作区');
     expect(root.querySelector('input[placeholder="新任务标题"]')).toBeNull();
     app.dispose();

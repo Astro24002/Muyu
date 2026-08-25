@@ -16,10 +16,14 @@ class Settings(BaseSettings):
     public_base_url: AnyHttpUrl = Field(
         default="http://localhost:8080", validation_alias="PUBLIC_BASE_URL"
     )
+    web_origin: AnyHttpUrl | None = Field(default=None, validation_alias="WEB_ORIGIN")
     web_cookie_secure: bool = Field(default=False, validation_alias="WEB_COOKIE_SECURE")
     otp_provider: Literal["fake", "production"] = Field(
         default="fake", validation_alias="OTP_PROVIDER"
     )
+    otp_provider_url: AnyHttpUrl | None = Field(default=None, validation_alias="OTP_PROVIDER_URL")
+    otp_provider_api_key: SecretStr | None = Field(default=None, validation_alias="OTP_PROVIDER_API_KEY")
+    fake_otp_code: str | None = Field(default=None, validation_alias="FAKE_OTP_CODE")
     otp_pepper: SecretStr = Field(min_length=32, validation_alias="OTP_PEPPER")
     otp_ttl_seconds: int = Field(default=300, ge=60, le=600, validation_alias="OTP_TTL_SECONDS")
     otp_max_attempts: int = Field(default=5, ge=1, le=10, validation_alias="OTP_MAX_ATTEMPTS")
@@ -50,10 +54,19 @@ class Settings(BaseSettings):
             raise ValueError("OTP_PEPPER must contain at least 32 characters")
         return value
 
+    @field_validator("fake_otp_code")
+    @classmethod
+    def validate_fake_otp_code(cls, value: str | None) -> str | None:
+        if value is not None and (len(value) != 6 or not value.isascii() or not value.isdigit()):
+            raise ValueError("FAKE_OTP_CODE must be six ASCII digits")
+        return value
+
     @model_validator(mode="after")
     def only_postgresql_is_supported(self) -> "Settings":
         if not self.database_url.unicode_string().startswith("postgresql"):
             raise ValueError("DATABASE_URL must use PostgreSQL")
+        if self.otp_provider == "production" and (self.otp_provider_url is None or self.otp_provider_api_key is None):
+            raise ValueError("production SMS provider requires OTP_PROVIDER_URL and OTP_PROVIDER_API_KEY")
         return self
 
 

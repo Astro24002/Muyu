@@ -7,7 +7,7 @@ def test_local_web_client_cors_preflight_is_allowed() -> None:
     client = TestClient(create_app())
 
     response = client.options(
-        "/api/auth/login",
+        "/api/v1/auth/sms/send",
         headers={
             "Origin": "http://localhost:3000",
             "Access-Control-Request-Method": "POST",

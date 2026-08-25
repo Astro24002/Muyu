@@ -1,1 +1,1 @@
-"""Task domain boundary."""
+"""Authoritative cloud task services."""

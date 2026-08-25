@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from fastapi.testclient import TestClient
 
+from app.db.enums import DeviceStatus
 from app.db.models import AndroidDevice, MobileSession, SmsVerificationChallenge, User
 from app.main import create_app
 
@@ -102,3 +103,39 @@ def test_sms_send_provider_failure_does_not_persist_challenge(db_engine) -> None
     assert response.status_code == 503
     with Session(db_engine) as session:
         assert session.scalars(select(SmsVerificationChallenge)).all() == []
+
+
+def test_existing_workspace_user_gets_pending_device_until_partner_approval(db_engine) -> None:
+    client = make_client(db_engine)
+    client.post("/api/v1/auth/sms/send", json={"phone": "+8613800138000"})
+    code = client.app.state.sms_provider.last_code_for("+8613800138000")
+    first = client.post("/api/v1/auth/sms/verify", json=verify_payload(code)).json()
+    workspace = client.post(
+        "/api/v1/workspaces",
+        headers={"Authorization": f"Bearer {first['access_token']}"},
+        json={"name": "Shared"},
+    )
+    assert workspace.status_code == 201
+
+    client.post("/api/v1/auth/sms/send", json={"phone": "+8613800138000"})
+    replacement_code = client.app.state.sms_provider.last_code_for("+8613800138000")
+    replacement = client.post(
+        "/api/v1/auth/sms/verify",
+        json={
+            "phone": "+8613800138000",
+            "code": replacement_code,
+            "device": {"public_key_der": "BAUG", "label": "Replacement"},
+        },
+    )
+    assert replacement.status_code == 201
+    replacement_headers = {"Authorization": f"Bearer {replacement.json()['access_token']}"}
+    request = client.post(
+        "/api/v1/devices/authorization-requests",
+        headers=replacement_headers,
+        json={"public_key": "BAUG", "label": "Replacement"},
+    )
+    assert request.status_code == 201, request.text
+    with Session(db_engine) as session:
+        devices = session.scalars(select(AndroidDevice).order_by(AndroidDevice.created_at)).all()
+        assert len(devices) == 2
+        assert devices[-1].status == DeviceStatus.PENDING

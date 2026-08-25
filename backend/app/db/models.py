@@ -148,6 +148,9 @@ class DeviceAuthorizationChallenge(Base):
 
     id = _id()
     request_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("device_authorization_requests.id", ondelete="CASCADE"), nullable=False)
+    # Challenge nonces are supplied by the service; avoid a textual bytea
+    # default that different PostgreSQL drivers interpret inconsistently.
+    nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, default=lambda: b"")
     challenge_digest: Mapped[str] = mapped_column(String(128), nullable=False)
     signature: Mapped[bytes | None] = mapped_column(LargeBinary)
     status: Mapped[ChallengeStatus] = mapped_column(_enum(ChallengeStatus), nullable=False, default=ChallengeStatus.PENDING, server_default="PENDING")
@@ -163,6 +166,8 @@ class RecoveryRequest(Base):
     workspace_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     requester_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     approver_user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"))
+    requester_device_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("android_devices.id", ondelete="RESTRICT"))
+    approver_device_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("android_devices.id", ondelete="RESTRICT"))
     status: Mapped[ApprovalStatus] = mapped_column(_enum(ApprovalStatus), nullable=False, default=ApprovalStatus.PENDING, server_default="PENDING")
     audit_parent_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -209,6 +214,10 @@ class WebLoginChallenge(Base):
     scan_nonce_digest: Mapped[str] = mapped_column(String(128), nullable=False)
     safety_code_digest: Mapped[str] = mapped_column(String(128), nullable=False)
     origin: Mapped[str] = mapped_column(String(512), nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    workspace_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"))
+    approving_device_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("android_devices.id", ondelete="RESTRICT"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ChallengeStatus] = mapped_column(_enum(ChallengeStatus), nullable=False, default=ChallengeStatus.PENDING, server_default="PENDING")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -318,7 +327,7 @@ class TaskUserPosition(Base):
 
 class TaskOperation(Base):
     __tablename__ = "task_operations"
-    __table_args__ = (UniqueConstraint("workspace_id", "actor_user_id", "request_id", name="uq_task_operation_request"),)
+    __table_args__ = (UniqueConstraint("workspace_id", "request_id", name="uq_task_operation_request"),)
 
     id = _id()
     workspace_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)

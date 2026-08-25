@@ -70,6 +70,7 @@ class OperationType(StrEnum):
     COMMENTED = "COMMENTED"
     DELAYED = "DELAYED"
     CONFLICT_RESOLVED = "CONFLICT_RESOLVED"
+    CONFLICT_CREATED = "CONFLICT_CREATED"
 
 
 class ConflictStatus(StrEnum):

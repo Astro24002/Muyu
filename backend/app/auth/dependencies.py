@@ -108,3 +108,38 @@ def require_active_mobile_principal(
         session_id=stored.id,
         workspace_id=membership.workspace_id if membership else None,
     )
+
+
+def require_mobile_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    session: Session = Depends(get_db),
+) -> MobilePrincipal:
+    """Resolve a mobile session before device approval is complete.
+
+    A pending device receives only the enrollment-request surface. All normal
+    workspace APIs continue to depend on ``require_active_mobile_principal``.
+    """
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise ApiError(401, "authentication_required", "authentication required")
+    stored = session.scalar(
+        select(MobileSession).where(MobileSession.refresh_token_digest == _hash_token(credentials.credentials))
+    )
+    now = datetime.now(timezone.utc)
+    if stored is None or stored.revoked_at is not None or stored.expires_at <= now:
+        raise ApiError(401, "mobile_session_expired", "mobile session expired")
+    device = session.get(AndroidDevice, stored.device_id)
+    user = session.get(User, stored.user_id)
+    if device is None or device.status == DeviceStatus.REVOKED or user is None or user.status != UserStatus.ACTIVE:
+        raise ApiError(401, "authentication_required", "authentication required")
+    membership = session.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    return MobilePrincipal(
+        user_id=user.id,
+        device_id=device.id,
+        session_id=stored.id,
+        workspace_id=membership.workspace_id if membership else None,
+    )

@@ -43,6 +43,7 @@ class MobileUserResponse(BaseModel):
 
 class MobileAuthResponse(BaseModel):
     user: MobileUserResponse
+    device_id: UUID
     access_token: str
     refresh_token: str
     token_type: Literal["bearer"] = "bearer"

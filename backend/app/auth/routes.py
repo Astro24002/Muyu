@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.service import AuthService, UnauthenticatedError
-from app.auth.tokens import TokenManager
-from app.httpapi.dependencies import get_db, get_token_manager
+from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
 from app.auth.dependencies import MobilePrincipal, get_sms_auth_service, require_active_mobile_principal
 from app.auth.service import SmsAuthError, SmsAuthService
@@ -24,38 +21,6 @@ from app.auth.schemas import (
 from fastapi import Request
 
 
-class LoginRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    phone: str = Field(min_length=1, max_length=20)
-    password: str = Field(min_length=1, max_length=255)
-
-
-class RefreshRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    refresh_token: str = Field(min_length=1)
-
-
-class UserResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    phone: str
-    nickname: str
-    avatar_key: str
-    role: str
-
-
-class AuthResponse(BaseModel):
-    user: UserResponse
-    access_token: str
-    refresh_token: str
-    token_type: Literal["bearer"] = "bearer"
-
-
-router = APIRouter(prefix="/api/auth", tags=["auth"])
-
 mobile_router = APIRouter(prefix="/api/v1", tags=["mobile-auth"])
 
 
@@ -68,6 +33,7 @@ def _mobile_response(result) -> MobileAuthResponse:
             workspace_id=result.workspace_id,
             device_id=result.device_id,
         ),
+        device_id=result.device_id,
         access_token=result.access_token,
         refresh_token=result.refresh_token,
     )
@@ -150,39 +116,3 @@ def get_mobile_me(
         workspace_id=membership.workspace_id if membership else None,
         device_id=principal.device_id,
     )
-
-
-@router.post("/login", response_model=AuthResponse)
-def login(
-    payload: LoginRequest,
-    session: Session = Depends(get_db),
-    token_manager: TokenManager = Depends(get_token_manager),
-) -> AuthResponse:
-    try:
-        result = AuthService(session, token_manager).login(payload.phone, payload.password)
-    except UnauthenticatedError as error:
-        raise ApiError(401, "UNAUTHORIZED", "invalid credentials") from error
-    return AuthResponse(user=result.user, access_token=result.access_token, refresh_token=result.refresh_token)
-
-
-@router.post("/refresh", response_model=AuthResponse)
-def refresh(
-    payload: RefreshRequest,
-    session: Session = Depends(get_db),
-    token_manager: TokenManager = Depends(get_token_manager),
-) -> AuthResponse:
-    try:
-        result = AuthService(session, token_manager).refresh(payload.refresh_token)
-    except UnauthenticatedError as error:
-        raise ApiError(401, "UNAUTHORIZED", "invalid refresh token") from error
-    return AuthResponse(user=result.user, access_token=result.access_token, refresh_token=result.refresh_token)
-
-
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(
-    payload: RefreshRequest,
-    session: Session = Depends(get_db),
-    token_manager: TokenManager = Depends(get_token_manager),
-) -> Response:
-    AuthService(session, token_manager).logout(payload.refresh_token)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

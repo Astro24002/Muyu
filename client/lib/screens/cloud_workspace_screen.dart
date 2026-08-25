@@ -4,13 +4,17 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../models/task.dart';
+import '../platform/device_signing_key.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../sync/workspace_sync_repository.dart';
+import '../workspace/device_authorization_repository.dart';
+import 'web_qr_scanner_screen.dart';
 
 class CloudWorkspaceScreen extends StatefulWidget {
-  const CloudWorkspaceScreen({super.key, required this.api});
+  const CloudWorkspaceScreen({super.key, required this.api, this.signingKey});
 
   final ApiClient api;
+  final DeviceSigningKey? signingKey;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -72,6 +76,19 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         appBar: AppBar(
           title: const Text('共享任务'),
           actions: [
+            if (widget.signingKey != null)
+              IconButton(
+                tooltip: '扫码登录 Web',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => WebQrScannerScreen(
+                      repository: HttpDeviceAuthorizationRepository(widget.api),
+                      signingKey: widget.signingKey!,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.qr_code_scanner),
+              ),
             IconButton(
               tooltip: '刷新',
               onPressed: _sync.refresh,

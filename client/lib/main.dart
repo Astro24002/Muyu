@@ -47,6 +47,7 @@ void main() {
     MuyuApp(
       platform: AppPlatform.android,
       apiClient: apiClient,
+      deviceSigningKey: signingKey,
       mobileLoginController: loginController,
     ),
   );

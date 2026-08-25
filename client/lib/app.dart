@@ -4,6 +4,7 @@ import 'auth/mobile_login_controller.dart';
 import 'auth/web_login_repository.dart';
 import 'auth/web_session_controller.dart';
 import 'core/api_client.dart';
+import 'platform/device_signing_key.dart';
 import 'screens/cloud_workspace_screen.dart';
 import 'screens/mobile_phone_login_screen.dart';
 import 'screens/web_qr_login_screen.dart';
@@ -13,12 +14,14 @@ class MuyuApp extends StatelessWidget {
     super.key,
     required this.platform,
     required this.apiClient,
+    this.deviceSigningKey,
     this.webSessionController,
     this.mobileLoginController,
   });
 
   final AppPlatform platform;
   final ApiClient apiClient;
+  final DeviceSigningKey? deviceSigningKey;
   final WebSessionController? webSessionController;
   final MobileLoginController? mobileLoginController;
 
@@ -53,17 +56,26 @@ class MuyuApp extends StatelessWidget {
                 webSessionController ??
                 WebSessionController(_UnavailableWebLoginApi()),
           )
-        : _AndroidHome(apiClient: apiClient, controller: mobileLoginController),
+        : _AndroidHome(
+            apiClient: apiClient,
+            controller: mobileLoginController,
+            signingKey: deviceSigningKey,
+          ),
   );
 }
 
 enum AppPlatform { android, web }
 
 class _AndroidHome extends StatelessWidget {
-  const _AndroidHome({required this.apiClient, required this.controller});
+  const _AndroidHome({
+    required this.apiClient,
+    required this.controller,
+    this.signingKey,
+  });
 
   final ApiClient apiClient;
   final MobileLoginController? controller;
+  final DeviceSigningKey? signingKey;
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +85,7 @@ class _AndroidHome extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller!,
       builder: (context, _) => controller!.status == MobileLoginStatus.signedIn
-          ? CloudWorkspaceScreen(api: apiClient)
+          ? CloudWorkspaceScreen(api: apiClient, signingKey: signingKey)
           : MobilePhoneLoginScreen(controller: controller!),
     );
   }

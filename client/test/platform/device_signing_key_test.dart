@@ -28,13 +28,4 @@ void main() {
     expect(signature, isNotEmpty);
     expect(key.privateKeyWasRead, isFalse);
   });
-
-  test('unsupported platforms return a typed failure', () async {
-    final key = UnsupportedDeviceSigningKey();
-
-    await expectLater(
-      key.getOrCreatePublicKey(),
-      throwsA(isA<DeviceSigningKeyUnavailable>()),
-    );
-  });
 }

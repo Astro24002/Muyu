@@ -1,5 +1,5 @@
 name: muyu_client
-description: "Muyu private Android and Web client."
+description: "Muyu private Android client."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -38,9 +38,7 @@ dependencies:
   flutter_secure_storage: 10.0.0
   crypto: ^3.0.6
   mobile_scanner: ^7.0.1
-  qr_flutter: ^4.1.0
   shared_preferences: ^2.5.3
-  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:

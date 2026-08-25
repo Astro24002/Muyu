@@ -94,14 +94,17 @@ export class WorkspaceSyncController {
     await this.write('无法解决冲突，请检查网络后重试。', () => this.api.resolveConflict(taskId, conflictId, {
       requestId: this.requestIdFactory(),
       resolution,
+    }), () => this.setState({
+      conflicts: this.currentState.conflicts.filter((conflict) => conflict.task_id !== taskId || conflict.id !== conflictId),
     }));
   }
 
-  private async write(message: string, operation: () => Promise<TaskWriteResult>): Promise<void> {
+  private async write(message: string, operation: () => Promise<TaskWriteResult>, onSuccess?: () => void): Promise<void> {
     const cursorBeforeWrite = this.currentState.cursor;
     await this.run(message, async () => {
       const result = await operation();
       this.mergeTask(result, result.cursor);
+      onSuccess?.();
       if (result.cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
     });
   }
@@ -114,7 +117,9 @@ export class WorkspaceSyncController {
         return;
       }
       for (const change of changes.changes) this.applyChange(change);
-      this.setState({ cursor: Math.max(this.currentState.cursor, changes.cursor), stale: false, error: null, authRequired: false });
+      const cursor = Math.max(this.currentState.cursor, changes.cursor);
+      const snapshot = this.currentState.snapshot;
+      this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, stale: false, error: null, authRequired: false });
     }, true);
   }
 

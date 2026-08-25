@@ -35,6 +35,7 @@ describe('WorkspaceSyncController', () => {
     await controller.pull();
 
     expect(controller.state.cursor).toBe(6);
+    expect(controller.state.snapshot?.cursor).toBe(6);
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Updated');
     expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
   });
@@ -105,6 +106,21 @@ describe('WorkspaceSyncController', () => {
 
     expect(controller.state.conflicts).toContainEqual(expect.objectContaining({ id: 'conflict-1', current: 'Current', proposed: 'Modified' }));
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Original');
+  });
+
+  it('removes a successfully resolved conflict from controller state', async () => {
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValue({
+      ...snapshot(),
+      conflicts: [{ id: 'conflict-1', task_id: task.id, field: 'title', base: 'Original', current: 'Current', proposed: 'Modified' }],
+    });
+    api.resolveConflict.mockResolvedValue({ ...task, title: 'Current', cursor: 6 });
+    const controller = new WorkspaceSyncController(api as never, { requestIdFactory: () => '00000000-0000-4000-8000-000000000003' });
+    await controller.loadSnapshot();
+
+    await controller.resolveConflict(task.id, 'conflict-1', 'current');
+
+    expect(controller.state.conflicts).toEqual([]);
   });
 
   it('marks existing data stale when a network request fails and never queues the write', async () => {

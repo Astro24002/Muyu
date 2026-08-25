@@ -1,6 +1,7 @@
 export interface WebChallenge { challenge_id: string; qr_payload: string; origin: string; safety_code: string; expires_at: string }
-export interface WebChallengeStatus { challenge_id: string; status: string; expires_at: string }
-export interface WebSessionExchange { status: string; expires_at: string }
+export type WebChallengeLifecycle = 'PENDING' | 'APPROVED' | 'CONSUMED' | 'EXPIRED' | 'REVOKED';
+export interface WebChallengeStatus { challenge_id: string; status: WebChallengeLifecycle; expires_at: string }
+export interface WebSessionExchange { status: 'authenticated'; expires_at: string }
 export interface TaskItem {
   id: string; workspace_id: string; parent_task_id: string | null; title: string; description: string;
   due_at: string | null; status: string; current_handler_id: string; blocked_reason: string | null;

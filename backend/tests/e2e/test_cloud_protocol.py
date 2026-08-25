@@ -136,4 +136,52 @@ def test_cloud_protocol_registration_invitation_sync_and_web_approval() -> None:
             },
         )
         assert challenge_response.status_code == 201, challenge_response.text
-        assert "qr_payload" in challenge_response.json()
+        web_challenge = challenge_response.json()
+        qr_payload = json.loads(web_challenge["qr_payload"])
+        assert qr_payload["challenge_id"] == web_challenge["challenge_id"]
+
+        scanned = client.post(
+            f"/api/v1/web-login/challenges/{web_challenge['challenge_id']}/scan",
+            headers=headers_a,
+            json={"scan_nonce": qr_payload["scan_nonce"]},
+        )
+        assert scanned.status_code == 200, scanned.text
+        signed_web_approval = signed_action_payload(
+            action="WEB_LOGIN_APPROVE",
+            approval_id=UUID(web_challenge["challenge_id"]),
+            actor_device_id=UUID(str(session_a["device_id"])),
+            workspace_id=workspace_id,
+            nonce=qr_payload["scan_nonce"].encode("utf-8"),
+            expires_at=datetime.fromisoformat(qr_payload["expires_at"]),
+        )
+        web_approval = client.post(
+            f"/api/v1/web-login/challenges/{web_challenge['challenge_id']}/approve",
+            headers=headers_a,
+            json={
+                "signature": base64.b64encode(
+                    private_a.sign(signed_web_approval, ec.ECDSA(hashes.SHA256()))
+                ).decode("ascii")
+            },
+        )
+        assert web_approval.status_code == 200, web_approval.text
+
+        exchanged = client.post(
+            f"/api/v1/web-login/challenges/{web_challenge['challenge_id']}/exchange",
+            json={"browser_proof": proof},
+        )
+        assert exchanged.status_code == 200, exchanged.text
+        set_cookie = exchanged.headers["set-cookie"]
+        assert "muyu_web_session=" in set_cookie
+        assert "HttpOnly" in set_cookie
+        assert "SameSite=lax" in set_cookie
+
+        browser_snapshot = client.get("/api/v1/workspaces/current/snapshot")
+        assert browser_snapshot.status_code == 200, browser_snapshot.text
+        assert any(item["id"] == task_id for item in browser_snapshot.json()["tasks"])
+
+        web_sessions = client.get("/api/v1/web-login/sessions")
+        assert web_sessions.status_code == 200, web_sessions.text
+        session_id = web_sessions.json()[0]["id"]
+        revoked = client.post(f"/api/v1/web-login/sessions/{session_id}/revoke", headers=headers_a)
+        assert revoked.status_code == 204, revoked.text
+        assert client.get("/api/v1/tasks").status_code == 401

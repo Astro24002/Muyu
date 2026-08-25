@@ -8,6 +8,10 @@
    - 云端明文事实源、短信认证、设备审批和 Web 扫码会话；
    - PostgreSQL 事务、字段级冲突、cursor 增量同步与通知；
    - Android APK/AAB 与 Web 静态构建的共同发布和验收边界。
+2. [Android 与独立 Web 客户端边界设计](./superpowers/specs/2026-08-25-android-web-client-boundary-design.md)
+   - Flutter 只负责 Android；
+   - TypeScript + Vite 负责独立 Web SPA；
+   - FastAPI 只提供 API，Caddy 服务 Web 静态构建并代理 API。
 
 ## 关联资料
 

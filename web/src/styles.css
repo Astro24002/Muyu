@@ -1,0 +1,42 @@
+:root {
+  color: #172033;
+  background: #f5f7fa;
+  font-family: system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.65; }
+
+.workspace-page, .qr-login, .app-error { max-width: 1040px; margin: 0 auto; padding: 24px; }
+.workspace-header, .workspace-controls, .new-task-form { align-items: center; display: flex; gap: 12px; }
+.workspace-header { border-bottom: 1px solid #d5dce6; justify-content: space-between; padding-bottom: 16px; }
+.workspace-header h1, .qr-login h1 { margin: 0; font-size: 24px; }
+.workspace-cursor { color: #556070; margin: 4px 0 0; }
+.workspace-controls { flex-wrap: wrap; justify-content: flex-end; }
+.sync-warning, .sync-error, .app-error [role='alert'] { color: #a13c12; }
+.new-task-form { margin: 20px 0; }
+.new-task-form input { flex: 1; min-width: 0; }
+.task-list { display: grid; gap: 12px; }
+.task-row, .conflict-item { background: #fff; border: 1px solid #d5dce6; border-radius: 6px; padding: 14px; }
+.task-row { display: grid; gap: 10px; }
+.task-title-input { border: 0; font-size: 18px; font-weight: 650; padding: 4px 0; }
+.task-meta { color: #556070; font-size: 14px; margin: 0; }
+textarea { min-height: 76px; resize: vertical; }
+.task-row button { justify-self: start; }
+.conflict-panel { border-top: 3px solid #c95722; margin-top: 24px; padding-top: 14px; }
+.conflict-item { margin-top: 10px; }
+.conflict-item p { margin: 6px 0; }
+.conflict-item button + button { margin-left: 8px; }
+.qr-login { display: grid; gap: 12px; max-width: 440px; }
+.qr-login canvas { max-width: 100%; }
+
+@media (max-width: 640px) {
+  .workspace-page, .qr-login, .app-error { padding: 16px; }
+  .workspace-header, .new-task-form { align-items: stretch; flex-direction: column; }
+  .workspace-controls { justify-content: flex-start; }
+  .new-task-form input, .new-task-form button { min-height: 44px; width: 100%; }
+  .workspace-controls button { min-height: 44px; }
+}

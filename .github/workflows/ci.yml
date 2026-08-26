@@ -63,7 +63,7 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid
+      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://muyu.bkverse.space
       - uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk

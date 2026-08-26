@@ -25,7 +25,7 @@ build time when it is not served from the same origin:
 
 ```sh
 flutter build apk --debug \
-  --dart-define=API_BASE_URL=https://example.invalid
+  --dart-define=API_BASE_URL=https://muyu.bkverse.space
 cd web
 npm ci
 VITE_API_BASE_URL=/ npm run build

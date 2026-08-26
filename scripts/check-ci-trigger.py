@@ -14,4 +14,16 @@ for workflow in ("ci.yml", "release.yml"):
 release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 assert "workflow_dispatch:" not in release, "manual dispatch must not bypass the release event gate"
 assert "github.event_name == 'release'" in release, "protected artifact publication must only run for a Release"
+
+workflow_texts = (
+    ("ci.yml", Path(".github/workflows/ci.yml").read_text(encoding="utf-8")),
+    ("release.yml", release),
+)
+for workflow_name, workflow_text in workflow_texts:
+    assert "API_BASE_URL=https://muyu.bkverse.space" in workflow_text, (
+        f"{workflow_name} Android artifacts must target the production API"
+    )
+    assert "API_BASE_URL=https://example.invalid" not in workflow_text, (
+        f"{workflow_name} must not publish Android artifacts with a placeholder API"
+    )
 print("CI and release trigger check passed")

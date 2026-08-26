@@ -114,6 +114,17 @@ class TaskService:
         unknown = set(changes) - MUTABLE_FIELDS
         if unknown:
             raise TaskConflictError("invalid_request", f"unknown task fields: {sorted(unknown)}")
+        if "assignee_ids" in changes:
+            changes = dict(changes)
+            try:
+                changes["assignee_ids"] = [UUID(str(item)) for item in (changes["assignee_ids"] or [])]
+            except (TypeError, ValueError) as exc:
+                raise TaskConflictError("invalid_request", "invalid assignee id") from exc
+        if "current_handler_id" in changes and changes["current_handler_id"] is not None:
+            try:
+                changes["current_handler_id"] = UUID(str(changes["current_handler_id"]))
+            except (TypeError, ValueError) as exc:
+                raise TaskConflictError("invalid_request", "invalid handler id") from exc
         current_versions = dict(task.field_versions or {})
         conflicts: list[TaskConflict] = []
         before = self.snapshot(task)
@@ -128,8 +139,8 @@ class TaskService:
                     task_id=task.id,
                     target=field,
                     base_value=before.get(field),
-                    current_value=getattr(task, field),
-                    proposed_value=value,
+                    current_value=[str(item) for item in self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all()] if field == "assignee_ids" else (str(getattr(task, field)) if isinstance(getattr(task, field), UUID) else getattr(task, field)),
+                    proposed_value=[str(item) for item in value] if field == "assignee_ids" else (str(value) if isinstance(value, UUID) else value),
                     base_version=base,
                     current_version=current,
                     request_id=request_id,
@@ -168,6 +179,8 @@ class TaskService:
             existing_assignees = set(self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all())
             if handler is not None and handler not in existing_assignees:
                 raise TaskConflictError("invalid_request", "current handler must be an assignee")
+            if handler is not None and self.session.scalar(select(WorkspaceMembership.id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.user_id == handler, WorkspaceMembership.status == MembershipStatus.ACTIVE)) is None:
+                raise TaskConflictError("invalid_request", "current handler must be an active workspace member")
         for field, value in changes.items():
             if field == "assignee_ids":
                 self.session.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
@@ -188,15 +201,23 @@ class TaskService:
         action = action.lower()
         if action == "delete":
             task = self._task(workspace_id, task_id)
+            fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}/lifecycle", {"action": action, "base_lifecycle_version": base_lifecycle_version})
+            existing = self._existing_operation(workspace_id, actor_user_id, request_id)
+            if existing is not None:
+                if existing.base_versions != {"fingerprint": fingerprint}:
+                    raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+                self.last_cursor = existing.cursor
+                return task
             if task.lifecycle_version != base_lifecycle_version:
                 raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
             before = self.snapshot(task)
             task.deleted_at = self.now()
             task.lifecycle_version += 1
+            task.status_version += 1
             task.version += 1
             task.updated_at = self.now()
             cursor = self._cursor(workspace_id, task, ChangeAction.DELETED, request_id)
-            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.DELETED, before, self.snapshot(task), cursor)
+            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.DELETED, before, self.snapshot(task), cursor, base_versions={"fingerprint": fingerprint})
             return task
         target = "DONE" if action in {"complete", "completed"} else "TODO" if action in {"reopen", "open"} else None
         if target is None:
@@ -221,6 +242,8 @@ class TaskService:
             conflict = TaskConflict(workspace_id=workspace_id, task_id=task.id, target="status", base_value=target_status, current_value=current_public, proposed_value=target_status, base_version=base_status_version, current_version=task.status_version, request_id=request_id, status=ConflictStatus.OPEN)
             self.session.add(conflict)
             self.session.flush()
+            cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.CONFLICT_CREATED, before, before, cursor, base_versions={"fingerprint": fingerprint})
             raise TaskConflictError("field_conflict", "task status changed", [conflict])
         if target_status not in TRANSITIONS[current_public]:
             raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")

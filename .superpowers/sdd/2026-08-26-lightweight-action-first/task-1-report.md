@@ -15,6 +15,11 @@
 - AST parsing of all modified Python modules: passed.
 - `git diff --check`: passed.
 
+### Review fix round
+
+- Added stale-transition operation/cursor persistence, lifecycle-delete idempotency/version handling, strict assignee and handler validation, task existence checks for comment/delay listing, and explicit shared sync snapshots.
+- Added `backend/tests/tasks/test_lightweight_contract.py` coverage for subtasks, assignees, transitions, and stale status conflicts.
+
 ## Risks / concerns
 
 - PostgreSQL integration and HTTP contract tests remain unexecuted because test dependencies/database are unavailable.

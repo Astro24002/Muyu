@@ -226,6 +226,8 @@ def comment_task(task_id: UUID, body: CommentRequest, request: Request, backgrou
 
 @router.get("/tasks/{task_id}/comments")
 def comments(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
+    if session.scalar(select(Task.id).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)) is None:
+        raise ApiError(404, "not_found", "task not found")
     return [{"id": str(item.id), "body": item.body, "author_user_id": str(item.author_user_id), "created_at": item.created_at.isoformat()} for item in list_comments(session, actor.workspace_id, task_id)]
 
 
@@ -246,6 +248,8 @@ def delay_task(task_id: UUID, body: DelayRequest, request: Request, background_t
 
 @router.get("/tasks/{task_id}/delays")
 def delays(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
+    if session.scalar(select(Task.id).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)) is None:
+        raise ApiError(404, "not_found", "task not found")
     return [{"id": str(item.id), "original_due_at": item.original_due_at.isoformat(), "new_due_at": item.new_due_at.isoformat(), "reason": item.reason, "note": item.note} for item in list_delays(session, actor.workspace_id, task_id)]
 
 

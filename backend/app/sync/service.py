@@ -30,12 +30,14 @@ class SyncService:
         conflicts = self.session.scalars(select(TaskConflict).where(TaskConflict.workspace_id == workspace_id, TaskConflict.status == "OPEN")).all()
         cursor_row = self.session.get(WorkspaceCursor, workspace_id)
         head = max(0, (cursor_row.next_cursor - 1) if cursor_row else 0)
+        # Keep task-derived fields identical across sync and HTTP responses.
         service = TaskService(self.session)
+        task_snapshots = [service.snapshot(task) for task in tasks]
         return {
             "workspace_id": str(workspace_id),
             "workspace": {"id": str(workspace.id), "name": workspace.name, "status": workspace.status.value},
             "members": [{"user_id": str(item.user_id), "member_slot": item.member_slot} for item in memberships],
-            "tasks": [service.snapshot(task) for task in tasks],
+            "tasks": task_snapshots,
             "conflicts": [{"id": str(item.id), "task_id": str(item.task_id), "field": item.target, "status": item.status.value} for item in conflicts],
             "cursor": head,
         }

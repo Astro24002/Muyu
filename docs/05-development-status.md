@@ -85,10 +85,10 @@
 ### 2026-08-25 - 接入国阳云生产短信 Provider
 
 - 类型：供应商接入 / 生产配置
-- 变更：保留手机号验证码认证，生产 Provider 改为国阳云阿里云市场接口；请求使用 `APPCODE` 认证和表单参数，只有响应 JSON 的业务 `code == "0"` 才视为发送成功；新增 `SMS_SIGN_ID` 与 `SMS_TEMPLATE_ID` 配置校验。
+- 变更：保留手机号验证码认证，生产 Provider 改为国阳云阿里云市场接口；请求使用 `APPCODE` 认证和 query 参数，只有响应 JSON 的业务 `code == "0"` 才视为发送成功；新增 `SMS_SIGN_ID` 与 `SMS_TEMPLATE_ID` 配置校验；登录输入支持 11 位大陆手机号并在 API 内补全 `+86`。
 - 模板：当前使用“验证码：`**code**`，`**minute**`分钟内有效，请勿泄漏于他人！”模板，模板 ID 为 `908e94ccf08b4476ba6c876d13f084ad`；验证码 AppCode 仍只通过服务器 Secret 注入。
-- 验证：Provider 请求/业务响应测试和生产配置测试通过；隔离 PostgreSQL 后端 `42 passed, 1 skipped`；本地/生产 Compose 配置与拓扑检查通过。
-- 风险边界：未调用真实短信接口，未写入真实 AppCode，未触碰远程数据库或服务器；上线前需要在服务器 Secret 中配置实际 AppCode，并用真实手机号做一次发送验收。
+- 验证：Provider 请求/业务响应测试和生产配置测试通过；隔离 PostgreSQL 后端认证回归 `13 passed`；已在生产域名通过真实供应商链路向验收号码发送测试短信并收到 `202`。
+- 风险边界：AppCode 仅写入服务器 Secret；验证码不会进入日志、客户端构建参数或源代码。
 
 ### 2026-08-16 - Task 1 Python 运行时与配置骨架
 

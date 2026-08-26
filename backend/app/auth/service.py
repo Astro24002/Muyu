@@ -96,6 +96,10 @@ class SmsAuthService:
             request_ip_digest=hash_client_ip(client_ip) if client_ip else None,
             expires_at=now + timedelta(seconds=self.otp_ttl_seconds),
             attempt_count=0,
+            # Some deployed databases were created with a literal timestamp
+            # as the server default. Set this explicitly so resend ordering
+            # and rate limits remain correct until those schemas are rebuilt.
+            created_at=now,
         )
         self.session.add(challenge)
         self.session.commit()
@@ -110,7 +114,11 @@ class SmsAuthService:
                 SmsVerificationChallenge.phone == normalized,
                 SmsVerificationChallenge.consumed_at.is_(None),
             )
-            .order_by(SmsVerificationChallenge.created_at.desc())
+            .order_by(
+                SmsVerificationChallenge.created_at.desc(),
+                SmsVerificationChallenge.expires_at.desc(),
+                SmsVerificationChallenge.id.desc(),
+            )
             .with_for_update()
         )
         if (
@@ -241,10 +249,23 @@ class SmsAuthService:
 def normalize_phone(phone: str) -> str:
     import phonenumbers
 
+    candidate = phone.strip()
+    # The mobile UI accepts a mainland Chinese 11-digit number. Keep the
+    # canonical E.164 value inside the API and database.
+    if candidate.isdigit() and len(candidate) == 11:
+        candidate = f"+86{candidate}"
     try:
-        parsed = phonenumbers.parse(phone, None)
+        parsed = phonenumbers.parse(candidate, None)
     except phonenumbers.NumberParseException as error:
-        raise SmsAuthError("invalid_request", "phone must be an E.164 number", 422) from error
-    if not phonenumbers.is_valid_number(parsed) or not phone.strip().startswith("+"):
-        raise SmsAuthError("invalid_request", "phone must be an E.164 number", 422)
+        raise SmsAuthError(
+            "invalid_request",
+            "phone must be an E.164 number or an 11-digit mainland China number",
+            422,
+        ) from error
+    if not phonenumbers.is_valid_number(parsed) or not candidate.startswith("+"):
+        raise SmsAuthError(
+            "invalid_request",
+            "phone must be an E.164 number or an 11-digit mainland China number",
+            422,
+        )
     return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)

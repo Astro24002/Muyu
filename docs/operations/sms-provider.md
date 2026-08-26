@@ -28,8 +28,9 @@ Never put the AppCode in Flutter `--dart-define` values, source control, Web
 assets, APKs, or logs. The server does not log the request body, recipient,
 code, authorization header, or provider response body.
 
-The API normalizes phone numbers to E.164, stores only a keyed OTP digest, and
-never logs the six-digit code. Configure provider-side fraud controls in
+The API accepts either an E.164 number or an 11-digit mainland Chinese number,
+normalizes it to E.164, stores only a keyed OTP digest, and never logs the
+six-digit code. Configure provider-side fraud controls in
 addition to API controls. API defaults allow five requests per phone window,
 twenty per IP window, five verification attempts, and a five-minute challenge;
 review these limits with the provider and adjust through deployment settings.

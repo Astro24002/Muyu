@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from fastapi.testclient import TestClient
@@ -80,11 +81,49 @@ def test_sms_verification_is_single_use(db_engine) -> None:
     assert second.json()["code"] == "invalid_otp"
 
 
-def test_sms_send_normalizes_phone_and_enforces_six_digit_code(db_engine) -> None:
+def test_sms_send_and_verify_normalize_an_eleven_digit_phone(db_engine) -> None:
     client = make_client(db_engine)
     response = client.post("/api/v1/auth/sms/send", json={"phone": "13800138000"})
+    assert response.status_code == 202
+    code = client.app.state.sms_provider.last_code_for("+8613800138000")
+
+    verified = client.post(
+        "/api/v1/auth/sms/verify",
+        json={
+            "phone": "13800138000",
+            "code": code,
+            "device": {"public_key_der": "AQID", "label": "local-number"},
+        },
+    )
+    assert verified.status_code == 201, verified.text
+
+
+def test_sms_send_rejects_an_invalid_phone(db_engine) -> None:
+    client = make_client(db_engine)
+    response = client.post("/api/v1/auth/sms/send", json={"phone": "12345"})
     assert response.status_code == 422
     assert response.json()["code"] == "invalid_request"
+
+
+def test_latest_otp_wins_after_resend(db_engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    codes = iter(("111111", "222222"))
+    monkeypatch.setattr("app.auth.service.generate_otp", lambda: next(codes))
+    client = make_client(db_engine)
+    phone = "+8613800138000"
+
+    assert client.post("/api/v1/auth/sms/send", json={"phone": phone}).status_code == 202
+    assert client.post("/api/v1/auth/sms/send", json={"phone": phone}).status_code == 202
+    assert client.app.state.sms_provider.last_code_for(phone) == "222222"
+
+    verified = client.post(
+        "/api/v1/auth/sms/verify",
+        json={
+            "phone": phone,
+            "code": "222222",
+            "device": {"public_key_der": "AQID", "label": "resend"},
+        },
+    )
+    assert verified.status_code == 201, verified.text
 
 
 def test_sms_attempt_limit_rejects_wrong_codes(db_engine) -> None:

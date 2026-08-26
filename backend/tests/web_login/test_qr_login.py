@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 from uuid import uuid4
 
 import pytest
@@ -11,6 +12,36 @@ from app.db.enums import DeviceStatus, MembershipStatus
 from app.db.models import AndroidDevice, User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.devices.signatures import signed_action_payload
 from app.web_login.service import WebLoginConflict, WebLoginService
+
+
+def test_qr_scan_rejects_active_device_without_workspace_membership(db_engine) -> None:
+    with Session(db_engine) as session:
+        user = User(phone="+14155552673")
+        session.add(user)
+        session.flush()
+        private = ec.generate_private_key(ec.SECP256R1())
+        device = AndroidDevice(
+            user_id=user.id,
+            public_key_der=private.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            ),
+            fingerprint="unpaired-device",
+            status=DeviceStatus.ACTIVE,
+        )
+        session.add(device)
+        session.flush()
+        service = WebLoginService(session, safety_cache={}, nonce_cache={})
+        challenge = service.create_challenge(
+            "https://app.example.test", hashlib.sha256(b"proof").hexdigest()
+        )
+        payload = json.loads(challenge.qr_payload)
+
+        with pytest.raises(WebLoginConflict) as caught:
+            service.scan(challenge.challenge_id, payload["scan_nonce"], user.id, device.id)
+
+        assert caught.value.code == "workspace_access_denied"
+        assert caught.value.status_code == 403
 
 
 def test_qr_login_approves_and_issues_an_18_hour_session(db_engine) -> None:

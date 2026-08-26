@@ -63,17 +63,64 @@ class CloudTaskRepository {
     }
   }
 
-  Future<TaskItem?> transition(String taskId, {required String targetStatus, required int baseStatusVersion, String? blockedReason, String? resumeHandlerId, String? waitingForUserId, required String requestId}) async {
-    final value = await _api.request('POST', '/api/v1/tasks/$taskId/transition', body: {
-      'request_id': requestId, 'target_status': targetStatus, 'base_status_version': baseStatusVersion,
-      'blocked_reason': blockedReason, 'resume_handler_id': resumeHandlerId, 'waiting_for_user_id': waitingForUserId,
-    }, authenticated: true, headers: {'x-request-id': requestId});
-    return value is Map<String, dynamic> && value['id'] != null ? TaskItem.fromJson(value) : null;
+  Future<TaskItem?> transition(
+    String taskId, {
+    required String targetStatus,
+    required int baseStatusVersion,
+    String? blockedReason,
+    String? resumeHandlerId,
+    String? waitingForUserId,
+    required String requestId,
+  }) async {
+    final value = await _api.request(
+      'POST',
+      '/api/v1/tasks/$taskId/transition',
+      body: {
+        'request_id': requestId,
+        'target_status': targetStatus,
+        'base_status_version': baseStatusVersion,
+        'blocked_reason': blockedReason,
+        'resume_handler_id': resumeHandlerId,
+        'waiting_for_user_id': waitingForUserId,
+      },
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    return value is Map<String, dynamic> && value['id'] != null
+        ? TaskItem.fromJson(value)
+        : null;
   }
 
-  Future<Object?> addComment(String taskId, {required String body, required String requestId}) => _api.request('POST', '/api/v1/tasks/$taskId/comments', body: {'request_id': requestId, 'body': body}, authenticated: true, headers: {'x-request-id': requestId});
+  Future<Object?> addComment(
+    String taskId, {
+    required String body,
+    required String requestId,
+  }) => _api.request(
+    'POST',
+    '/api/v1/tasks/$taskId/comments',
+    body: {'request_id': requestId, 'body': body},
+    authenticated: true,
+    headers: {'x-request-id': requestId},
+  );
 
-  Future<Object?> addDelay(String taskId, {required String newDueAt, required String reason, String? note, required String requestId}) => _api.request('POST', '/api/v1/tasks/$taskId/delays', body: {'request_id': requestId, 'new_due_at': newDueAt, 'reason': reason, 'note': note}, authenticated: true, headers: {'x-request-id': requestId});
+  Future<Object?> addDelay(
+    String taskId, {
+    required String newDueAt,
+    required String reason,
+    String? note,
+    required String requestId,
+  }) => _api.request(
+    'POST',
+    '/api/v1/tasks/$taskId/delays',
+    body: {
+      'request_id': requestId,
+      'new_due_at': newDueAt,
+      'reason': reason,
+      'note': note,
+    },
+    authenticated: true,
+    headers: {'x-request-id': requestId},
+  );
 
   String newRequestId() {
     final random = Random.secure();

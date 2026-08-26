@@ -55,13 +55,31 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   }
 
   @override
-  Future<TaskItem> transition(String taskId, {required String targetStatus, required int baseStatusVersion, String? blockedReason, String? resumeHandlerId, String? waitingForUserId, required String requestId}) async => task(targetStatus);
+  Future<TaskItem> transition(
+    String taskId, {
+    required String targetStatus,
+    required int baseStatusVersion,
+    String? blockedReason,
+    String? resumeHandlerId,
+    String? waitingForUserId,
+    required String requestId,
+  }) async => task(targetStatus);
 
   @override
-  Future<Object?> addComment(String taskId, {required String body, required String requestId}) async => null;
+  Future<Object?> addComment(
+    String taskId, {
+    required String body,
+    required String requestId,
+  }) async => null;
 
   @override
-  Future<Object?> addDelay(String taskId, {required String newDueAt, required String reason, String? note, required String requestId}) async => null;
+  Future<Object?> addDelay(
+    String taskId, {
+    required String newDueAt,
+    required String reason,
+    String? note,
+    required String requestId,
+  }) async => null;
 }
 
 void main() {

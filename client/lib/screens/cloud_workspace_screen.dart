@@ -36,7 +36,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     super.dispose();
   }
 
-
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _sync,
@@ -70,14 +69,37 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         ),
         body: DefaultTabController(
           length: 3,
-          child: Column(children: [
-            const TabBar(tabs: [Tab(text: '我的任务'), Tab(text: '全部任务'), Tab(text: '看板')]),
-            Expanded(child: TabBarView(children: [
-              _taskList(context, TaskView.mine(tasks, state.snapshot == null || state.snapshot!.members.isEmpty ? '' : state.snapshot!.members.first['user_id'] as String), state),
-              _taskList(context, tasks, state),
-              _board(context, grouped, state),
-            ])),
-          ]),
+          child: Column(
+            children: [
+              const TabBar(
+                tabs: [
+                  Tab(text: '我的任务'),
+                  Tab(text: '全部任务'),
+                  Tab(text: '看板'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _taskList(
+                      context,
+                      TaskView.mine(
+                        tasks,
+                        state.snapshot == null ||
+                                state.snapshot!.members.isEmpty
+                            ? ''
+                            : state.snapshot!.members.first['user_id']
+                                  as String,
+                      ),
+                      state,
+                    ),
+                    _taskList(context, tasks, state),
+                    _board(context, grouped, state),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         /* body: RefreshIndicator(
           onRefresh: _sync.refresh,
@@ -153,7 +175,11 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   );
 }
 
-Widget _taskList(BuildContext context, List<TaskItem> tasks, WorkspaceSyncState state) {
+Widget _taskList(
+  BuildContext context,
+  List<TaskItem> tasks,
+  WorkspaceSyncState state,
+) {
   final screen = context.findAncestorStateOfType<_CloudWorkspaceScreenState>();
   return RefreshIndicator(
     onRefresh: screen?._sync.refresh ?? () async {},
@@ -161,19 +187,57 @@ Widget _taskList(BuildContext context, List<TaskItem> tasks, WorkspaceSyncState 
       padding: const EdgeInsets.all(16),
       children: [
         if (state.errorMessage != null) Text(state.errorMessage!),
-        if (tasks.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('还没有任务'))),
+        if (tasks.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(32),
+            child: Center(child: Text('还没有任务')),
+          ),
         for (final task in tasks)
-          Card(child: ListTile(
-            title: Text(task.title),
-            subtitle: Text(task.status == 'WAITING' ? (task.blockedReason ?? '等待中') : task.description.isEmpty ? task.status : task.description),
-            trailing: Text('v${task.version}'),
-            onTap: screen == null ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TaskDetailScreen(task: task, sync: screen._sync))),
-          )),
+          Card(
+            child: ListTile(
+              title: Text(task.title),
+              subtitle: Text(
+                task.status == 'WAITING'
+                    ? (task.blockedReason ?? '等待中')
+                    : task.description.isEmpty
+                    ? task.status
+                    : task.description,
+              ),
+              trailing: Text('v${task.version}'),
+              onTap: screen == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            TaskDetailScreen(task: task, sync: screen._sync),
+                      ),
+                    ),
+            ),
+          ),
       ],
     ),
   );
 }
 
-Widget _board(BuildContext context, Map<String, List<TaskItem>> grouped, WorkspaceSyncState state) => ListView(padding: const EdgeInsets.all(12), children: [
-      for (final status in TaskView.statuses) ExpansionTile(title: Text(status), children: [for (final task in grouped[status]!) ListTile(title: Text(task.title), subtitle: task.status == 'WAITING' ? Text(task.blockedReason ?? '') : null)])
-    ]);
+Widget _board(
+  BuildContext context,
+  Map<String, List<TaskItem>> grouped,
+  WorkspaceSyncState state,
+) => ListView(
+  padding: const EdgeInsets.all(12),
+  children: [
+    for (final status in TaskView.statuses)
+      ExpansionTile(
+        title: Text(status),
+        children: [
+          for (final task in grouped[status]!)
+            ListTile(
+              title: Text(task.title),
+              subtitle: task.status == 'WAITING'
+                  ? Text(task.blockedReason ?? '')
+                  : null,
+            ),
+        ],
+      ),
+  ],
+);

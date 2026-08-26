@@ -48,7 +48,7 @@
 - Task 3: complete (`f0a1fec`); Web Vitest/typecheck passed, Flutter focused tests passed.
 - Task 4: complete (`58455cb`); Web 42 tests, typecheck, and build passed.
 - Task 5: complete (`3f47c46`); Flutter analyze clean and 12 tests passed; APK not rebuilt in this task.
-- Task 6: complete (`dd1b8b7`); smoke/e2e/docs/Makefile added; PostgreSQL acceptance not run.
+- Task 6: complete (`6a98521`); smoke/e2e/docs/Makefile added; PostgreSQL acceptance not run.
 
 ## Task 1 review loop
 

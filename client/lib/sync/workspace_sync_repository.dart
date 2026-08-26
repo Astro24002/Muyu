@@ -3,7 +3,7 @@ import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
 import '../models/task.dart';
 
-abstract interface class WorkspaceSyncRepository {
+abstract class WorkspaceSyncRepository {
   Future<WorkspaceSnapshot> snapshot();
 
   Future<WorkspaceChanges> changes({required int afterCursor});

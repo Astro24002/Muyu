@@ -1,14 +1,14 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../models/task.dart';
+import '../models/task_view.dart';
 import '../platform/device_signing_key.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../sync/workspace_sync_repository.dart';
 import '../workspace/device_authorization_repository.dart';
 import 'web_qr_scanner_screen.dart';
+import 'task_detail_screen.dart';
 
 class CloudWorkspaceScreen extends StatefulWidget {
   const CloudWorkspaceScreen({super.key, required this.api, this.signingKey});
@@ -22,8 +22,6 @@ class CloudWorkspaceScreen extends StatefulWidget {
 
 class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   late final WorkspaceSyncController _sync;
-  final _title = TextEditingController();
-  bool _creating = false;
 
   @override
   void initState() {
@@ -34,37 +32,10 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
 
   @override
   void dispose() {
-    _title.dispose();
     _sync.dispose();
     super.dispose();
   }
 
-  Future<void> _createTask() async {
-    final title = _title.text.trim();
-    if (title.isEmpty || _creating) return;
-    setState(() => _creating = true);
-    try {
-      await widget.api.request(
-        'POST',
-        '/api/v1/tasks',
-        authenticated: true,
-        body: {
-          'request_id': _newRequestId(),
-          'title': title,
-          'description': '',
-        },
-      );
-      _title.clear();
-      await _sync.refresh();
-    } on ApiException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
-      }
-    } finally {
-      if (mounted) setState(() => _creating = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -72,6 +43,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     builder: (context, _) {
       final state = _sync.state;
       final tasks = state.snapshot?.tasks ?? const <TaskItem>[];
+      final grouped = TaskView.byStatus(tasks);
       return Scaffold(
         appBar: AppBar(
           title: const Text('共享任务'),
@@ -96,7 +68,18 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             ),
           ],
         ),
-        body: RefreshIndicator(
+        body: DefaultTabController(
+          length: 3,
+          child: Column(children: [
+            const TabBar(tabs: [Tab(text: '我的任务'), Tab(text: '全部任务'), Tab(text: '看板')]),
+            Expanded(child: TabBarView(children: [
+              _taskList(context, TaskView.mine(tasks, state.snapshot == null || state.snapshot!.members.isEmpty ? '' : state.snapshot!.members.first['user_id'] as String), state),
+              _taskList(context, tasks, state),
+              _board(context, grouped, state),
+            ])),
+          ]),
+        ),
+        /* body: RefreshIndicator(
           onRefresh: _sync.refresh,
           child: ListView(
             padding: const EdgeInsets.all(16),
@@ -164,17 +147,33 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                 ),
             ],
           ),
-        ),
+        ), */
       );
     },
   );
 }
 
-String _newRequestId() {
-  final random = Random.secure();
-  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
-  final hex = bytes
-      .map((value) => value.toRadixString(16).padLeft(2, '0'))
-      .join();
-  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+Widget _taskList(BuildContext context, List<TaskItem> tasks, WorkspaceSyncState state) {
+  final screen = context.findAncestorStateOfType<_CloudWorkspaceScreenState>();
+  return RefreshIndicator(
+    onRefresh: screen?._sync.refresh ?? () async {},
+    child: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (state.errorMessage != null) Text(state.errorMessage!),
+        if (tasks.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('还没有任务'))),
+        for (final task in tasks)
+          Card(child: ListTile(
+            title: Text(task.title),
+            subtitle: Text(task.status == 'WAITING' ? (task.blockedReason ?? '等待中') : task.description.isEmpty ? task.status : task.description),
+            trailing: Text('v${task.version}'),
+            onTap: screen == null ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TaskDetailScreen(task: task, sync: screen._sync))),
+          )),
+      ],
+    ),
+  );
 }
+
+Widget _board(BuildContext context, Map<String, List<TaskItem>> grouped, WorkspaceSyncState state) => ListView(padding: const EdgeInsets.all(12), children: [
+      for (final status in TaskView.statuses) ExpansionTile(title: Text(status), children: [for (final task in grouped[status]!) ListTile(title: Text(task.title), subtitle: task.status == 'WAITING' ? Text(task.blockedReason ?? '') : null)])
+    ]);

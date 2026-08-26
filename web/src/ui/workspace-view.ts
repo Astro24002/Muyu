@@ -1,132 +1,37 @@
 import type { TaskItem } from '../api/types';
 import type { TaskConflict } from '../tasks/task-model';
+import { deriveTaskSummary, filterMyTasks, groupTasksByStatus, TASK_STATUSES } from '../tasks/task-view-model';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
+import { TaskDetailView } from './task-detail-view';
 
 export class WorkspaceView {
   static mount(root: Element, sync: WorkspaceSyncController, onLogout: () => void): () => void {
-    let logoutNotified = false;
+    let mode: 'list' | 'board' = 'list'; let myOnly = false; let detailCleanup: (() => void) | undefined;
     const render = (state: WorkspaceSyncState) => {
-      if (state.authRequired && !logoutNotified) {
-        logoutNotified = true;
-        onLogout();
-        return;
-      }
-      root.replaceChildren(buildWorkspace(state, sync, onLogout));
+      if (state.authRequired) { onLogout(); return; }
+      detailCleanup?.(); detailCleanup = undefined;
+      root.replaceChildren(buildWorkspace(state, sync, onLogout, mode, myOnly, (nextMode) => { mode = nextMode; render(sync.state); }, (nextMy) => { myOnly = nextMy; render(sync.state); }, (task) => { detailCleanup = TaskDetailView.mount(root, task, state.snapshot?.members ?? [], { onTransition: (status, payload) => sync.transitionTask(task.id, status, payload), onComment: (body) => sync.addComment(task.id, body), onDelay: (date, reason, note) => sync.addDelay(task.id, date, reason, note), onSave: (changes) => sync.patchTask(task.id, changes) }); }));
     };
-    const unsubscribe = sync.subscribe(render);
-    render(sync.state);
-    return () => unsubscribe();
+    const unsubscribe = sync.subscribe(render); render(sync.state);
+    return () => { detailCleanup?.(); unsubscribe(); };
   }
 }
 
-function buildWorkspace(state: WorkspaceSyncState, sync: WorkspaceSyncController, onLogout: () => void): HTMLElement {
+function buildWorkspace(state: WorkspaceSyncState, sync: WorkspaceSyncController, onLogout: () => void, mode: 'list' | 'board', myOnly: boolean, setMode: (mode: 'list' | 'board') => void, setMyOnly: (value: boolean) => void, openTask: (task: TaskItem) => void): HTMLElement {
   const page = element('main', 'workspace-page');
-  const header = element('header', 'workspace-header');
-  const identity = element('div');
-  identity.append(element('h1', undefined, 'Muyu'));
-  identity.append(element('p', 'workspace-cursor', `游标: ${state.cursor}`));
-  header.append(identity);
-
-  const controls = element('div', 'workspace-controls');
-  if (state.stale) controls.append(element('span', 'sync-warning', '数据可能已过期'));
-  if (state.error) controls.append(element('span', 'sync-error', state.error));
-  const refresh = button('刷新', () => void sync.refresh());
-  refresh.disabled = state.loading;
-  controls.append(refresh, button('退出登录', onLogout));
-  header.append(controls);
-  page.append(header);
-
-  const newTask = element('form', 'new-task-form') as HTMLFormElement;
-  const title = input('新任务标题', 'text');
-  title.required = true;
-  const description = input('任务描述', 'text');
-  const create = button('创建任务');
-  create.type = 'submit';
-  create.disabled = state.loading;
-  newTask.append(title, description, create);
-  newTask.addEventListener('submit', (event) => {
-    event.preventDefault();
-    void sync.createTask(title.value.trim(), description.value).then(() => {
-      title.value = '';
-      description.value = '';
-    });
-  });
-  page.append(newTask);
-
-  const taskList = element('section', 'task-list');
-  taskList.setAttribute('aria-label', '任务列表');
-  for (const task of state.snapshot?.tasks ?? []) taskList.append(taskRow(task, sync, state.loading));
-  if (!state.snapshot && !state.loading) taskList.append(element('p', undefined, '尚未加载工作区。'));
-  page.append(taskList);
-
-  if (state.conflicts.length > 0) page.append(conflictPanel(state.conflicts, sync, state.loading));
-  return page;
+  const header = element('header', 'workspace-header'); header.append(element('div', undefined, 'Muyu'));
+  const controls = element('div', 'workspace-controls'); controls.append(button('刷新', () => void sync.refresh()), button('退出登录', onLogout)); header.append(controls); page.append(header);
+  const tasks = (state.snapshot?.tasks ?? []).filter((task) => !task.deleted_at); const userId = state.snapshot?.members[0]?.user_id ?? ''; const visible = myOnly ? filterMyTasks(tasks, userId) : tasks;
+  const summary = deriveTaskSummary(myOnly ? visible : tasks); const summaryNode = element('section', 'task-summary');
+  summaryNode.textContent = `我的任务 ${summary.mine} | 阻塞 ${summary.blocked} | 24小时内 ${summary.dueSoon} | 已过期 ${summary.overdue} | 待处理冲突 ${state.conflicts.length}`; page.append(summaryNode);
+  const nav = element('div', 'view-controls'); const list = button('列表', () => setMode('list')); const board = button('看板', () => setMode('board')); const mine = document.createElement('input'); mine.type = 'checkbox'; mine.checked = myOnly; mine.id = 'my-only'; mine.addEventListener('change', () => setMyOnly(mine.checked)); nav.append(list, board, mine, element('label', undefined, '只看我的任务')); page.append(nav);
+  const form = document.createElement('form'); form.className = 'new-task-form'; const title = input('新任务标题'); const description = input('任务描述'); const create = button('创建任务'); create.type = 'submit'; form.append(title, description, create); form.addEventListener('submit', (event) => { event.preventDefault(); void sync.createTask(title.value.trim(), description.value).then(() => { title.value = ''; description.value = ''; }); }); page.append(form);
+  if (mode === 'board') { const boardNode = element('section', 'task-board'); const groups = groupTasksByStatus(visible); for (const status of TASK_STATUSES) { const column = element('div', 'task-column'); column.append(element('h2', undefined, status)); for (const task of groups[status]) column.append(taskCard(task, sync, state.loading, openTask)); boardNode.append(column); } page.append(boardNode); } else { const listNode = element('section', 'task-list'); [...visible].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).forEach((task) => listNode.append(taskCard(task, sync, state.loading, openTask))); page.append(listNode); }
+  if (state.conflicts.length) page.append(conflictPanel(state.conflicts, sync, state.loading)); return page;
 }
 
-function taskRow(task: TaskItem, sync: WorkspaceSyncController, loading: boolean): HTMLElement {
-  const row = element('article', 'task-row');
-  const metadata = element('p', 'task-meta', `${task.status} | 截止: ${task.due_at ?? '未设置'} | 版本: ${task.version}`);
-  const title = input('任务标题', 'text', task.title);
-  title.className = 'task-title-input';
-  title.required = true;
-  const description = document.createElement('textarea');
-  description.value = task.description;
-  description.placeholder = '任务描述';
-  description.setAttribute('aria-label', `${task.title} 的任务描述`);
-  const save = button('保存', () => {
-    const changes: { title?: string; description?: string } = {};
-    if (title.value !== task.title) changes.title = title.value;
-    if (description.value !== task.description) changes.description = description.value;
-    if (Object.keys(changes).length > 0) void sync.patchTask(task.id, changes);
-  });
-  save.disabled = loading;
-  row.append(title, metadata, description, save);
-  return row;
-}
-
-function conflictPanel(conflicts: TaskConflict[], sync: WorkspaceSyncController, loading: boolean): HTMLElement {
-  const panel = element('section', 'conflict-panel');
-  panel.append(element('h2', undefined, '待处理冲突'));
-  for (const conflict of conflicts) {
-    const item = element('article', 'conflict-item');
-    item.append(element('p', undefined, `字段: ${conflict.field}`));
-    item.append(element('p', undefined, `当前值: ${displayValue(conflict.current)}`));
-    item.append(element('p', undefined, `提议值: ${displayValue(conflict.proposed)}`));
-    const keep = button('保留当前', () => void sync.resolveConflict(conflict.task_id, conflict.id, 'current'));
-    const adopt = button('采用提议', () => void sync.resolveConflict(conflict.task_id, conflict.id, 'proposed'));
-    keep.disabled = loading;
-    adopt.disabled = loading;
-    item.append(keep, adopt);
-    panel.append(item);
-  }
-  return panel;
-}
-
-function element(tag: string, className?: string, text?: string): HTMLElement {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function input(placeholder: string, type: string, value = ''): HTMLInputElement {
-  const node = document.createElement('input');
-  node.type = type;
-  node.placeholder = placeholder;
-  node.setAttribute('aria-label', placeholder);
-  node.value = value;
-  return node;
-}
-
-function button(label: string, handler?: () => void): HTMLButtonElement {
-  const node = document.createElement('button');
-  node.type = 'button';
-  node.textContent = label;
-  if (handler) node.addEventListener('click', handler);
-  return node;
-}
-
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined) return '未设置';
-  return typeof value === 'string' ? value : JSON.stringify(value);
-}
+function taskCard(task: TaskItem, sync: WorkspaceSyncController, loading: boolean, openTask: (task: TaskItem) => void): HTMLElement { const row = element('article', 'task-row'); row.addEventListener('click', () => openTask(task)); row.append(element('h3', undefined, task.title), element('p', 'task-meta', `${task.status} | 截止: ${task.due_at ?? '未设置'} | 延期: ${task.delay_count} | 版本: ${task.status_version}`)); if (task.status === 'WAITING') row.append(element('p', 'blocked-reason', `阻塞: ${task.blocked_reason ?? '未说明'}`)); if (task.due_at && Date.parse(task.due_at) < Date.now() && task.status !== 'DONE' && task.status !== 'CANCELLED') row.append(element('p', 'overdue-warning', '已过期')); const done = button('完成', (event) => { event.stopPropagation(); void sync.transitionTask(task.id, 'DONE'); }); done.disabled = loading || task.status === 'DONE'; row.append(done); return row; }
+function conflictPanel(conflicts: TaskConflict[], sync: WorkspaceSyncController, loading: boolean): HTMLElement { const panel = element('section', 'conflict-panel'); panel.append(element('h2', undefined, '待处理冲突')); for (const conflict of conflicts) { const item = element('article', 'conflict-item'); item.append(element('p', undefined, `字段: ${conflict.field}`), button('保留当前', () => void sync.resolveConflict(conflict.task_id, conflict.id, 'current')), button('采用提议', () => void sync.resolveConflict(conflict.task_id, conflict.id, 'proposed'))); panel.append(item); } return panel; }
+function element(tag: string, className?: string, text?: string): HTMLElement { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
+function input(placeholder: string, value = ''): HTMLInputElement { const node = document.createElement('input'); node.type = 'text'; node.placeholder = placeholder; node.setAttribute('aria-label', placeholder); node.value = value; return node; }
+function button(label: string, handler?: (event: Event) => void): HTMLButtonElement { const node = document.createElement('button'); node.type = 'button'; node.textContent = label; if (handler) node.addEventListener('click', handler); return node; }

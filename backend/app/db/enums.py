@@ -53,6 +53,16 @@ class TaskStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+# Public API keeps DONE while the persisted enum remains COMPLETED for compatibility.
+PUBLIC_TASK_STATUS = {
+    TaskStatus.TODO: "TODO",
+    TaskStatus.IN_PROGRESS: "IN_PROGRESS",
+    TaskStatus.WAITING: "WAITING",
+    TaskStatus.COMPLETED: "DONE",
+    TaskStatus.CANCELLED: "CANCELLED",
+}
+
+
 class ChangeAction(StrEnum):
     CREATED = "CREATED"
     UPDATED = "UPDATED"

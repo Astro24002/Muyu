@@ -11,14 +11,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.service import _hash_token
 from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, Resolution, WebSessionStatus
-from app.db.models import AndroidDevice, ImportantDate, MobileSession, Task, TaskConflict, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
+from app.db.models import AndroidDevice, ImportantDate, MobileSession, Task, TaskConflict, TaskOperation, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
 from app.tasks.comments import add_comment, list_comments
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.delays import add_delay, list_delays
 from app.tasks.recurrence import create_rule
-from app.tasks.schemas import CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest
+from app.tasks.schemas import CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
 from app.tasks.search import search_tasks
 from app.tasks.service import TaskService
 
@@ -77,7 +77,7 @@ def _task_json(service: TaskService, task: Task) -> dict[str, object]:
 
 
 def _task_error(error: TaskConflictError) -> ApiError:
-    status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code == "invalid_request" else 404 if error.code == "not_found" else 409
+    status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code in {"invalid_request", "nested_task_not_allowed"} else 404 if error.code == "not_found" else 409
     details = {}
     if isinstance(error.conflict, list):
         details["conflicts"] = [{"id": str(item.id), "field": item.target, "base": item.base_value, "current": item.current_value, "proposed": item.proposed_value} for item in error.conflict]
@@ -89,7 +89,8 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
     try:
         due_at = datetime.fromisoformat(body.due_at) if body.due_at else None
         service = TaskService(session)
-        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at)
+        planned_start_at = datetime.fromisoformat(body.planned_start_at) if body.planned_start_at else None
+        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at, body.parent_task_id, body.assignee_ids, planned_start_at, body.estimated_minutes)
         session.commit()
     except (ValueError, TaskConflictError) as error:
         session.rollback()
@@ -142,6 +143,22 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
         session.commit()
     except TaskConflictError as error:
         session.rollback()
+        raise _task_error(error) from error
+    _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
+    return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
+
+
+@router.post("/tasks/{task_id}/transition")
+def transition_task(task_id: UUID, body: TransitionRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+    try:
+        service = TaskService(session)
+        task = service.transition(actor.workspace_id, actor.user_id, task_id, body.request_id, body.target_status, body.base_status_version, body.blocked_reason, body.resume_handler_id, body.waiting_for_user_id)
+        session.commit()
+    except TaskConflictError as error:
+        if error.code == "field_conflict":
+            session.commit()
+        else:
+            session.rollback()
         raise _task_error(error) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
@@ -230,6 +247,20 @@ def delay_task(task_id: UUID, body: DelayRequest, request: Request, background_t
 @router.get("/tasks/{task_id}/delays")
 def delays(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
     return [{"id": str(item.id), "original_due_at": item.original_due_at.isoformat(), "new_due_at": item.new_due_at.isoformat(), "reason": item.reason, "note": item.note} for item in list_delays(session, actor.workspace_id, task_id)]
+
+
+@router.get("/tasks/{task_id}/activity")
+def activity(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
+    task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
+    if task is None:
+        raise ApiError(404, "not_found", "task not found")
+    operations = session.scalars(select(TaskOperation).where(TaskOperation.task_id == task_id).order_by(TaskOperation.created_at.asc())).all()
+    comments_rows = list_comments(session, actor.workspace_id, task_id)
+    delays_rows = list_delays(session, actor.workspace_id, task_id)
+    events = [{"type": "operation", "operation_type": row.operation_type.value, "created_at": row.created_at.isoformat(), "request_id": str(row.request_id)} for row in operations]
+    events += [{"type": "comment", "id": str(row.id), "body": row.body, "created_at": row.created_at.isoformat()} for row in comments_rows]
+    events += [{"type": "delay", "id": str(row.id), "reason": row.reason, "new_due_at": row.new_due_at.isoformat(), "created_at": row.created_at.isoformat()} for row in delays_rows]
+    return sorted(events, key=lambda item: item["created_at"])
 
 
 @router.post("/tasks/{task_id}/recurrence", status_code=status.HTTP_201_CREATED)

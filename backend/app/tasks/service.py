@@ -5,24 +5,34 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.db.enums import ChangeAction, ConflictStatus, OperationType, Resolution, TaskStatus
+from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, PUBLIC_TASK_STATUS, Resolution, TaskStatus
 from app.db.models import (
+    DelayRecord,
     Task,
+    TaskAssignee,
     TaskComment,
     TaskConflict,
     TaskOperation,
     TaskStatusHistory,
     WorkspaceChangeLog,
+    WorkspaceMembership,
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.operations import request_fingerprint
 
 
-MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id"}
+MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "assignee_ids"}
+TRANSITIONS = {
+    "TODO": {"IN_PROGRESS", "WAITING", "DONE", "CANCELLED"},
+    "IN_PROGRESS": {"WAITING", "DONE", "CANCELLED"},
+    "WAITING": {"IN_PROGRESS", "DONE", "CANCELLED"},
+    "DONE": {"TODO"},
+    "CANCELLED": {"TODO"},
+}
 
 
 class TaskService:
@@ -31,10 +41,25 @@ class TaskService:
         self.now = now
         self.last_cursor: int | None = None
 
-    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None) -> Task:
+    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, assignee_ids: list[UUID] | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None) -> Task:
+        title = title.strip()
+        if not title:
+            raise TaskConflictError("invalid_request", "title is required")
+        if parent_task_id is not None:
+            parent = self.session.scalar(select(Task).where(Task.id == parent_task_id, Task.workspace_id == workspace_id))
+            if parent is None:
+                raise TaskConflictError("not_found", "parent task not found")
+            if parent.parent_task_id is not None:
+                raise TaskConflictError("nested_task_not_allowed", "subtasks cannot have subtasks")
+        assignees = list(dict.fromkeys(assignee_ids or [actor_user_id]))
+        if len(assignees) not in (1, 2):
+            raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
+        members = set(self.session.scalars(select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.status == MembershipStatus.ACTIVE, WorkspaceMembership.user_id.in_(assignees))).all())
+        if members != set(assignees):
+            raise TaskConflictError("invalid_request", "assignees must be active workspace members")
         fingerprint = request_fingerprint(
             "/api/v1/tasks",
-            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None},
+            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "assignee_ids": [str(item) for item in assignees], "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes},
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
@@ -50,11 +75,17 @@ class TaskService:
             title=title,
             description=description,
             due_at=due_at,
+            parent_task_id=parent_task_id,
+            planned_start_at=planned_start_at,
+            estimated_minutes=estimated_minutes,
+            current_handler_id=actor_user_id,
             status=TaskStatus.TODO,
             created_by=actor_user_id,
-            field_versions={"title": 1, "description": 1, "due_at": 1},
+            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "assignee_ids": 1},
         )
         self.session.add(task)
+        self.session.flush()
+        self.session.add_all([TaskAssignee(task_id=task.id, user_id=user_id) for user_id in assignees])
         self.session.flush()
         cursor = self._cursor(workspace_id, task, ChangeAction.CREATED, request_id)
         self._operation(
@@ -121,7 +152,28 @@ class TaskService:
                 base_versions={"fingerprint": fingerprint},
             )
             raise TaskConflictError("field_conflict", "one or more task fields changed", conflicts)
+        if "assignee_ids" in changes:
+            values = list(dict.fromkeys(changes["assignee_ids"] or []))
+            if len(values) not in (1, 2):
+                raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
+            members = set(self.session.scalars(select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.status == MembershipStatus.ACTIVE, WorkspaceMembership.user_id.in_(values))).all())
+            if members != set(values):
+                raise TaskConflictError("invalid_request", "assignees must be active workspace members")
+            if changes.get("current_handler_id") is not None and changes["current_handler_id"] not in values:
+                raise TaskConflictError("invalid_request", "current handler must be an assignee")
+            if changes.get("current_handler_id") is None and task.current_handler_id is not None and task.current_handler_id not in values:
+                raise TaskConflictError("invalid_request", "current handler must be an assignee")
+        elif "current_handler_id" in changes:
+            handler = changes["current_handler_id"]
+            existing_assignees = set(self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all())
+            if handler is not None and handler not in existing_assignees:
+                raise TaskConflictError("invalid_request", "current handler must be an assignee")
         for field, value in changes.items():
+            if field == "assignee_ids":
+                self.session.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
+                self.session.add_all([TaskAssignee(task_id=task.id, user_id=user_id) for user_id in value])
+                current_versions[field] = int(current_versions.get(field, 1)) + 1
+                continue
             setattr(task, field, value)
             current_versions[field] = int(current_versions.get(field, 1)) + 1
         task.field_versions = current_versions
@@ -133,55 +185,87 @@ class TaskService:
         return task
 
     def lifecycle(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, action: str, base_lifecycle_version: int) -> Task:
+        action = action.lower()
+        if action == "delete":
+            task = self._task(workspace_id, task_id)
+            if task.lifecycle_version != base_lifecycle_version:
+                raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
+            before = self.snapshot(task)
+            task.deleted_at = self.now()
+            task.lifecycle_version += 1
+            task.version += 1
+            task.updated_at = self.now()
+            cursor = self._cursor(workspace_id, task, ChangeAction.DELETED, request_id)
+            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.DELETED, before, self.snapshot(task), cursor)
+            return task
+        target = "DONE" if action in {"complete", "completed"} else "TODO" if action in {"reopen", "open"} else None
+        if target is None:
+            raise TaskConflictError("invalid_request", "unsupported lifecycle action")
+        return self.transition(workspace_id, actor_user_id, task_id, request_id, target, base_lifecycle_version)
+
+    def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None) -> Task:
         task = self._task(workspace_id, task_id)
-        fingerprint = request_fingerprint(
-            f"/api/v1/tasks/{task_id}/lifecycle",
-            {"action": action, "base_lifecycle_version": base_lifecycle_version},
-        )
+        target_status = str(target_status)
+        if target_status not in TRANSITIONS:
+            raise TaskConflictError("invalid_request", "unsupported target status")
+        fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}/transition", {"target_status": target_status, "base_status_version": base_status_version, "blocked_reason": blocked_reason, "resume_handler_id": str(resume_handler_id) if resume_handler_id else None, "waiting_for_user_id": str(waiting_for_user_id) if waiting_for_user_id else None})
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             return task
-        if task.lifecycle_version != base_lifecycle_version:
-            raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
-        action = action.lower()
         before = self.snapshot(task)
-        if action in {"complete", "completed"}:
-            target = TaskStatus.COMPLETED
-        elif action in {"reopen", "open"}:
-            target = TaskStatus.TODO
-        elif action == "delete":
-            task.deleted_at = self.now()
-            target = task.status
-        else:
-            raise TaskConflictError("invalid_request", "unsupported lifecycle action")
-        if action != "delete":
-            task.status = target
-            if target == TaskStatus.COMPLETED:
-                task.completed_at = self.now()
-            else:
-                task.completed_at = None
+        raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+        current_public = "DONE" if raw_status == "COMPLETED" else raw_status
+        if task.status_version != base_status_version:
+            conflict = TaskConflict(workspace_id=workspace_id, task_id=task.id, target="status", base_value=target_status, current_value=current_public, proposed_value=target_status, base_version=base_status_version, current_version=task.status_version, request_id=request_id, status=ConflictStatus.OPEN)
+            self.session.add(conflict)
+            self.session.flush()
+            raise TaskConflictError("field_conflict", "task status changed", [conflict])
+        if target_status not in TRANSITIONS[current_public]:
+            raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")
+        target = TaskStatus.COMPLETED if target_status == "DONE" else TaskStatus(target_status)
+        task.status = target
+        if target == TaskStatus.COMPLETED:
+            task.completed_at = self.now()
+        elif current_public == "DONE":
+            task.completed_at = None
+        if target_status == "WAITING":
+            if not blocked_reason or resume_handler_id is None:
+                raise TaskConflictError("invalid_request", "blocked_reason and resume_handler_id are required")
+            task.blocked_reason = blocked_reason
+            task.blocked_since = self.now()
+            task.resume_handler_id = resume_handler_id
+            task.waiting_for_user_id = waiting_for_user_id
+        elif current_public == "WAITING" or target_status == "IN_PROGRESS":
+            task.blocked_reason = task.blocked_since = task.resume_handler_id = task.waiting_for_user_id = None
+            if resume_handler_id is not None:
+                task.current_handler_id = resume_handler_id
         task.lifecycle_version += 1
         task.status_version += 1
         task.version += 1
         task.updated_at = self.now()
         after = self.snapshot(task)
-        operation = OperationType.DELETED if action == "delete" else OperationType.STATUS_CHANGED
-        cursor = self._cursor(workspace_id, task, ChangeAction.DELETED if action == "delete" else ChangeAction.UPDATED, request_id)
+        cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
         self._operation(
             workspace_id,
             actor_user_id,
             request_id,
             task,
-            operation,
+            OperationType.STATUS_CHANGED,
             before,
             after,
             cursor,
             base_versions={"fingerprint": fingerprint},
         )
-        self.session.add(TaskStatusHistory(task_id=task.id, from_status=before["status"], to_status=task.status, changed_by=actor_user_id))
+        self.session.add(TaskStatusHistory(task_id=task.id, from_status=TaskStatus.COMPLETED if before["status"] == "DONE" else TaskStatus(before["status"]), to_status=task.status, changed_by=actor_user_id))
         return task
+
+    def block(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_status_version: int, blocked_reason: str, resume_handler_id: UUID, waiting_for_user_id: UUID | None = None) -> Task:
+        return self.transition(workspace_id, actor_user_id, task_id, request_id, "WAITING", base_status_version, blocked_reason, resume_handler_id, waiting_for_user_id)
+
+    def unblock(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_status_version: int, resume_handler_id: UUID | None = None) -> Task:
+        return self.transition(workspace_id, actor_user_id, task_id, request_id, "IN_PROGRESS", base_status_version, resume_handler_id=resume_handler_id)
 
     def restore(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_lifecycle_version: int) -> Task:
         task = self._task(workspace_id, task_id)
@@ -254,6 +338,8 @@ class TaskService:
         return comment
 
     def snapshot(self, task: Task) -> dict[str, Any]:
+        raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+        public_status = "DONE" if raw_status == "COMPLETED" else raw_status
         return {
             "id": str(task.id),
             "workspace_id": str(task.workspace_id),
@@ -261,7 +347,7 @@ class TaskService:
             "title": task.title,
             "description": task.description,
             "due_at": task.due_at.isoformat() if task.due_at else None,
-            "status": task.status.value if hasattr(task.status, "value") else task.status,
+            "status": public_status,
             "current_handler_id": str(task.current_handler_id) if task.current_handler_id else "",
             "blocked_reason": task.blocked_reason,
             "blocked_since": task.blocked_since.isoformat() if task.blocked_since else None,
@@ -273,12 +359,13 @@ class TaskService:
             "created_by": str(task.created_by),
             "created_at": task.created_at.isoformat() if task.created_at else self.now().isoformat(),
             "updated_at": task.updated_at.isoformat() if task.updated_at else self.now().isoformat(),
-            "assignee_ids": [],
-            "delay_count": 0,
-            "total_delay_minutes": 0,
+            "assignee_ids": [str(item) for item in self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all()],
+            "delay_count": int(self.session.scalar(select(func.count(DelayRecord.id)).where(DelayRecord.task_id == task.id)) or 0),
+            "total_delay_minutes": int(self.session.scalar(select(func.coalesce(func.sum(DelayRecord.delay_duration_minutes), 0)).where(DelayRecord.task_id == task.id)) or 0),
             "version": task.version,
             "field_versions": dict(task.field_versions or {}),
             "lifecycle_version": task.lifecycle_version,
+            "status_version": task.status_version,
             "deleted_at": task.deleted_at.isoformat() if task.deleted_at else None,
         }
 

@@ -46,6 +46,9 @@
   `flutter analyze`、`26 tests`）；`make boundary-check` 退出 0；
   `make check-deployment` 退出 0；
   `API_BASE_URL=https://muyu.bkverse.space make client-build` 退出 0并生成上述 APK。
+- 公开站点只读检查：`GET https://muyu.bkverse.space/health/live` 返回 `200` 和
+  `{"status":"live"}`；首页 HTTPS 返回 `200`；未认证请求
+  `/api/v1/workspaces/current` 返回 `401 authentication_required`。
 - 真机验收：未执行。`adb devices` 当时只有表头，没有连接的 Android 设备；因此首空间
   创建、扫码批准、注销后复登等人工项目仍标记为待执行，不能声称已完成。
 - 公开站点：操作目标为 `https://muyu.bkverse.space`；无真机时不改变生产数据库、

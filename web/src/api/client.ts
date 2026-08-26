@@ -11,7 +11,11 @@ export class ApiError extends Error {
 }
 
 export class ApiClient {
-  constructor(private readonly baseUrl = API_BASE_URL) {}
+  private readonly baseUrl: string;
+
+  constructor(baseUrl = API_BASE_URL) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
 
   async request<T>(path: string, init?: ApiRequestInit): Promise<T> {
     const { body, ...requestInit } = init ?? {};

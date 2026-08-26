@@ -20,7 +20,10 @@
 		Content-Security-Policy "default-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	}
 	root * /srv
-	header /index.html Cache-Control "no-store"
-	try_files {path} /index.html
-	file_server
+	route {
+		try_files {path} /index.html
+		@index path /index.html
+		header @index Cache-Control "no-store"
+		file_server
+	}
 }

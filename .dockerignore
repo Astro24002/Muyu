@@ -1,0 +1,15 @@
+.git
+.github
+.superpowers
+.worktrees
+client/build
+client/.dart_tool
+web/node_modules
+web/dist
+web/.vite
+backend/.pytest_cache
+backend/__pycache__
+**/__pycache__
+*.pyc
+**/.env
+**/.env.*

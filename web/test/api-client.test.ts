@@ -35,4 +35,14 @@ describe('ApiClient', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
     await expect(new ApiClient().logoutWebSession()).resolves.toBeUndefined();
   });
+
+  it('normalizes a root base URL without producing protocol-relative paths', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ workspace_id: 'w1' }), { status: 200 }),
+    );
+
+    await new ApiClient('/').getWorkspaceSnapshot();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/workspaces/current/snapshot', expect.anything());
+  });
 });

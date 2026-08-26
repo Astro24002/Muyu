@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Muyu API", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
+        allow_origins=_configured_cors_origins(),
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
@@ -99,3 +101,15 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
+
+
+def _configured_cors_origins() -> list[str]:
+    """Return explicit deployment origins without enabling a wildcard."""
+
+    values = [
+        item.strip().rstrip("/")
+        for raw in (os.environ.get("ALLOWED_ORIGINS", ""), os.environ.get("WEB_ORIGIN", ""))
+        for item in raw.split(",")
+        if item.strip()
+    ]
+    return list(dict.fromkeys(values))

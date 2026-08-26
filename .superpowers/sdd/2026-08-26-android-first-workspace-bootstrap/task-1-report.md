@@ -30,3 +30,7 @@ The repository `make backend-test` default URL could not authenticate to the cur
 ## Commit
 
 The focused test changes are committed as `test: cover first workspace bootstrap contract`.
+
+## Review Follow-up
+
+Strengthened the HTTP assertion to require exactly one active member and verify that its `user_id` is the authenticated owner returned by SMS verification.

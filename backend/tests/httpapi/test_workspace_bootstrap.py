@@ -14,7 +14,7 @@ class FakeSmsProvider:
         return self.codes[phone]
 
 
-def _headers_for_first_device(client: TestClient, app) -> dict[str, str]:
+def _headers_for_first_device(client: TestClient, app) -> tuple[dict[str, str], str]:
     phone = "+8613800138001"
     assert client.post("/api/v1/auth/sms/send", json={"phone": phone}).status_code == 202
     code = app.state.sms_provider.last_code_for(phone)
@@ -27,7 +27,8 @@ def _headers_for_first_device(client: TestClient, app) -> dict[str, str]:
         },
     )
     assert verified.status_code == 201
-    return {"Authorization": f"Bearer {verified.json()['access_token']}"}
+    body = verified.json()
+    return {"Authorization": f"Bearer {body['access_token']}"}, body["user"]["id"]
 
 
 def test_first_active_device_can_create_exactly_one_workspace(db_engine) -> None:
@@ -36,7 +37,7 @@ def test_first_active_device_can_create_exactly_one_workspace(db_engine) -> None
     app.state.ready = True
     app.state.sms_provider = FakeSmsProvider()
     client = TestClient(app)
-    headers = _headers_for_first_device(client, app)
+    headers, owner_id = _headers_for_first_device(client, app)
 
     assert client.get("/api/v1/workspaces/current", headers=headers).json() is None
 
@@ -47,7 +48,10 @@ def test_first_active_device_can_create_exactly_one_workspace(db_engine) -> None
     current = client.get("/api/v1/workspaces/current", headers=headers)
     assert current.status_code == 200
     assert current.json()["id"] == created.json()["id"]
-    assert current.json()["members"] and current.json()["members"][0]["member_slot"] == 1
+    members = current.json()["members"]
+    assert len(members) == 1
+    assert members[0]["member_slot"] == 1
+    assert members[0]["user_id"] == owner_id
 
     repeated = client.post("/api/v1/workspaces", headers=headers, json={})
     assert repeated.status_code == 409

@@ -19,6 +19,7 @@
 
 - Added stale-transition operation/cursor persistence, lifecycle-delete idempotency/version handling, strict assignee and handler validation, task existence checks for comment/delay listing, and explicit shared sync snapshots.
 - Added `backend/tests/tasks/test_lightweight_contract.py` coverage for subtasks, assignees, transitions, and stale status conflicts.
+- Focused pytest rerun remains unavailable because this environment has no `pytest` module.
 
 ## Risks / concerns
 

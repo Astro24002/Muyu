@@ -93,6 +93,18 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     assert transition.json()["status"] == "DONE"
     assert transition.json()["status_version"] == parent_body["status_version"] + 1
 
+    stale = client.post(
+        f"/api/v1/tasks/{parent_body['id']}/transition",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "TODO",
+            "base_status_version": parent_body["status_version"],
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["details"]["conflicts"][0]["field"] == "status"
+
     nested = client.post(
         "/api/v1/tasks",
         headers=headers,
@@ -104,4 +116,3 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     )
     assert nested.status_code == 422, nested.text
     assert nested.json()["code"] == "nested_task_not_allowed"
-

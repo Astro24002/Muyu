@@ -225,20 +225,27 @@ class TaskService:
         target = "DONE" if action in {"complete", "completed"} else "TODO" if action in {"reopen", "open"} else None
         if target is None:
             raise TaskConflictError("invalid_request", "unsupported lifecycle action")
-        # The compatibility endpoint historically called its optimistic version
-        # ``base_lifecycle_version``. Validate that lifecycle version first, then
-        # pass the authoritative status version to the shared transition path.
         task = self._task(workspace_id, task_id)
+        fingerprint = request_fingerprint(
+            f"/api/v1/tasks/{task_id}/lifecycle",
+            {"action": action, "base_lifecycle_version": base_lifecycle_version},
+        )
+        existing = self._existing_operation(workspace_id, actor_user_id, request_id)
+        if existing is not None:
+            if existing.base_versions != {"fingerprint": fingerprint}:
+                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
+            return task
         if task.lifecycle_version != base_lifecycle_version:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
-        return self.transition(workspace_id, actor_user_id, task_id, request_id, target, task.status_version)
+        return self.transition(workspace_id, actor_user_id, task_id, request_id, target, task.status_version, operation_fingerprint=fingerprint)
 
-    def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None) -> Task:
+    def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None, operation_fingerprint: str | None = None) -> Task:
         task = self._task(workspace_id, task_id)
         target_status = str(target_status)
         if target_status not in TRANSITIONS:
             raise TaskConflictError("invalid_request", "unsupported target status")
-        fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}/transition", {"target_status": target_status, "base_status_version": base_status_version, "blocked_reason": blocked_reason, "resume_handler_id": str(resume_handler_id) if resume_handler_id else None, "waiting_for_user_id": str(waiting_for_user_id) if waiting_for_user_id else None})
+        fingerprint = operation_fingerprint or request_fingerprint(f"/api/v1/tasks/{task_id}/transition", {"target_status": target_status, "base_status_version": base_status_version, "blocked_reason": blocked_reason, "resume_handler_id": str(resume_handler_id) if resume_handler_id else None, "waiting_for_user_id": str(waiting_for_user_id) if waiting_for_user_id else None})
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
@@ -313,6 +320,7 @@ class TaskService:
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
             return task
         if task.lifecycle_version != base_lifecycle_version:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")

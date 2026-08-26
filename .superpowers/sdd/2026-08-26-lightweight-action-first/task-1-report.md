@@ -29,6 +29,13 @@
 - Kept lifecycle compatibility actions on the lifecycle-version check while passing the current status version to the shared transition implementation, and made stale conflict snapshots explicit.
 - PostgreSQL container verification: `5 passed` for the domain and HTTP contract tests.
 
+### Review fix round 3
+
+- Restore replay now propagates the original cursor.
+- Lifecycle complete/reopen replay checks its lifecycle fingerprint before version validation and shares the transition operation safely.
+- HTTP contract coverage now asserts stale status versions return `409` with a `status` conflict detail.
+- PostgreSQL container verification repeated: `5 passed`; compileall with a writable pycache prefix passed.
+
 ## Risks / concerns
 
 - PostgreSQL integration and HTTP contract tests remain unexecuted because test dependencies/database are unavailable.

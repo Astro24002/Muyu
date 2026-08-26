@@ -6,7 +6,7 @@ FLUTTER ?= $(shell command -v flutter 2>/dev/null || printf '%s/develop/flutter/
 DART ?= $(dir $(FLUTTER))dart
 API_BASE_URL ?= http://localhost:8080
 
-.PHONY: test verify backend-test backend-migrate backend-smoke client-test client-build web-test web-build check-deployment legacy-check boundary-check compose-up compose-down compose-clean smoke
+.PHONY: test verify backend-test backend-migrate backend-smoke client-test client-build web-test web-build check-deployment legacy-check boundary-check compose-up compose-down compose-clean smoke smoke-lightweight-workspace
 
 test: backend-test client-test web-test
 
@@ -62,3 +62,6 @@ compose-clean:
 	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) docker compose --env-file $(COMPOSE_ENV_FILE) -f deploy/docker-compose.yml down --volumes --remove-orphans
 
 smoke: backend-smoke
+
+smoke-lightweight-workspace:
+	API_BASE_URL=$(API_BASE_URL) ./scripts/smoke-lightweight-workspace.sh

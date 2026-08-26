@@ -44,11 +44,11 @@
 
 - Task 1: pending.
 - Task 1: complete (commits `224ba2d..03108e5`; review rounds 1-3 closed; PostgreSQL domain/HTTP tests 5 passed).
-- Task 2: pending.
-- Task 3: pending.
-- Task 4: pending.
-- Task 5: pending.
-- Task 6: pending.
+- Task 2: complete (`ddfef27`); backend compileall passed, pytest unavailable in this environment.
+- Task 3: complete (`f0a1fec`); Web Vitest/typecheck passed, Flutter focused tests passed.
+- Task 4: complete (`58455cb`); Web 42 tests, typecheck, and build passed.
+- Task 5: complete (`3f47c46`); Flutter analyze clean and 12 tests passed; APK not rebuilt in this task.
+- Task 6: complete (`dd1b8b7`); smoke/e2e/docs/Makefile added; PostgreSQL acceptance not run.
 
 ## Task 1 review loop
 

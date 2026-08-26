@@ -19,6 +19,13 @@ def add_delay(session: Session, workspace_id: UUID, actor_user_id: UUID, task_id
         raise TaskConflictError("not_found", "task not found")
     if task.deleted_at is not None:
         raise TaskConflictError("lifecycle_conflict", "deleted task cannot be delayed")
+    if new_due_at.tzinfo is None:
+        new_due_at = new_due_at.replace(tzinfo=timezone.utc)
+    current_due = task.due_at or datetime.now(timezone.utc)
+    if new_due_at < current_due + __import__("datetime").timedelta(minutes=1):
+        raise TaskConflictError("invalid_request", "new due date must be at least one minute later")
+    if reason == "OTHER" and not (note or "").strip():
+        raise TaskConflictError("invalid_request", "OTHER delay reason requires a note")
     service = TaskService(session)
     request_id = request_id or UUID(int=0)
     fingerprint = request_fingerprint(
@@ -35,7 +42,7 @@ def add_delay(session: Session, workspace_id: UUID, actor_user_id: UUID, task_id
             raise TaskConflictError("not_found", "delay record not found")
         return record
     before = service.snapshot(task)
-    original = task.due_at or datetime.now(timezone.utc)
+    original = current_due
     record = DelayRecord(
         workspace_id=workspace_id,
         task_id=task_id,

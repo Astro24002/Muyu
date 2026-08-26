@@ -243,14 +243,24 @@ def delay_task(task_id: UUID, body: DelayRequest, request: Request, background_t
             raise ApiError(422, "invalid_request", "invalid new_due_at") from error
         raise _task_error(error) from error
     _queue_hint(background_tasks, request, actor.workspace_id, cursor)
-    return {"id": str(row.id), "new_due_at": row.new_due_at.isoformat(), "reason": row.reason, "cursor": cursor}
+    return {
+        "id": str(row.id), "task_id": str(row.task_id), "actor_user_id": str(row.actor_user_id),
+        "original_due_at": row.original_due_at.isoformat(), "new_due_at": row.new_due_at.isoformat(),
+        "delayed_at": row.delayed_at.isoformat(), "delay_duration_minutes": row.delay_duration_minutes,
+        "reason": row.reason, "note": row.note, "created_at": row.created_at.isoformat(), "cursor": cursor,
+    }
 
 
 @router.get("/tasks/{task_id}/delays")
 def delays(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
     if session.scalar(select(Task.id).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)) is None:
         raise ApiError(404, "not_found", "task not found")
-    return [{"id": str(item.id), "original_due_at": item.original_due_at.isoformat(), "new_due_at": item.new_due_at.isoformat(), "reason": item.reason, "note": item.note} for item in list_delays(session, actor.workspace_id, task_id)]
+    return [{
+        "id": str(item.id), "task_id": str(item.task_id), "actor_user_id": str(item.actor_user_id),
+        "original_due_at": item.original_due_at.isoformat(), "new_due_at": item.new_due_at.isoformat(),
+        "delayed_at": item.delayed_at.isoformat(), "delay_duration_minutes": item.delay_duration_minutes,
+        "reason": item.reason, "note": item.note, "created_at": item.created_at.isoformat(),
+    } for item in list_delays(session, actor.workspace_id, task_id)]
 
 
 @router.get("/tasks/{task_id}/activity")
@@ -261,10 +271,10 @@ def activity(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
     operations = session.scalars(select(TaskOperation).where(TaskOperation.task_id == task_id).order_by(TaskOperation.created_at.asc())).all()
     comments_rows = list_comments(session, actor.workspace_id, task_id)
     delays_rows = list_delays(session, actor.workspace_id, task_id)
-    events = [{"type": "operation", "operation_type": row.operation_type.value, "created_at": row.created_at.isoformat(), "request_id": str(row.request_id)} for row in operations]
-    events += [{"type": "comment", "id": str(row.id), "body": row.body, "created_at": row.created_at.isoformat()} for row in comments_rows]
-    events += [{"type": "delay", "id": str(row.id), "reason": row.reason, "new_due_at": row.new_due_at.isoformat(), "created_at": row.created_at.isoformat()} for row in delays_rows]
-    return sorted(events, key=lambda item: item["created_at"])
+    events = [{"kind": "operation", "id": str(row.id), "operation_type": row.operation_type.value, "created_at": row.created_at.isoformat(), "request_id": str(row.request_id)} for row in operations]
+    events += [{"kind": "comment", "id": str(row.id), "body": row.body, "author_user_id": str(row.author_user_id), "created_at": row.created_at.isoformat()} for row in comments_rows]
+    events += [{"kind": "delay", "id": str(row.id), "actor_user_id": str(row.actor_user_id), "reason": row.reason, "note": row.note, "new_due_at": row.new_due_at.isoformat(), "delay_duration_minutes": row.delay_duration_minutes, "created_at": row.created_at.isoformat()} for row in delays_rows]
+    return sorted(events, key=lambda item: (item["created_at"], item["id"]))
 
 
 @router.post("/tasks/{task_id}/recurrence", status_code=status.HTTP_201_CREATED)

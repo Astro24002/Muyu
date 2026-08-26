@@ -16,10 +16,13 @@ Required production values are injected through the deployment secret store:
 The supplied template text is `验证码：**code**，**minute**分钟内有效，请勿泄漏于他人！`.
 
 The API request uses `Authorization: APPCODE <AppCode>` and sends
-`mobile`, `smsSignId`, `templateId`, and `param` as an
-`application/x-www-form-urlencoded` POST body. The service sends the generated
-six-digit code and the configured validity in minutes. It accepts a delivery
-only when the provider response is JSON with `code` equal to the string `0`.
+`mobile`, `smsSignId`, `templateId`, and `param` as query parameters on a
+POST request, matching the provider's Aliyun-market example. The service
+keeps phones in E.164 form internally and converts mainland Chinese numbers
+to the provider's 11-digit format only at this boundary. It sends the
+generated six-digit code and the configured validity in minutes. It accepts a
+delivery only when the provider response is JSON with `code` equal to the
+string `0`.
 
 Never put the AppCode in Flutter `--dart-define` values, source control, Web
 assets, APKs, or logs. The server does not log the request body, recipient,

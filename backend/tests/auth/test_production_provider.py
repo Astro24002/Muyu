@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -25,7 +25,7 @@ class _Response:
         return None
 
 
-def test_guoyangyun_provider_sends_form_request_and_accepts_business_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_guoyangyun_provider_matches_provider_query_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_urlopen(request, timeout: float):
@@ -46,13 +46,17 @@ def test_guoyangyun_provider_sends_form_request_and_accepts_business_success(mon
 
     provider.send_otp("+8613800138000", "123456")
 
-    assert captured["url"] == "https://gyytz.market.alicloudapi.com/sms/smsSend"
+    parsed_url = urlsplit(str(captured["url"]))
+    assert f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}" == (
+        "https://gyytz.market.alicloudapi.com/sms/smsSend"
+    )
     headers = captured["headers"]
     assert headers["Authorization"] == "APPCODE test-appcode"
     assert headers["Content-type"] == "application/x-www-form-urlencoded"
-    body = parse_qs(bytes(captured["body"]).decode())
-    assert body == {
-        "mobile": ["+8613800138000"],
+    assert captured["body"] is None
+    query = parse_qs(parsed_url.query)
+    assert query == {
+        "mobile": ["13800138000"],
         "smsSignId": ["sign-1"],
         "templateId": ["template-1"],
         "param": ["**code**:123456,**minute**:5"],

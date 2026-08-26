@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from app.auth.providers.base import SmsDeliveryError
 
@@ -29,17 +29,28 @@ class ProductionSmsProvider:
         self.timeout = timeout
 
     def send_otp(self, phone: str, code: str) -> None:
-        payload = urlencode(
+        # Guoyangyun's Aliyun-market endpoint expects these fields in the
+        # query string (the provider's reference request uses ``params``),
+        # while our auth layer deliberately keeps phones in E.164 form.
+        # Convert only at this external boundary to the provider's required
+        # mainland-China 11-digit representation.
+        mobile = _guoyangyun_mobile(phone)
+        query = urlencode(
             {
-                "mobile": phone,
+                "mobile": mobile,
                 "smsSignId": self.sms_sign_id,
                 "templateId": self.template_id,
                 "param": f"**code**:{code},**minute**:{self.validity_minutes}",
             }
-        ).encode("utf-8")
+        )
+        endpoint = urlsplit(self.endpoint)
+        request_url = urlunsplit(
+            endpoint._replace(
+                query=f"{endpoint.query}&{query}" if endpoint.query else query,
+            )
+        )
         request = urllib.request.Request(
-            self.endpoint,
-            data=payload,
+            request_url,
             headers={
                 "Authorization": f"APPCODE {self.appcode}",
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -60,3 +71,12 @@ class ProductionSmsProvider:
             if isinstance(error, SmsDeliveryError):
                 raise
             raise SmsDeliveryError("SMS provider unavailable") from error
+
+
+def _guoyangyun_mobile(phone: str) -> str:
+    """Convert an internal E.164 Chinese phone to Guoyangyun's local form."""
+
+    compact = phone.strip().replace(" ", "")
+    if compact.startswith("+86"):
+        return compact[3:]
+    return compact

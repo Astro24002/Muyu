@@ -8,6 +8,7 @@ import 'core/api_client.dart';
 import 'core/config.dart';
 import 'platform/api_http_client.dart';
 import 'platform/device_signing_key_android.dart';
+import 'workspace/workspace_bootstrap_repository.dart';
 
 void main() {
   final sessionStore = SecureMobileSessionStore();
@@ -23,11 +24,15 @@ void main() {
     sessionStore,
     publicKey: signingKey.getOrCreatePublicKey,
   );
+  final workspaceBootstrapRepository = HttpWorkspaceBootstrapRepository(
+    apiClient,
+  );
   runApp(
     MuyuApp(
       apiClient: apiClient,
       deviceSigningKey: signingKey,
       mobileLoginController: loginController,
+      workspaceBootstrapRepository: workspaceBootstrapRepository,
     ),
   );
 }

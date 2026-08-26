@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'auth/mobile_login_controller.dart';
 import 'core/api_client.dart';
 import 'platform/device_signing_key.dart';
-import 'screens/cloud_workspace_screen.dart';
 import 'screens/mobile_phone_login_screen.dart';
+import 'screens/workspace_gate.dart';
+import 'workspace/workspace_bootstrap_repository.dart';
 
 class MuyuApp extends StatelessWidget {
   const MuyuApp({
@@ -12,11 +13,13 @@ class MuyuApp extends StatelessWidget {
     required this.apiClient,
     required this.deviceSigningKey,
     required this.mobileLoginController,
+    required this.workspaceBootstrapRepository,
   });
 
   final ApiClient apiClient;
   final DeviceSigningKey deviceSigningKey;
   final MobileLoginController mobileLoginController;
+  final WorkspaceBootstrapRepository workspaceBootstrapRepository;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -46,6 +49,7 @@ class MuyuApp extends StatelessWidget {
       apiClient: apiClient,
       controller: mobileLoginController,
       signingKey: deviceSigningKey,
+      workspaceBootstrapRepository: workspaceBootstrapRepository,
     ),
   );
 }
@@ -55,17 +59,24 @@ class _AndroidHome extends StatelessWidget {
     required this.apiClient,
     required this.controller,
     required this.signingKey,
+    required this.workspaceBootstrapRepository,
   });
 
   final ApiClient apiClient;
   final MobileLoginController controller;
   final DeviceSigningKey signingKey;
+  final WorkspaceBootstrapRepository workspaceBootstrapRepository;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller,
     builder: (context, _) => controller.status == MobileLoginStatus.signedIn
-        ? CloudWorkspaceScreen(api: apiClient, signingKey: signingKey)
+        ? WorkspaceGate(
+            key: ValueKey(controller.currentSession!.user.id),
+            api: apiClient,
+            signingKey: signingKey,
+            repository: workspaceBootstrapRepository,
+          )
         : MobilePhoneLoginScreen(controller: controller),
   );
 }

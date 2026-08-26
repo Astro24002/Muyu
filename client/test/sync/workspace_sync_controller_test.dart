@@ -28,6 +28,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   final hints = <WorkspaceChanged>[];
   int snapshotCalls = 0;
   final requestedAfterCursors = <int>[];
+  String? lastRequestId;
 
   @override
   Stream<WorkspaceChanged> openWorkspaceHints() => Stream.fromIterable(hints);
@@ -63,7 +64,10 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     required String requestId,
-  }) async => task(targetStatus);
+  }) async {
+    lastRequestId = requestId;
+    return task(targetStatus);
+  }
 
   @override
   Future<Object?> addComment(
@@ -109,5 +113,20 @@ void main() {
 
     expect(repository.snapshotCalls, 1);
     expect(controller.state.isStale, isFalse);
+  });
+
+  test('transition generates a UUID request id', () async {
+    final repository = FakeSyncRepository();
+    final controller = WorkspaceSyncController(repository);
+    await controller.refresh();
+    await controller.transition('task-1', 'DONE');
+    expect(
+      repository.lastRequestId,
+      matches(
+        RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        ),
+      ),
+    );
   });
 }

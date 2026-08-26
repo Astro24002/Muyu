@@ -13,6 +13,13 @@
    - TypeScript + Vite 负责独立 Web SPA；
    - FastAPI 只提供 API，Caddy 服务 Web 静态构建并代理 API。
 
+## 待执行实施计划
+
+1. [Android 首个共享空间引导实施计划](./superpowers/plans/2026-08-26-android-first-workspace-bootstrap.md)
+   - 登录后查询当前 Workspace；
+   - 新用户显式创建首个共享空间；
+   - 创建后才开放任务页与 Web 扫码授权。
+
 ## 关联资料
 
 1. [产品需求](./01-product.md)

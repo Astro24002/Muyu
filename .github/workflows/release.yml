@@ -2,16 +2,17 @@ name: Release
 
 on:
   push:
-    tags: ['v*.*.*']
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version without the leading v
-        required: true
-        type: string
+    tags:
+      - 'v*.*.*'
+  release:
+    types: [published]
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   backend:
@@ -23,7 +24,8 @@ jobs:
           POSTGRES_DB: muyu_test
           POSTGRES_USER: muyu
           POSTGRES_PASSWORD: test-only-password
-        ports: ['5432:5432']
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd="pg_isready -U muyu -d muyu_test"
           --health-interval=5s --health-timeout=3s --health-retries=20
@@ -35,16 +37,24 @@ jobs:
       DATABASE_URL: postgresql+psycopg://muyu:test-only-password@localhost:5432/muyu_test
       OTP_PEPPER: release-ci-only-otp-pepper-with-at-least-thirty-two-characters
       OTP_PROVIDER: fake
+      FAKE_OTP_CODE: '000000'
+      PUBLIC_BASE_URL: http://localhost:8080
+      WEB_COOKIE_SECURE: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
+        with:
+          python-version: '3.12'
       - run: python -m pip install -e '.[dev]'
       - run: alembic upgrade head
       - run: python -m pytest -q
+      - run: python -m compileall -q app alembic
 
-  client:
+  android:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -53,17 +63,39 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-        working-directory: client
       - run: dart format --output=none --set-exit-if-changed .
-        working-directory: client
       - run: flutter analyze
-        working-directory: client
       - run: flutter test
-        working-directory: client
+      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://example.invalid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-debug-apk
+          path: client/build/app/outputs/flutter-apk/app-debug.apk
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test -- --run
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web-dist
+          path: web/dist
 
   release:
-    needs: [backend, client]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [backend, android, web]
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -73,6 +105,11 @@ jobs:
           flutter-version: '3.47.0'
           channel: stable
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Validate release signing inputs
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -85,13 +122,13 @@ jobs:
           test -n "$KEY_ALIAS" || { echo 'ANDROID_KEY_ALIAS is required' >&2; exit 1; }
           test -n "$KEY_PASSWORD" || { echo 'ANDROID_KEY_PASSWORD is required' >&2; exit 1; }
       - name: Build signed Android and Web artifacts
-        id: build
         working-directory: client
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -Eeuo pipefail
           key_path="$RUNNER_TEMP/muyu-release.jks"
@@ -100,20 +137,19 @@ jobs:
           trap 'rm -f "$key_path"' EXIT
           flutter pub get
           flutter build appbundle --release --dart-define=API_BASE_URL=https://example.invalid
-          flutter build web --release \
-            --dart-define=API_BASE_URL=/ \
-            --dart-define=WEB_ORIGIN=https://muyu.bkverse.space
-          tar -czf web-release.tar.gz -C build web
-          sha256sum build/app/outputs/bundle/release/app-release.aab web-release.tar.gz > SHA256SUMS
-          git rev-parse HEAD > SOURCE_COMMIT
+          cd ../web
+          npm ci
+          npm run build
+          tar -czf web-release.tar.gz -C dist .
+          sha256sum ../client/build/app/outputs/bundle/release/app-release.aab web-release.tar.gz > SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > SOURCE_COMMIT
+          printf '%s\n' "$RELEASE_TAG" > RELEASE_TAG
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ github.ref_name }}
+          name: release-${{ github.event.release.tag_name || github.ref_name }}
           path: |
             client/build/app/outputs/bundle/release/app-release.aab
-            client/web-release.tar.gz
-            client/SHA256SUMS
-            client/SOURCE_COMMIT
-      - name: Remove temporary signing file
-        if: always()
-        run: rm -f "$RUNNER_TEMP/muyu-release.jks"
+            web/web-release.tar.gz
+            web/SHA256SUMS
+            web/SOURCE_COMMIT
+            web/RELEASE_TAG

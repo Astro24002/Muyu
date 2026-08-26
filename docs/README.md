@@ -51,16 +51,21 @@
    - 已完成工作和验收结果；
    - 设计变更与进度记录规则。
 
-6. [工程规格（历史）](./superpowers/specs/2026-08-16-project-foundation-design.md)
+6. [首个共享空间操作说明](./operations/first-workspace-setup.md)
+   - Android 登录后的首个 Workspace 创建；
+   - Android 扫码批准 Web 登录；
+   - 双人 Workspace 成员授权边界。
+
+7. [工程规格（历史）](./superpowers/specs/2026-08-16-project-foundation-design.md)
    - 首轮工程基础与双人认证设计。
 
-7. [实施计划（历史）](./superpowers/plans/2026-08-16-project-foundation-auth.md)
+8. [实施计划（历史）](./superpowers/plans/2026-08-16-project-foundation-auth.md)
    - 首轮工程任务分解和测试验收步骤。
 
-8. [Local-first P2P 双人同步架构规格（历史）](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)
+9. [Local-first P2P 双人同步架构规格（历史）](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)
    - 两台 Android 设备直连同步、设备身份、事件加密、事件合并和换机规则。
 
-9. [Local-first P2P 实施计划（历史）](./superpowers/plans/2026-08-21-local-first-p2p.md)
+10. [Local-first P2P 实施计划（历史）](./superpowers/plans/2026-08-21-local-first-p2p.md)
    - 本地 SQLite Event Store、加密事件、确定性合并、P2P 续传和 Android 验收任务。
 
 ## 当前状态

@@ -26,6 +26,32 @@
 - 验证：Web Vitest 全量（42 tests）、typecheck、Vite build；Flutter format、analyze、test（14 tests）与 Android debug APK；PostgreSQL 后端全量 50 passed、2 skipped；Compose 拓扑、CI 触发器、旧运行时和客户端边界脚本通过。真实短信、真机和生产部署仍需在具备外部依赖的环境中执行。
 - 交付物：Android debug APK、受保护签名 Android AAB、`web-release.tar.gz`、`SHA256SUMS` 和 `SOURCE_COMMIT`；不生成 iOS 安装包。
 
+### 2026-08-26 - Android 首个共享空间引导
+
+- 类型：实施完成 / 发布验收记录
+- 变更：登录后先读取当前 Workspace；没有 ACTIVE membership 时显示
+  `创建共享空间`，创建成功后才进入任务页和 Web 扫码入口。补充首个 Workspace
+  操作说明、发布后核对项和本次验收记录入口。
+- 原因：新用户登录成功不等于已经加入共同 Workspace；必须先完成首个空间创建，
+  才能满足 Web 扫码授权所需的 ACTIVE membership。
+- 影响文件：`client/lib/workspace/`、`client/lib/screens/workspace_bootstrap_screen.dart`、
+  `client/lib/screens/workspace_gate.dart`、`client/lib/app.dart`、`client/lib/main.dart`、
+  `docs/operations/first-workspace-setup.md`、`docs/operations/release-checklist.md`、
+  `docs/README.md`。
+- 源 commit：`0a6a49d3473cd58adba53c5beb03b150ac213bfd`。
+- APK：`client/build/app/outputs/flutter-apk/app-debug.apk`；SHA-256：
+  `62093cdde48089d3b00cddda3bb5ca9f2f786dc639c727cf910dcb1e7f5e5b4d`。
+- 自动验证：`TEST_DATABASE_URL=... make backend-test` 退出 0（`55 passed, 2 skipped`，
+  1 条既有 Starlette/httpx 弃用警告）；`make client-test` 退出 0（格式检查、
+  `flutter analyze`、`26 tests`）；`make boundary-check` 退出 0；
+  `make check-deployment` 退出 0；
+  `API_BASE_URL=https://muyu.bkverse.space make client-build` 退出 0并生成上述 APK。
+- 真机验收：未执行。`adb devices` 当时只有表头，没有连接的 Android 设备；因此首空间
+  创建、扫码批准、注销后复登等人工项目仍标记为待执行，不能声称已完成。
+- 公开站点：操作目标为 `https://muyu.bkverse.space`；无真机时不改变生产数据库、
+  不手工创建 Workspace，也不绕过 membership 校验。人工验收应按
+  [首个共享空间操作说明](./operations/first-workspace-setup.md)执行。
+
 ## 已完成
 
 ### 2026-08-16

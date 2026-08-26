@@ -28,6 +28,8 @@
 ## After release
 
 - [ ] Verify `/health/live` and `/health/ready` through the public TLS origin.
+- [ ] Verify the first Android user can create a Workspace and then complete Web QR
+      login at the public HTTPS origin.
 - [ ] Register the first Android account and verify the two-person workspace
       approval path.
 - [ ] Verify Web QR login, the 18-hour maximum cookie lifetime, and Android

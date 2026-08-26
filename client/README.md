@@ -1,6 +1,7 @@
-# Muyu Client
+# Muyu Android Client
 
-Flutter Android/Web 客户端。
+Flutter 客户端只负责 Android。浏览器功能由仓库根目录的 `web/` TypeScript
+应用提供。
 
 ## 检查
 
@@ -13,8 +14,8 @@ flutter test
 ## 构建
 
 ```bash
-flutter build web --dart-define=API_BASE_URL=http://localhost:8080
 flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080
 ```
 
-本地 Web 调试固定使用 `http://localhost:3000`，后端允许 localhost/127.0.0.1 的开发端口跨域访问。生产部署应由反向代理提供同源 API。
+模拟器使用 `10.0.2.2` 访问宿主机 API；真机请替换为局域网 API 地址。Android
+登录使用短信验证码，设备审批和扫码授权由服务端 API 完成。

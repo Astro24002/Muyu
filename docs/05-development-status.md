@@ -4,9 +4,9 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15 已实现并完成本地收口验证，正在提交主干变更；后续只剩部署到明确的新空数据库和真实设备验收。
+- 当前阶段：云端协调架构 Tasks 1-15 以及 Android/Web 客户端边界 Tasks 1-8 已实现并完成本地收口验证；后续只剩部署到明确的新空数据库和真实设备验收。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
-- 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 需要静态构建；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
+- 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
 - 历史基线：首轮工程、Phase 2/3、固定密码认证和 Local-first P2P 的规格、计划、实现与验收记录只用于理解待替换资产，不可作为新实现依据。
 - 历史工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
@@ -18,6 +18,13 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-08-26 - Android 与独立 Web 客户端边界完成
+
+- 类型：实施完成 / 发布流水线收口
+- 变更：完成 Web API/二维码登录/Workspace 同步与 SPA 组装；Flutter 客户端固定为 Android，删除浏览器运行时和静态入口；Caddy 改为构建并服务 `web/dist`；CI 与 Release 仅响应版本 tag 和已发布 Release；Makefile、边界检查和运行文档同步更新。
+- 验证：Web typecheck、Vitest 全量、Vite build；Flutter format、analyze、test 与 Android debug APK；Compose 拓扑、CI 触发器、旧运行时和客户端边界脚本通过。后端 pytest/真实短信/真机与生产部署需在具备外部依赖的环境中执行。
+- 交付物：Android debug APK、受保护签名 Android AAB、`web-release.tar.gz`、`SHA256SUMS` 和 `SOURCE_COMMIT`；不生成 iOS 安装包。
 
 ## 已完成
 

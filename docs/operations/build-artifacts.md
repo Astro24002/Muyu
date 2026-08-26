@@ -1,10 +1,10 @@
 # Build Artifacts
 
-Pull requests produce reproducible, unsigned test artifacts after the backend
-and client checks pass:
+Version-tag and published-release workflows produce reproducible artifacts after
+the backend, Android, and browser checks pass:
 
 - `client/build/app/outputs/flutter-apk/app-debug.apk`
-- `client/build/web`, uploaded as `web-release.tar.gz`
+- `web/dist`, packaged as `web-release.tar.gz`
 
 The protected tag workflow produces `app-release.aab` only after required CI
 checks pass and all Android signing secrets are present and valid. The
@@ -26,13 +26,14 @@ build time when it is not served from the same origin:
 ```sh
 flutter build apk --debug \
   --dart-define=API_BASE_URL=https://example.invalid
-flutter build web --release \
-  --dart-define=API_BASE_URL=/ \
-  --dart-define=WEB_ORIGIN=https://muyu.bkverse.space
+cd web
+npm ci
+VITE_API_BASE_URL=/ npm run build
+tar -czf web-release.tar.gz -C dist .
 ```
 
-The production Compose image receives the same `WEB_ORIGIN` from
-`deploy/.env`; the checked-in `deploy/.env.production.example` is the
-domain-specific starting point and contains placeholders only.
+The Caddy image builds `web/dist` from the checked-in Vite package and serves it
+from `/srv`. FastAPI keeps `WEB_ORIGIN` only for server-side origin validation;
+it is never passed to the browser bundle.
 
-No IPA, Xcode setup, iOS runner, or iOS artifact is part of this release.
+No iOS artifact is part of this release.

@@ -6,11 +6,12 @@ tokens, tasks, or P2P history.
 
 ## Topology
 
-`Caddy` is the only public service. It terminates TLS, serves the Flutter Web
-bundle, proxies `/api/*` and `/api/v1/realtime` to FastAPI, and adds security
-headers. FastAPI and PostgreSQL are reachable only on Compose's private
-networks. FastAPI runs as one instance because realtime subscriptions are
-in-memory in this release.
+`Caddy` is the only public service. It terminates TLS, serves the Vite static
+files from `web/dist`, proxies `/api/*` and `/api/v1/realtime` to FastAPI, and
+adds security headers. FastAPI exposes JSON/WebSocket APIs only; it does not
+render browser pages. FastAPI and PostgreSQL are reachable only on Compose's
+private networks. FastAPI runs as one instance because realtime subscriptions
+are in-memory in this release.
 
 The new named volumes are `muyu_cloud_pgdata`, `muyu_cloud_backup_repo`,
 `muyu_cloud_caddy_data`, and `muyu_cloud_caddy_config`. Do not attach a legacy

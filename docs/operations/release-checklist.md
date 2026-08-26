@@ -12,7 +12,7 @@
 - [ ] Confirm Guoyangyun AppCode, SMS sign/template identifiers,
       cookie-secure mode, allowed origin, backup repository credentials, and
       backup encryption key are injected from the secret store.
-- [ ] Run the complete backend/client test and analysis jobs.
+- [ ] Run `make verify` and inspect the generated Android/Web artifacts.
 - [ ] Take and verify a fresh encrypted full backup.
 
 ## Deliverables
@@ -20,7 +20,7 @@
 - [ ] Android debug APK: `app-debug.apk` for internal installation/testing.
 - [ ] Signed Android App Bundle: `app-release.aab`, produced only by the
       protected signing workflow.
-- [ ] Flutter Web static bundle: `web-release.tar.gz`.
+- [ ] Web static bundle: `web-release.tar.gz` containing `web/dist`.
 - [ ] SHA-256 checksums for every artifact, mapped to the source commit and
       release version.
 - [ ] No iOS artifact is produced in this release.

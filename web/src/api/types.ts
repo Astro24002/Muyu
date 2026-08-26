@@ -2,9 +2,10 @@ export interface WebChallenge { challenge_id: string; qr_payload: string; origin
 export type WebChallengeLifecycle = 'PENDING' | 'APPROVED' | 'CONSUMED' | 'EXPIRED' | 'REVOKED';
 export interface WebChallengeStatus { challenge_id: string; status: WebChallengeLifecycle; expires_at: string }
 export interface WebSessionExchange { status: 'authenticated'; expires_at: string }
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'WAITING' | 'DONE' | 'CANCELLED';
 export interface TaskItem {
   id: string; workspace_id: string; parent_task_id: string | null; title: string; description: string;
-  due_at: string | null; status: string; current_handler_id: string; blocked_reason: string | null;
+  due_at: string | null; status: TaskStatus; current_handler_id: string; blocked_reason: string | null;
   blocked_since: string | null; resume_handler_id: string | null; waiting_for_user_id: string | null;
   planned_start_at: string | null; estimated_minutes: number | null; completed_at: string | null;
   created_by: string; created_at: string; updated_at: string; assignee_ids: string[];

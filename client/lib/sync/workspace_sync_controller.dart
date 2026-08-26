@@ -107,6 +107,25 @@ class WorkspaceSyncController extends ChangeNotifier {
     }
   }
 
+  Future<void> transition(String taskId, String targetStatus, {String? blockedReason, String? resumeHandlerId, String? waitingForUserId}) async {
+    final repository = _repository;
+    final matches = state.snapshot?.tasks.where((item) => item.id == taskId).toList() ?? const [];
+    final task = matches.isEmpty ? null : matches.first;
+    if (repository == null || task == null) return;
+    try {
+      final updated = await repository.transition(taskId, targetStatus: targetStatus, baseStatusVersion: task.statusVersion, blockedReason: blockedReason, resumeHandlerId: resumeHandlerId, waitingForUserId: waitingForUserId, requestId: DateTime.now().microsecondsSinceEpoch.toString());
+      final current = state.snapshot;
+      if (current != null) {
+        final tasks = [...current.tasks]..removeWhere((item) => item.id == updated.id)..add(updated);
+        state = WorkspaceSyncState(snapshot: WorkspaceSnapshot(workspaceId: current.workspaceId, cursor: current.cursor, tasks: tasks, members: current.members, conflicts: current.conflicts, fetchedAt: DateTime.now()), isStale: false);
+        notifyListeners();
+      }
+    } catch (error) {
+      state = state.copyWith(isStale: error is! Exception || state.snapshot != null, errorMessage: '$error');
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
     _hintsSubscription?.cancel();

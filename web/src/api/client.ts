@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../config';
 import type { TaskItem, WebChallenge, WebChallengeStatus, WebSessionExchange, WorkspaceChanges, WorkspaceSnapshot } from './types';
+export type TaskWriteResult = TaskItem & { cursor: number };
 
 export type ApiRequestInit = Omit<RequestInit, 'body'> & { body?: unknown };
 
@@ -55,4 +56,10 @@ export class ApiClient {
   createTask(input: { requestId: string; title: string; description: string }): Promise<TaskItem & { cursor: number }> { return this.request('/api/v1/tasks', { method: 'POST', body: { request_id: input.requestId, title: input.title, description: input.description } }); }
   patchTask(id: string, input: { requestId: string; changes: Record<string, unknown>; baseFieldVersions: Record<string, number> }): Promise<TaskItem & { cursor: number }> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: { request_id: input.requestId, changes: input.changes, base_field_versions: input.baseFieldVersions } }); }
   resolveConflict(taskId: string, conflictId: string, input: { requestId: string; resolution: 'current' | 'proposed' }): Promise<TaskItem & { cursor: number }> { return this.request(`/api/v1/tasks/${encodeURIComponent(taskId)}/conflicts/${encodeURIComponent(conflictId)}/resolve`, { method: 'POST', body: { request_id: input.requestId, resolution: input.resolution } }); }
+  transitionTask(id: string, input: { requestId: string; targetStatus: string; baseStatusVersion: number; blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string }): Promise<TaskWriteResult> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/transition`, { method: 'POST', body: { request_id: input.requestId, target_status: input.targetStatus, base_status_version: input.baseStatusVersion, blocked_reason: input.blockedReason, resume_handler_id: input.resumeHandlerId, waiting_for_user_id: input.waitingForUserId } }); }
+  getTaskComments(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`); }
+  addTaskComment(id: string, input: { requestId: string; body: string }): Promise<Record<string, unknown>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`, { method: 'POST', body: { request_id: input.requestId, body: input.body } }); }
+  getTaskDelays(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/delays`); }
+  addTaskDelay(id: string, input: { requestId: string; newDueAt: string; reason: string; note?: string }): Promise<Record<string, unknown>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/delays`, { method: 'POST', body: { request_id: input.requestId, new_due_at: input.newDueAt, reason: input.reason, note: input.note } }); }
+  getTaskActivity(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/activity`); }
 }

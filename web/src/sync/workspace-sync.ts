@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient } from '../api/client';
+import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
 import type { TaskItem, WorkspaceChange, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 import { upsertTask } from '../tasks/task-model';
@@ -18,7 +18,6 @@ export interface WorkspaceSyncOptions {
 }
 
 type Listener = (state: WorkspaceSyncState) => void;
-type TaskWriteResult = TaskItem & { cursor: number };
 type IsCurrent = () => boolean;
 
 const INITIAL_STATE: WorkspaceSyncState = {
@@ -38,7 +37,7 @@ export class WorkspaceSyncController {
   private generation = 0;
   private readonly requestIdFactory: () => string;
 
-  constructor(private readonly api: Pick<ApiClient, 'getWorkspaceSnapshot' | 'getWorkspaceChanges' | 'createTask' | 'patchTask' | 'resolveConflict'>, options: WorkspaceSyncOptions = {}) {
+  constructor(private readonly api: Pick<ApiClient, 'getWorkspaceSnapshot' | 'getWorkspaceChanges' | 'createTask' | 'patchTask' | 'resolveConflict' | 'transitionTask' | 'addTaskComment' | 'addTaskDelay'>, options: WorkspaceSyncOptions = {}) {
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
   }
 
@@ -106,6 +105,20 @@ export class WorkspaceSyncController {
     }), () => this.setState({
       conflicts: this.currentState.conflicts.filter((conflict) => conflict.task_id !== taskId || conflict.id !== conflictId),
     }));
+  }
+
+  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string } = {}): Promise<void> {
+    const task = this.currentState.snapshot?.tasks.find((item) => item.id === taskId);
+    if (!task) return this.setState({ error: '任务不存在，请刷新后重试。' });
+    await this.write('无法更新任务状态，请检查网络后重试。', () => this.api.transitionTask(taskId, { requestId: this.requestIdFactory(), targetStatus, baseStatusVersion: task.status_version, ...payload }));
+  }
+
+  async addComment(taskId: string, body: string): Promise<void> {
+    await this.run('无法添加评论，请检查网络后重试。', async () => { await this.api.addTaskComment(taskId, { requestId: this.requestIdFactory(), body }); });
+  }
+
+  async addDelay(taskId: string, newDueAt: string, reason: string, note?: string): Promise<void> {
+    await this.run('无法延期任务，请检查网络后重试。', async () => { await this.api.addTaskDelay(taskId, { requestId: this.requestIdFactory(), newDueAt, reason, note }); await this.pull(); });
   }
 
   private async write(message: string, operation: () => Promise<TaskWriteResult>, onSuccess?: () => void): Promise<void> {

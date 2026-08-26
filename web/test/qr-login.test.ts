@@ -25,6 +25,24 @@ function apiStub() {
 describe('QrLoginController', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('uses browser timers with the global receiver', async () => {
+    const api = apiStub();
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(function (this: unknown) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation');
+      return 7 as unknown as ReturnType<typeof globalThis.setInterval>;
+    });
+    const controller = new QrLoginController(api as never, {
+      clock: () => Date.parse('2026-08-25T12:00:00.000Z'),
+      clearInterval: vi.fn(),
+      origin: () => 'https://app.test',
+      crypto: deterministicCrypto(),
+    });
+
+    await controller.start();
+
+    expect(controller.state).toMatchObject({ kind: 'waiting_for_approval', challenge });
+  });
+
   it('sends only a SHA-256 proof digest when it starts a challenge', async () => {
     const api = apiStub();
     const setInterval = vi.fn(() => 7 as unknown as ReturnType<typeof globalThis.setInterval>);

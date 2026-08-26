@@ -40,8 +40,8 @@ export class QrLoginController {
   constructor(api: ApiClient, options: QrLoginOptions = {}) {
     this.#api = api;
     this.#clock = options.clock ?? Date.now;
-    this.#setInterval = options.setInterval ?? globalThis.setInterval;
-    this.#clearInterval = options.clearInterval ?? globalThis.clearInterval;
+    this.#setInterval = options.setInterval ?? ((handler, timeout) => globalThis.setInterval(handler, timeout));
+    this.#clearInterval = options.clearInterval ?? ((timer) => globalThis.clearInterval(timer));
     this.#origin = options.origin ?? (() => window.location.origin);
     this.#crypto = options.crypto ?? globalThis.crypto;
   }

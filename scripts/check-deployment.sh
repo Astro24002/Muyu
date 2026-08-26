@@ -32,5 +32,11 @@ for forbidden in ("AUTH_PASSWORD", "JWT_SECRET", "P2P", "NEARBY", "ELASTICSEARCH
     rendered = json.dumps(document)
     if forbidden in rendered:
         raise SystemExit(f"legacy setting is present in rendered Compose: {forbidden}")
+caddy = services["caddy"]
+build_args = caddy.get("build", {}).get("args", {})
+if "WEB_ORIGIN" in build_args:
+    raise SystemExit("caddy must not receive backend WEB_ORIGIN as a build argument")
+if caddy.get("depends_on", {}).get("api", {}).get("condition") != "service_healthy":
+    raise SystemExit("caddy must depend on a healthy api service")
 print("deployment topology check passed")
 PY

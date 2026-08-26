@@ -5,8 +5,6 @@ services:
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
-      args:
-        WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}
     environment:
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
     ports:

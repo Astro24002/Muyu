@@ -1,14 +1,13 @@
-# Build the static Flutter web release and use the same Caddy image for TLS,
+# Build the independent TypeScript SPA and use the same Caddy image for TLS,
 # SPA fallback, API proxying, and static asset delivery.
-FROM ghcr.io/cirruslabs/flutter:stable AS build
-WORKDIR /src
-ARG WEB_ORIGIN=http://localhost
-COPY client/pubspec.yaml client/pubspec.lock ./
-RUN flutter pub get
-COPY client ./
-RUN flutter build web --release \
-    --dart-define=API_BASE_URL=/ \
-    --dart-define=WEB_ORIGIN=${WEB_ORIGIN}
+FROM node:22-alpine AS web-build
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+ARG VITE_API_BASE_URL=/
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+RUN npm run build
 
 FROM caddy:2.10-alpine
-COPY --from=build /src/build/web /srv
+COPY --from=web-build /src/web/dist /srv

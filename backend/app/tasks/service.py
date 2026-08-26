@@ -54,6 +54,8 @@ class TaskService:
         assignees = list(dict.fromkeys(assignee_ids or [actor_user_id]))
         if len(assignees) not in (1, 2):
             raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
+        if actor_user_id not in assignees:
+            raise TaskConflictError("invalid_request", "current handler must be an assignee")
         members = set(self.session.scalars(select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.status == MembershipStatus.ACTIVE, WorkspaceMembership.user_id.in_(assignees))).all())
         if members != set(assignees):
             raise TaskConflictError("invalid_request", "assignees must be active workspace members")
@@ -108,6 +110,7 @@ class TaskService:
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
             return task
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")
@@ -222,7 +225,13 @@ class TaskService:
         target = "DONE" if action in {"complete", "completed"} else "TODO" if action in {"reopen", "open"} else None
         if target is None:
             raise TaskConflictError("invalid_request", "unsupported lifecycle action")
-        return self.transition(workspace_id, actor_user_id, task_id, request_id, target, base_lifecycle_version)
+        # The compatibility endpoint historically called its optimistic version
+        # ``base_lifecycle_version``. Validate that lifecycle version first, then
+        # pass the authoritative status version to the shared transition path.
+        task = self._task(workspace_id, task_id)
+        if task.lifecycle_version != base_lifecycle_version:
+            raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
+        return self.transition(workspace_id, actor_user_id, task_id, request_id, target, task.status_version)
 
     def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None) -> Task:
         task = self._task(workspace_id, task_id)
@@ -234,12 +243,13 @@ class TaskService:
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
             return task
         before = self.snapshot(task)
         raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
         current_public = "DONE" if raw_status == "COMPLETED" else raw_status
         if task.status_version != base_status_version:
-            conflict = TaskConflict(workspace_id=workspace_id, task_id=task.id, target="status", base_value=target_status, current_value=current_public, proposed_value=target_status, base_version=base_status_version, current_version=task.status_version, request_id=request_id, status=ConflictStatus.OPEN)
+            conflict = TaskConflict(workspace_id=workspace_id, task_id=task.id, target="status", base_value=current_public, current_value=current_public, proposed_value=target_status, base_version=base_status_version, current_version=task.status_version, request_id=request_id, status=ConflictStatus.OPEN)
             self.session.add(conflict)
             self.session.flush()
             cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
@@ -256,6 +266,9 @@ class TaskService:
         if target_status == "WAITING":
             if not blocked_reason or resume_handler_id is None:
                 raise TaskConflictError("invalid_request", "blocked_reason and resume_handler_id are required")
+            resume_handler_id = self._validated_assignee_handler(workspace_id, task, resume_handler_id)
+            if waiting_for_user_id is not None:
+                waiting_for_user_id = self._validated_member(workspace_id, waiting_for_user_id)
             task.blocked_reason = blocked_reason
             task.blocked_since = self.now()
             task.resume_handler_id = resume_handler_id
@@ -263,7 +276,7 @@ class TaskService:
         elif current_public == "WAITING" or target_status == "IN_PROGRESS":
             task.blocked_reason = task.blocked_since = task.resume_handler_id = task.waiting_for_user_id = None
             if resume_handler_id is not None:
-                task.current_handler_id = resume_handler_id
+                task.current_handler_id = self._validated_assignee_handler(workspace_id, task, resume_handler_id)
         task.lifecycle_version += 1
         task.status_version += 1
         task.version += 1
@@ -397,6 +410,34 @@ class TaskService:
         if task is None:
             raise TaskConflictError("not_found", "task not found")
         return task
+
+    def _validated_member(self, workspace_id: UUID, user_id: UUID | str) -> UUID:
+        try:
+            normalized = UUID(str(user_id))
+        except (TypeError, ValueError) as exc:
+            raise TaskConflictError("invalid_request", "invalid handler id") from exc
+        member = self.session.scalar(
+            select(WorkspaceMembership.id).where(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.user_id == normalized,
+                WorkspaceMembership.status == MembershipStatus.ACTIVE,
+            )
+        )
+        if member is None:
+            raise TaskConflictError("invalid_request", "handler must be an active workspace member")
+        return normalized
+
+    def _validated_assignee_handler(self, workspace_id: UUID, task: Task, user_id: UUID | str) -> UUID:
+        normalized = self._validated_member(workspace_id, user_id)
+        assigned = self.session.scalar(
+            select(TaskAssignee.user_id).where(
+                TaskAssignee.task_id == task.id,
+                TaskAssignee.user_id == normalized,
+            )
+        )
+        if assigned is None:
+            raise TaskConflictError("invalid_request", "handler must be a task assignee")
+        return normalized
 
     def _existing_operation(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID) -> TaskOperation | None:
         return self.session.scalar(select(TaskOperation).where(TaskOperation.workspace_id == workspace_id, TaskOperation.request_id == request_id))

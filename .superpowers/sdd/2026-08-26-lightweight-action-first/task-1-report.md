@@ -21,6 +21,14 @@
 - Added `backend/tests/tasks/test_lightweight_contract.py` coverage for subtasks, assignees, transitions, and stale status conflicts.
 - Focused pytest rerun remains unavailable because this environment has no `pytest` module.
 
+### Review fix round 2
+
+- Restored cursor propagation for transition, patch, and restore idempotent replays.
+- Validated WAITING and unblock handlers against active workspace membership and task assignees; rejected creation requests that omit the actor from assignees.
+- Added authenticated and unauthenticated HTTP contract coverage in `backend/tests/httpapi/test_lightweight_routes.py`.
+- Kept lifecycle compatibility actions on the lifecycle-version check while passing the current status version to the shared transition implementation, and made stale conflict snapshots explicit.
+- PostgreSQL container verification: `5 passed` for the domain and HTTP contract tests.
+
 ## Risks / concerns
 
 - PostgreSQL integration and HTTP contract tests remain unexecuted because test dependencies/database are unavailable.

@@ -47,3 +47,30 @@ def test_transition_waiting_done_and_stale_status_creates_conflict(db_engine):
         with pytest.raises(TaskConflictError) as error:
             TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "TODO", 3)
         assert error.value.code == "field_conflict"
+
+
+def test_transition_replay_keeps_cursor_and_rejects_unassigned_handler(db_engine):
+    with Session(db_engine) as session:
+        user_a, user_b, workspace = _workspace_with_two_users(session)
+        task = TaskService(session).create(workspace.id, user_a.id, uuid4(), "行动")
+        request_id = uuid4()
+        first_service = TaskService(session)
+        started = first_service.transition(workspace.id, user_a.id, task.id, request_id, "IN_PROGRESS", 1)
+        first_cursor = first_service.last_cursor
+        assert started.status.value == "IN_PROGRESS"
+        replay_service = TaskService(session)
+        replay = replay_service.transition(workspace.id, user_a.id, task.id, request_id, "IN_PROGRESS", 1)
+        assert replay.id == task.id
+        assert replay_service.last_cursor == first_cursor
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).transition(
+                workspace.id,
+                user_a.id,
+                task.id,
+                uuid4(),
+                "WAITING",
+                2,
+                blocked_reason="等待另一人",
+                resume_handler_id=user_b.id,
+            )
+        assert error.value.code == "invalid_request"

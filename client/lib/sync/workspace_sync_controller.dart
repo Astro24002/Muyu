@@ -149,6 +149,9 @@ class WorkspaceSyncController extends ChangeNotifier {
         );
         notifyListeners();
       }
+      // The write response carries no cursor; reconcile through the authoritative
+      // cursor endpoint before accepting another mutation.
+      await pull();
     } catch (error) {
       state = state.copyWith(
         isStale: error is! Exception || state.snapshot != null,

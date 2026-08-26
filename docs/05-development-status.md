@@ -23,7 +23,7 @@
 
 - 类型：实施完成 / 发布流水线收口
 - 变更：完成 Web API/二维码登录/Workspace 同步与 SPA 组装；Flutter 客户端固定为 Android，删除浏览器运行时和静态入口；Caddy 改为构建并服务 `web/dist`；CI 与 Release 仅响应版本 tag 和已发布 Release；Makefile、边界检查和运行文档同步更新。
-- 验证：Web typecheck、Vitest 全量、Vite build；Flutter format、analyze、test 与 Android debug APK；Compose 拓扑、CI 触发器、旧运行时和客户端边界脚本通过。后端 pytest/真实短信/真机与生产部署需在具备外部依赖的环境中执行。
+- 验证：Web Vitest 全量（42 tests）、typecheck、Vite build；Flutter format、analyze、test（14 tests）与 Android debug APK；PostgreSQL 后端全量 50 passed、2 skipped；Compose 拓扑、CI 触发器、旧运行时和客户端边界脚本通过。真实短信、真机和生产部署仍需在具备外部依赖的环境中执行。
 - 交付物：Android debug APK、受保护签名 Android AAB、`web-release.tar.gz`、`SHA256SUMS` 和 `SOURCE_COMMIT`；不生成 iOS 安装包。
 
 ## 已完成

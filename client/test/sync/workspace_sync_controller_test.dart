@@ -129,4 +129,16 @@ void main() {
       ),
     );
   });
+
+  test('transition refreshes the authoritative cursor after a write', () async {
+    final repository = FakeSyncRepository();
+    final controller = WorkspaceSyncController(repository);
+    await controller.refresh();
+
+    await controller.transition('task-1', 'DONE');
+
+    expect(repository.requestedAfterCursors, [11]);
+    expect(controller.state.cursor, 12);
+    expect(controller.state.snapshot!.tasks.single.title, 'Changed title');
+  });
 }

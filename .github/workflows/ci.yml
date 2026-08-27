@@ -68,11 +68,15 @@ jobs:
         working-directory: client
         env:
           SOURCE_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
           commit_id="${SOURCE_COMMIT:0:7}"
+          version_name="${RELEASE_TAG}"
           cp build/app/outputs/flutter-apk/app-debug.apk \
             "build/app/outputs/flutter-apk/Muyu-${commit_id}.apk"
+          cp build/app/outputs/flutter-apk/app-debug.apk \
+            "build/app/outputs/flutter-apk/Muyu-${version_name}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk-${{ github.ref_name }}

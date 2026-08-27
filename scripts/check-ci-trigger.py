@@ -32,4 +32,7 @@ for workflow_name, workflow_text in workflow_texts:
     assert 'Muyu-${commit_id}.apk' in workflow_text, (
         f"{workflow_name} must publish a commit-named Android APK"
     )
+    assert 'Muyu-${version_name}.apk' in workflow_text, (
+        f"{workflow_name} must publish a version-named Android APK"
+    )
 print("CI and release trigger check passed")

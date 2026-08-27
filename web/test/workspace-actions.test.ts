@@ -27,7 +27,7 @@ describe('workspace actions', () => {
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await Promise.resolve();
     expect(sync.createTask).toHaveBeenCalledWith('Draft task', 'Details');
-    expect(title.value).toBe('');
+    expect(root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.value).toBe('');
     cleanup();
   });
 

@@ -1,0 +1,91 @@
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.db.enums import MembershipStatus
+from app.db.models import User, Workspace, WorkspaceCursor, WorkspaceMembership
+from app.main import create_app
+from app.tasks.service import TaskService
+
+from .test_lightweight_routes import FakeSmsProvider
+
+
+def _client(db_engine) -> TestClient:
+    app = create_app()
+    app.state.engine = db_engine
+    app.state.ready = True
+    app.state.sms_provider = FakeSmsProvider()
+    return TestClient(app)
+
+
+def _authenticated(client: TestClient) -> str:
+    phone = "+8613800138123"
+    assert client.post("/api/v1/auth/sms/send", json={"phone": phone}).status_code == 202
+    code = client.app.state.sms_provider.last_code_for(phone)
+    response = client.post(
+        "/api/v1/auth/sms/verify",
+        json={"phone": phone, "code": code, "device": {"public_key_der": "AQID", "label": "contract"}},
+    )
+    assert response.status_code == 201, response.text
+    workspace = client.post(
+        "/api/v1/workspaces",
+        headers={"Authorization": f"Bearer {response.json()['access_token']}"},
+        json={"name": "Contract"},
+    )
+    assert workspace.status_code == 201, workspace.text
+    return response.json()["access_token"]
+
+
+def test_create_contract_exposes_versions_and_cursor(db_engine) -> None:
+    client = _client(db_engine)
+    headers = {"Authorization": f"Bearer {_authenticated(client)}"}
+    response = client.post("/api/v1/tasks", headers=headers, json={"request_id": str(uuid4()), "title": "  Contract task  "})
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["title"] == "Contract task"
+    assert body["status"] == "TODO"
+    assert isinstance(body["assignee_ids"], list) and len(body["assignee_ids"]) == 1
+    assert body["current_handler_id"] == body["assignee_ids"][0]
+    assert body["version"] == 1
+    assert body["field_versions"]["title"] == 1
+    assert body["cursor"] == 1
+
+
+def test_create_rejects_empty_or_whitespace_title(db_engine) -> None:
+    client = _client(db_engine)
+    headers = {"Authorization": f"Bearer {_authenticated(client)}"}
+    response = client.post("/api/v1/tasks", headers=headers, json={"request_id": str(uuid4()), "title": "   "})
+
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "invalid_request"
+
+
+def test_get_task_is_scoped_to_authenticated_workspace(db_engine) -> None:
+    client = _client(db_engine)
+    token = _authenticated(client)
+    with Session(db_engine) as session:
+        user = User(phone="+8613800138999")
+        workspace = Workspace(name="Other")
+        session.add_all([user, workspace])
+        session.flush()
+        session.add(
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=user.id,
+                member_slot=1,
+                status=MembershipStatus.ACTIVE,
+                joined_at=datetime.now(timezone.utc),
+            )
+        )
+        session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
+        session.flush()
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "Private task")
+        session.commit()
+        task_id = task.id
+
+    response = client.get(f"/api/v1/tasks/{task_id}", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 404, response.text
+    assert response.json()["code"] == "not_found"

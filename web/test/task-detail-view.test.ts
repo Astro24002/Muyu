@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TaskItem } from '../src/api/types';
 import { TaskDetailView } from '../src/ui/task-detail-view';
+import { WorkspaceView } from '../src/ui/workspace-view';
+import type { WorkspaceSyncState } from '../src/sync/workspace-sync';
 
 const task: TaskItem = { id: 'task-1', workspace_id: 'workspace-1', parent_task_id: null, title: 'Original', description: 'Details', due_at: null, status: 'TODO', current_handler_id: 'user-1', blocked_reason: null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'user-1', created_at: '2026-08-26T00:00:00Z', updated_at: '2026-08-26T00:00:00Z', assignee_ids: ['user-1'], delay_count: 0, total_delay_minutes: 0, version: 3, status_version: 2, field_versions: { title: 3, description: 2 }, lifecycle_version: 1, deleted_at: null };
 
@@ -28,6 +30,24 @@ describe('TaskDetailView', () => {
     expect(actions.onComment).toHaveBeenCalled();
     expect(actions.onDelay).toHaveBeenCalled();
     expect(root.textContent).toContain('Server');
+    cleanup();
+  });
+
+  it('keeps the open detail draft while workspace state is reconciled', () => {
+    const root = document.createElement('div');
+    const listeners = new Set<(state: WorkspaceSyncState) => void>();
+    const sync = {
+      state: { snapshot: { workspace_id: 'workspace-1', workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' }, members: [{ user_id: 'user-1', member_slot: 1 }], tasks: [task], conflicts: [], cursor: 2 }, cursor: 2, loading: false, stale: false, error: null as string | null, conflicts: [], authRequired: false },
+      subscribe: (listener: (state: WorkspaceSyncState) => void) => { listeners.add(listener); return () => listeners.delete(listener); },
+      refresh: vi.fn(), createTask: vi.fn(async () => undefined), transitionTask: vi.fn(async () => undefined), addComment: vi.fn(async () => undefined), addDelay: vi.fn(async () => undefined), patchTask: vi.fn(async () => undefined), resolveConflict: vi.fn(async () => undefined),
+    };
+    const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
+    root.querySelector<HTMLElement>('.task-row')!.click();
+    const title = root.querySelector<HTMLInputElement>('input[aria-label="标题"]')!;
+    title.value = 'Local draft';
+    sync.state = { ...sync.state, loading: true, snapshot: { ...sync.state.snapshot, tasks: [{ ...task, title: 'Server update' }] } };
+    listeners.forEach((listener) => listener(sync.state));
+    expect(root.querySelector<HTMLInputElement>('input[aria-label="标题"]')?.value).toBe('Local draft');
     cleanup();
   });
 });

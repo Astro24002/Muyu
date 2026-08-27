@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError } from '../src/api/client';
 import { WorkspaceView } from '../src/ui/workspace-view';
 import type { WorkspaceSnapshot, TaskItem } from '../src/api/types';
+import type { WorkspaceSyncState } from '../src/sync/workspace-sync';
 
 describe('workspace actions', () => {
   it('uses snake_case transition body and preserves errors', async () => {
@@ -56,6 +57,24 @@ describe('workspace actions', () => {
     expect(title.value).toBe('Keep handled error');
     cleanup();
   });
+
+  it('keeps create disabled while a sync loading rerender is in flight', async () => {
+    const sync = fakeSync({ tasks: [], cursor: 1 });
+    let resolveCreate!: () => void;
+    sync.createTask.mockReturnValue(new Promise<void>((resolve) => { resolveCreate = resolve; }));
+    const root = document.createElement('div');
+    const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
+    const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
+    title.value = 'In flight'; title.dispatchEvent(new Event('input', { bubbles: true }));
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    sync.state = { ...sync.state, loading: true };
+    sync.emit();
+    expect(root.querySelector<HTMLButtonElement>('form button')?.disabled).toBe(true);
+    resolveCreate();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.value).toBe('');
+    cleanup();
+  });
 });
 
 function makeTask(id: string, title: string): TaskItem {
@@ -64,5 +83,7 @@ function makeTask(id: string, title: string): TaskItem {
 
 function fakeSync(input: { tasks: TaskItem[]; cursor: number }) {
   const state = { snapshot: { workspace_id: 'workspace-1', workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' }, members: [{ user_id: 'user-1', member_slot: 1 }], tasks: input.tasks, conflicts: [], cursor: input.cursor }, cursor: input.cursor, loading: false, stale: false, error: null as string | null, conflicts: [], authRequired: false };
-  return { state, subscribe: vi.fn(() => () => undefined), refresh: vi.fn(), createTask: vi.fn(), transitionTask: vi.fn(), addComment: vi.fn(), addDelay: vi.fn(), patchTask: vi.fn(), resolveConflict: vi.fn() };
+  const listeners = new Set<(state: WorkspaceSyncState) => void>();
+  const sync = { state: state as WorkspaceSyncState, subscribe: vi.fn((listener: (state: WorkspaceSyncState) => void) => { listeners.add(listener); return () => listeners.delete(listener); }), emit: () => listeners.forEach((listener) => listener(sync.state)), refresh: vi.fn(), createTask: vi.fn(), transitionTask: vi.fn(), addComment: vi.fn(), addDelay: vi.fn(), patchTask: vi.fn(), resolveConflict: vi.fn() };
+  return sync;
 }

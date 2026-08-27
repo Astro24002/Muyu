@@ -7,6 +7,7 @@ export interface TaskDetailActions {
   onDelay: (date: string, reason: string, note?: string) => Promise<void>;
   onSave: (changes: EditableTaskChanges) => Promise<void>;
   onResolveConflict?: (conflictId: string, resolution: 'current' | 'proposed') => Promise<void>;
+  onClose?: () => void;
   conflicts?: TaskConflict[];
 }
 
@@ -14,7 +15,7 @@ const statuses: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCE
 const delayReasons = ['NO_TIME', 'TOO_LARGE', 'NOT_WILLING', 'FORGOT', 'WAITING_PARTNER', 'INTERRUPTED', 'OTHER'];
 
 export class TaskDetailView {
-  static mount(container: Element, task: TaskItem, _members: Array<{ user_id: string; member_slot: number }>, actions: TaskDetailActions): () => void {
+  static mount(container: Element, task: TaskItem, members: Array<{ user_id: string; member_slot: number }>, actions: TaskDetailActions): () => void {
     const dialog = document.createElement('section');
     dialog.className = 'task-detail';
     dialog.setAttribute('aria-label', '任务详情');
@@ -26,12 +27,15 @@ export class TaskDetailView {
     for (const value of statuses) { const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = value === task.status; status.append(option); }
     const transition = actionButton('更新状态', 'transition');
     const blockedReason = input('阻塞原因', task.blocked_reason ?? '');
+    const resumeHandler = document.createElement('select'); resumeHandler.setAttribute('aria-label', '恢复负责人');
+    const handlerIds = [...new Set([...task.assignee_ids, ...members.map((member) => member.user_id)])];
+    for (const id of handlerIds) { const option = document.createElement('option'); option.value = id; option.textContent = id; option.selected = id === (task.resume_handler_id ?? task.current_handler_id); resumeHandler.append(option); }
     const comment = input('评论'); const commentButton = actionButton('添加评论', 'comment');
     const due = input('延期至 (ISO 时间)'); due.type = 'datetime-local'; const reason = document.createElement('select'); reason.setAttribute('aria-label', '延期原因');
     for (const value of delayReasons) { const option = document.createElement('option'); option.value = value; option.textContent = value; reason.append(option); }
     const note = input('延期说明'); const delayButton = actionButton('提交延期', 'delay');
     const close = actionButton('关闭', 'close');
-    dialog.append(heading('任务详情'), field('标题', title), field('描述', description), save, field('状态', status), field('阻塞原因', blockedReason), transition, field('评论', comment), commentButton, field('新截止时间', due), field('原因', reason), field('说明', note), delayButton);
+    dialog.append(heading('任务详情'), field('标题', title), field('描述', description), save, field('状态', status), field('阻塞原因', blockedReason), field('恢复负责人', resumeHandler), transition, field('评论', comment), commentButton, field('新截止时间', due), field('原因', reason), field('说明', note), delayButton);
     const conflicts = actions.conflicts ?? [];
     if (conflicts.length) {
       const panel = document.createElement('section'); panel.className = 'conflict-panel'; panel.append(heading('待处理冲突'));
@@ -51,13 +55,14 @@ export class TaskDetailView {
     save.addEventListener('click', () => void run(() => actions.onSave({ title: title.value.trim(), description: description.value })));
     transition.addEventListener('click', () => void run(() => {
       const reason = blockedReason.value.trim();
-      return reason ? actions.onTransition(status.value, { blockedReason: reason }) : actions.onTransition(status.value);
+      const handler = resumeHandler.value;
+      return reason || (status.value === 'WAITING' && handler) ? actions.onTransition(status.value, { ...(reason ? { blockedReason: reason } : {}), ...(handler && (status.value === 'WAITING' || task.status === 'WAITING') ? { resumeHandlerId: handler } : {}) }) : actions.onTransition(status.value);
     }));
     commentButton.addEventListener('click', () => { const body = comment.value.trim(); if (!body) return; void run(async () => { await actions.onComment(body); comment.value = ''; }); });
     delayButton.addEventListener('click', () => { if (!due.value) return; void run(() => actions.onDelay(new Date(due.value).toISOString(), reason.value, note.value.trim() || undefined)); });
     const resolve = (id: string, choice: 'current' | 'proposed') => actions.onResolveConflict ? run(() => actions.onResolveConflict!(id, choice)) : Promise.resolve();
     const cleanup = () => { disposed = true; dialog.remove(); };
-    close.addEventListener('click', cleanup);
+    close.addEventListener('click', () => { cleanup(); actions.onClose?.(); });
     return cleanup;
   }
 }

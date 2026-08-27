@@ -116,3 +116,106 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     )
     assert nested.status_code == 422, nested.text
     assert nested.json()["code"] == "nested_task_not_allowed"
+
+
+def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_engine) -> None:
+    client = _client(db_engine)
+    token = _authenticated(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "Original"},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    updated = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Current"},
+            "base_field_versions": {"title": task["field_versions"]["title"]},
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    stale = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Proposed"},
+            "base_field_versions": {"title": task["field_versions"]["title"]},
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    conflict_id = stale.json()["details"]["conflicts"][0]["id"]
+    listed = client.get(f"/api/v1/tasks/{task['id']}/conflicts", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["status"] == "OPEN"
+
+    request_id = str(uuid4())
+    resolved = client.post(
+        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
+        headers=headers,
+        json={"request_id": request_id, "resolution": "current"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["title"] == "Current"
+    first_cursor = resolved.json()["cursor"]
+    replay = client.post(
+        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
+        headers=headers,
+        json={"request_id": request_id, "resolution": "current"},
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["cursor"] == first_cursor
+    mismatch = client.post(
+        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
+        headers=headers,
+        json={"request_id": request_id, "resolution": "proposed"},
+    )
+    assert mismatch.status_code == 409, mismatch.text
+    assert mismatch.json()["code"] == "idempotency_key_reused"
+
+    second = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "Second"},
+    ).json()
+    current = client.patch(
+        f"/api/v1/tasks/{second['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Second current"},
+            "base_field_versions": {"title": second["field_versions"]["title"]},
+        },
+    ).json()
+    stale_second = client.patch(
+        f"/api/v1/tasks/{second['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Second proposed"},
+            "base_field_versions": {"title": second["field_versions"]["title"]},
+        },
+    )
+    second_conflict_id = stale_second.json()["details"]["conflicts"][0]["id"]
+    latest = client.patch(
+        f"/api/v1/tasks/{second['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Second latest"},
+            "base_field_versions": {"title": current["field_versions"]["title"]},
+        },
+    )
+    assert latest.status_code == 200, latest.text
+    stale_resolution = client.post(
+        f"/api/v1/tasks/{second['id']}/conflicts/{second_conflict_id}/resolve",
+        headers=headers,
+        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    )
+    assert stale_resolution.status_code == 409, stale_resolution.text

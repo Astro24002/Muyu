@@ -358,6 +358,96 @@ class TaskService:
         )
         return task
 
+    def resolve_conflict(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, conflict_id: UUID, request_id: UUID, resolution: str) -> Task:
+        task = self.session.scalar(
+            select(Task).where(Task.id == task_id, Task.workspace_id == workspace_id).with_for_update()
+        )
+        conflict = self.session.scalar(
+            select(TaskConflict).where(
+                TaskConflict.id == conflict_id,
+                TaskConflict.task_id == task_id,
+                TaskConflict.workspace_id == workspace_id,
+            ).with_for_update()
+        )
+        if task is None or conflict is None:
+            raise TaskConflictError("not_found", "conflict not found")
+        fingerprint = request_fingerprint(
+            f"/api/v1/tasks/{task_id}/conflicts/{conflict_id}/resolve",
+            {"resolution": resolution},
+        )
+        existing = self._existing_operation(workspace_id, actor_user_id, request_id)
+        if existing is not None:
+            if existing.base_versions != {"fingerprint": fingerprint}:
+                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
+            return task
+        if task.deleted_at is not None:
+            raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before conflict resolution")
+        if conflict.status != ConflictStatus.OPEN:
+            raise TaskConflictError("lifecycle_conflict", "conflict is already resolved")
+        if resolution not in {"current", "proposed"}:
+            raise TaskConflictError("invalid_request", "resolution must be current or proposed")
+        before = self.snapshot(task)
+        if resolution == "proposed":
+            versions = dict(task.field_versions or {})
+            current_version = int(versions.get(conflict.target, 1))
+            if current_version != conflict.current_version:
+                raise TaskConflictError("field_conflict", "task field changed since conflict creation", [conflict])
+            if conflict.target == "assignee_ids":
+                try:
+                    values = list(dict.fromkeys(UUID(str(item)) for item in (conflict.proposed_value or [])))
+                except (TypeError, ValueError) as exc:
+                    raise TaskConflictError("invalid_request", "invalid proposed assignee id") from exc
+                if len(values) not in (1, 2):
+                    raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
+                members = set(
+                    self.session.scalars(
+                        select(WorkspaceMembership.user_id).where(
+                            WorkspaceMembership.workspace_id == workspace_id,
+                            WorkspaceMembership.status == MembershipStatus.ACTIVE,
+                            WorkspaceMembership.user_id.in_(values),
+                        )
+                    ).all()
+                )
+                if members != set(values):
+                    raise TaskConflictError("invalid_request", "assignees must be active workspace members")
+                if task.current_handler_id is not None and task.current_handler_id not in values:
+                    raise TaskConflictError("invalid_request", "current handler must be an assignee")
+                self.session.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
+                self.session.add_all(TaskAssignee(task_id=task.id, user_id=value) for value in values)
+            elif conflict.target == "current_handler_id":
+                try:
+                    value = UUID(str(conflict.proposed_value)) if conflict.proposed_value is not None else None
+                except (TypeError, ValueError) as exc:
+                    raise TaskConflictError("invalid_request", "invalid proposed handler id") from exc
+                if value is not None:
+                    value = self._validated_assignee_handler(workspace_id, task, value)
+                task.current_handler_id = value
+            else:
+                setattr(task, conflict.target, conflict.proposed_value)
+            versions[conflict.target] = current_version + 1
+            task.field_versions = versions
+            task.version += 1
+            task.updated_at = self.now()
+        conflict.status = ConflictStatus.RESOLVED
+        conflict.resolution = Resolution.ACCEPT_PROPOSED if resolution == "proposed" else Resolution.KEEP_CURRENT
+        conflict.resolved_by = actor_user_id
+        conflict.resolved_at = self.now()
+        after = self.snapshot(task)
+        cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        self._operation(
+            workspace_id,
+            actor_user_id,
+            request_id,
+            task,
+            OperationType.CONFLICT_RESOLVED,
+            before,
+            after,
+            cursor,
+            base_versions={"fingerprint": fingerprint},
+        )
+        return task
+
     def add_comment(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, body: str, request_id: UUID | None = None) -> TaskComment:
         task = self._task(workspace_id, task_id)
         if task.deleted_at is not None:

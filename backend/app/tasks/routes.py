@@ -184,31 +184,16 @@ def conflicts(task_id: UUID, actor: Actor = Depends(require_actor), session: Ses
 
 
 @router.post("/tasks/{task_id}/conflicts/{conflict_id}/resolve")
-def resolve_conflict(task_id: UUID, conflict_id: UUID, body: ResolveConflictRequest, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
-    conflict = session.scalar(select(TaskConflict).where(TaskConflict.id == conflict_id, TaskConflict.task_id == task_id, TaskConflict.workspace_id == actor.workspace_id).with_for_update())
-    task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id).with_for_update())
-    if conflict is None or task is None:
-        raise ApiError(404, "not_found", "conflict not found")
-    if conflict.status != ConflictStatus.OPEN:
-        raise ApiError(409, "lifecycle_conflict", "conflict is already resolved")
-    if body.resolution not in {"current", "proposed"}:
-        raise ApiError(422, "invalid_request", "resolution must be current or proposed")
-    if body.resolution == "proposed":
-        setattr(task, conflict.target, conflict.proposed_value)
-        versions = dict(task.field_versions or {})
-        versions[conflict.target] = int(versions.get(conflict.target, 1)) + 1
-        task.field_versions = versions
-        task.version += 1
-    service = TaskService(session)
-    conflict.status = ConflictStatus.RESOLVED
-    conflict.resolution = Resolution.ACCEPT_PROPOSED if body.resolution == "proposed" else Resolution.KEEP_CURRENT
-    conflict.resolved_by = actor.user_id
-    conflict.resolved_at = datetime.now(timezone.utc)
-    snapshot = service.snapshot(task)
-    cursor = service._cursor(actor.workspace_id, task, ChangeAction.UPDATED, body.request_id)
-    service._operation(actor.workspace_id, actor.user_id, body.request_id, task, OperationType.CONFLICT_RESOLVED, snapshot, snapshot, cursor)
-    session.commit()
-    return _task_json(service, task) | {"cursor": cursor}
+def resolve_conflict(task_id: UUID, conflict_id: UUID, body: ResolveConflictRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+    try:
+        service = TaskService(session)
+        task = service.resolve_conflict(actor.workspace_id, actor.user_id, task_id, conflict_id, body.request_id, body.resolution)
+        session.commit()
+    except TaskConflictError as error:
+        session.rollback()
+        raise _task_error(error) from error
+    _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
+    return _task_json(service, task) | {"cursor": service.last_cursor}
 
 
 @router.post("/tasks/{task_id}/comments", status_code=status.HTTP_201_CREATED)

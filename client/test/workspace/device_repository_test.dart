@@ -25,42 +25,45 @@ class StaticTokenStore implements TokenStore {
 }
 
 void main() {
-  test('lists the authenticated user devices without exposing public keys', () async {
-    late http.Request request;
-    final repository = HttpDeviceRepository(
-      ApiClient(
-        baseUrl: 'https://api.example',
-        httpClient: MockClient((incoming) async {
-          request = incoming;
-          return http.Response(
-            jsonEncode([
-              {
-                'id': 'device-1',
-                'platform': 'ANDROID',
-                'label': 'Pixel',
-                'status': 'ACTIVE',
-                'is_current': true,
-                'created_at': '2026-08-27T00:00:00Z',
-                'enrolled_at': '2026-08-27T00:00:00Z',
-                'revoked_at': null,
-              },
-            ]),
-            200,
-          );
-        }),
-        tokenStore: StaticTokenStore(),
-      ),
-    );
+  test(
+    'lists the authenticated user devices without exposing public keys',
+    () async {
+      late http.Request request;
+      final repository = HttpDeviceRepository(
+        ApiClient(
+          baseUrl: 'https://api.example',
+          httpClient: MockClient((incoming) async {
+            request = incoming;
+            return http.Response(
+              jsonEncode([
+                {
+                  'id': 'device-1',
+                  'platform': 'ANDROID',
+                  'label': 'Pixel',
+                  'status': 'ACTIVE',
+                  'is_current': true,
+                  'created_at': '2026-08-27T00:00:00Z',
+                  'enrolled_at': '2026-08-27T00:00:00Z',
+                  'revoked_at': null,
+                },
+              ]),
+              200,
+            );
+          }),
+          tokenStore: StaticTokenStore(),
+        ),
+      );
 
-    final devices = await repository.listDevices();
+      final devices = await repository.listDevices();
 
-    expect(request.method, 'GET');
-    expect(request.url.path, '/api/v1/devices');
-    expect(request.headers['authorization'], 'Bearer mobile-access');
-    expect(devices, hasLength(1));
-    expect(devices.single.id, 'device-1');
-    expect(devices.single.label, 'Pixel');
-    expect(devices.single.isCurrent, isTrue);
-    expect(devices.single.enrolledAt, DateTime.utc(2026, 8, 27));
-  });
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/v1/devices');
+      expect(request.headers['authorization'], 'Bearer mobile-access');
+      expect(devices, hasLength(1));
+      expect(devices.single.id, 'device-1');
+      expect(devices.single.label, 'Pixel');
+      expect(devices.single.isCurrent, isTrue);
+      expect(devices.single.enrolledAt, DateTime.utc(2026, 8, 27));
+    },
+  );
 }

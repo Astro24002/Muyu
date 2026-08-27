@@ -22,7 +22,9 @@ class FakeDeviceRepository implements DeviceRepository {
 }
 
 void main() {
-  testWidgets('shows profile and the long-term logged-in device', (tester) async {
+  testWidgets('shows profile and the long-term logged-in device', (
+    tester,
+  ) async {
     const session = MobileSession(
       accessToken: 'access',
       refreshToken: 'refresh',

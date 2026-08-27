@@ -102,13 +102,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     return Card(
       child: ListTile(
         leading: const Icon(Icons.phone_android_outlined),
-        title: Text(device.label?.trim().isNotEmpty == true
-            ? device.label!
-            : 'Android 设备'),
+        title: Text(
+          device.label?.trim().isNotEmpty == true
+              ? device.label!
+              : 'Android 设备',
+        ),
         subtitle: Text('$status · ${device.platform}'),
-        trailing: device.isCurrent
-            ? const Chip(label: Text('当前设备'))
-            : null,
+        trailing: device.isCurrent ? const Chip(label: Text('当前设备')) : null,
         isThreeLine: false,
       ),
     );

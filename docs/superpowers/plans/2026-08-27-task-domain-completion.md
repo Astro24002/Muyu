@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md`, `docs/superpowers/specs/2026-08-17-task-core-design.md`, `docs/superpowers/specs/2026-08-17-delay-blocking-design.md`.
 
+**Focused backend test convention:** `make backend-test` runs the full suite and does not accept a positional test path. For a focused red/green run, use the same disposable PostgreSQL URL and backend container described by that target, mount `backend` at `/src`, install `.[dev]`, and run `python -m pytest -q` with the paths relative to `/src` (for example, `tests/tasks/test_cloud_mutations.py`). The focused command must be executed inside that container; the full `make backend-test` remains the final backend gate.
+
 ## Global Constraints
 
 - PostgreSQL is the unique source of truth for Workspace, task state, history, conflicts and synchronization cursors.
@@ -52,7 +54,7 @@ The existing backend task service and models are the baseline; implementation ta
 - Produces executable contract coverage for Tasks 2-8: JSON field names, status values, cursor behavior, idempotency and stable error codes.
 
 - [ ] **Step 1: Write failing contract tests** for authenticated task creation, empty title rejection, one-level child creation, second-level child rejection, and `GET /api/v1/tasks/{id}` returning 404 for another Workspace.
-- [ ] **Step 2: Run the contract tests and verify they fail for the missing assertion or behavior.** Set `TEST_DATABASE_URL` to a disposable PostgreSQL URL, then run `make backend-test` with the focused pytest path; expected failures must identify the task contract, not fixture setup.
+- [ ] **Step 2: Run the contract tests and verify they fail for the missing assertion or behavior.** Set `TEST_DATABASE_URL` to a disposable PostgreSQL URL, then use the focused backend test convention above with `tests/httpapi/test_task_contract_regressions.py`; expected failures must identify the task contract, not fixture setup.
 - [ ] **Step 3: Add only the minimum route/schema/model correction needed for the frozen contract.** Preserve `/api/v1` paths and current JSON snake_case names.
 - [ ] **Step 4: Run focused tests and compile checks.** Run `python -m pytest -q backend/tests/httpapi/test_lightweight_routes.py backend/tests/tasks/test_lightweight_contract.py` inside the backend test environment and `python -m compileall -q app alembic`.
 - [ ] **Step 5: Commit** with `git add backend/tests backend/app && git commit -m "test: freeze task HTTP contract"`.
@@ -71,7 +73,7 @@ The existing backend task service and models are the baseline; implementation ta
 - Produces `POST /api/v1/tasks` returning a complete task snapshot plus `cursor`, and `PATCH /api/v1/tasks/{task_id}` using `{request_id, changes, base_field_versions}`.
 
 - [ ] **Step 1: Add failing tests** for trimmed title validation, default `TODO`, default creator/handler/assignee, explicit one-or-two active assignees, planned start/due/estimate fields, field-level concurrent edits, stale field conflict, and same-request replay returning the original cursor.
-- [ ] **Step 2: Run the focused tests and verify the expected failures.** Run `python -m pytest -q backend/tests/tasks/test_cloud_mutations.py -k 'create or patch or field'` in the disposable PostgreSQL test environment.
+- [ ] **Step 2: Run the focused tests and verify the expected failures.** Use the focused backend test convention above with `tests/tasks/test_cloud_mutations.py -k 'create or patch or field'` in the disposable PostgreSQL test environment.
 - [ ] **Step 3: Implement the minimal service behavior.** Validate Workspace membership before task creation; normalize title; create `TaskAssignee` and `TaskUserPosition`; update only `MUTABLE_FIELDS`; increment field versions and overall `version`; write operation/activity/change cursor in the same transaction.
 - [ ] **Step 4: Verify API behavior.** Run the focused HTTP tests and assert response fields `id`, `workspace_id`, `title`, `status`, `assignee_ids`, `current_handler_id`, `version`, `field_versions` and `cursor`.
 - [ ] **Step 5: Commit** with `git add backend/app/tasks backend/tests && git commit -m "feat: complete task creation and editing contract"`.
@@ -89,7 +91,7 @@ The existing backend task service and models are the baseline; implementation ta
 - Produces authenticated actions for transition, completion, reopen, cancellation, block/unblock, transfer, soft delete and restore with stable 409/422 errors.
 
 - [ ] **Step 1: Add failing tests** for every allowed transition, rejected transition, `WAITING` reason/handler validation, handler reassignment, deleted-task restrictions, parent deletion with live children, restore, lifecycle conflict, and status-version conflict.
-- [ ] **Step 2: Run the focused tests and confirm failures are behavior-specific.** Use `python -m pytest -q backend/tests/tasks/test_lightweight_contract.py -k 'status or handler or lifecycle or deleted'`.
+- [ ] **Step 2: Run the focused tests and confirm failures are behavior-specific.** Use the focused backend test convention above with `tests/tasks/test_lightweight_contract.py -k 'status or handler or lifecycle or deleted'`.
 - [ ] **Step 3: Implement state-machine and lifecycle rules.** Keep status changes out of PATCH; increment `version`, `status_version` and `lifecycle_version` as defined; append status/handler histories and activities; reject invalid handlers and non-member waiting users.
 - [ ] **Step 4: Verify idempotency and conflict responses.** Repeat each action with the same `request_id` and assert one operation/cursor; send an outdated version and assert HTTP 409 with `details.conflicts`.
 - [ ] **Step 5: Commit** with `git add backend/app/tasks backend/tests && git commit -m "feat: enforce task lifecycle and status actions"`.
@@ -107,7 +109,7 @@ The existing backend task service and models are the baseline; implementation ta
 - Produces append-only `POST/GET /api/v1/tasks/{id}/comments`, `POST/GET /api/v1/tasks/{id}/delays` and `GET /api/v1/tasks/{id}/activity` behavior.
 
 - [ ] **Step 1: Add failing tests** for comment creation/read ordering, rejection on deleted tasks, delay duration calculation, due-date update, delay history, activity payload, and request replay.
-- [ ] **Step 2: Run focused timeline tests and verify red.** Run `python -m pytest -q backend/tests/tasks/test_lightweight_timeline.py`.
+- [ ] **Step 2: Run focused timeline tests and verify red.** Use the focused backend test convention above with `tests/tasks/test_lightweight_timeline.py`.
 - [ ] **Step 3: Implement one-transaction append behavior.** A delay must create `DelayRecord`, update `due_at`, append `TaskOperation` and `ActivityEvent`, and allocate one Workspace cursor. Comments must never be updated or deleted.
 - [ ] **Step 4: Verify API JSON and ordering.** Run the timeline HTTP tests and assert missing tasks return 404 rather than an empty collection.
 - [ ] **Step 5: Commit** with `git add backend/app/tasks backend/tests && git commit -m "feat: add task comments delays and timeline"`.
@@ -125,7 +127,7 @@ The existing backend task service and models are the baseline; implementation ta
 - Produces `GET /api/v1/tasks/{id}/conflicts` and `POST /api/v1/tasks/{id}/conflicts/{conflict_id}/resolve` with current/proposed resolution and idempotent cursors.
 
 - [ ] **Step 1: Add failing tests** for different-field auto-merge, same-field 409 creation, current-value resolution, proposed-value resolution based on the latest field version, conflict replay, request-id payload mismatch, and monotonic cursor assignment.
-- [ ] **Step 2: Run focused conflict tests and verify red.** Run `python -m pytest -q backend/tests/tasks/test_cloud_mutations.py -k 'conflict or cursor or idempot'`.
+- [ ] **Step 2: Run focused conflict tests and verify red.** Use the focused backend test convention above with `tests/tasks/test_cloud_mutations.py -k 'conflict or cursor or idempot'`.
 - [ ] **Step 3: Implement strict resolution.** Lock the task and conflict rows, require OPEN conflict state, apply the selected value as a new versioned operation, mark resolution metadata, and append activity/change records in one transaction.
 - [ ] **Step 4: Verify no duplicate side effects.** Query operation, conflict, activity and change rows after retries and assert exactly one new record per accepted request.
 - [ ] **Step 5: Commit** with `git add backend/app/tasks backend/tests && git commit -m "feat: harden task conflicts and cursor idempotency"`.
@@ -206,7 +208,7 @@ The existing backend task service and models are the baseline; implementation ta
 - Produces a repeatable two-user PostgreSQL acceptance script and a documented Android/Web release artifact tied to a source commit.
 
 - [ ] **Step 1: Add failing end-to-end acceptance coverage** for User A creating a task, User B seeing it after cursor sync, concurrent field edits, one conflict resolution, a status transition, a comment, a delay, soft delete and restore.
-- [ ] **Step 2: Run the focused E2E test against a disposable PostgreSQL database and verify red.** Set `TEST_DATABASE_URL` to a disposable PostgreSQL URL, then run `python -m pytest -q backend/tests/e2e/test_cloud_protocol.py -k task` in the backend test environment.
+- [ ] **Step 2: Run the focused E2E test against a disposable PostgreSQL database and verify red.** Set `TEST_DATABASE_URL` to a disposable PostgreSQL URL, then use the focused backend test convention above with `tests/e2e/test_cloud_protocol.py -k task`.
 - [ ] **Step 3: Implement only the missing integration wiring and test fixtures.** Keep production API and client boundaries unchanged; do not seed or mutate the production database.
 - [ ] **Step 4: Run the complete verification matrix.** With `TEST_DATABASE_URL` set to the disposable PostgreSQL URL, execute:
   `make backend-test`,

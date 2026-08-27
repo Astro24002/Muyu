@@ -2,15 +2,19 @@ import type { TaskItem } from '../api/types';
 import type { TaskConflict } from '../tasks/task-model';
 import { deriveTaskSummary, filterMyTasks, groupTasksByStatus, TASK_STATUSES } from '../tasks/task-view-model';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
-import { TaskDetailView } from './task-detail-view';
+import { TaskDetailView, type TaskDetailHandle } from './task-detail-view';
 
 export class WorkspaceView {
   static mount(root: Element, sync: WorkspaceSyncController, onLogout: () => void): () => void {
-    let mode: 'list' | 'board' = 'list'; let myOnly = false; let creating = false; let detailCleanup: (() => void) | undefined; let activeTaskId: string | null = null; let draftTitle = ''; let draftDescription = '';
+    let mode: 'list' | 'board' = 'list'; let myOnly = false; let creating = false; let detailCleanup: (() => void) | undefined; let detailHandle: TaskDetailHandle | undefined; let activeTaskId: string | null = null; let draftTitle = ''; let draftDescription = '';
     const render = (state: WorkspaceSyncState) => {
       if (state.authRequired) { onLogout(); return; }
-      if (activeTaskId && detailCleanup) return;
-      root.replaceChildren(buildWorkspace(state, sync, onLogout, mode, myOnly, draftTitle, draftDescription, creating, (value) => { draftTitle = value; }, (value) => { draftDescription = value; }, () => { draftTitle = ''; draftDescription = ''; }, (value) => { creating = value; render(sync.state); }, (nextMode) => { mode = nextMode; render(sync.state); }, (nextMy) => { myOnly = nextMy; render(sync.state); }, (task) => { activeTaskId = task.id; const cleanup = TaskDetailView.mount(root, task, state.snapshot?.members ?? [], { conflicts: state.conflicts, onTransition: (status, payload) => sync.transitionTask(task.id, status, payload), onComment: (body) => sync.addComment(task.id, body), onDelay: (date, reason, note) => sync.addDelay(task.id, date, reason, note), onSave: (changes) => sync.patchTask(task.id, changes), onResolveConflict: (id, resolution) => sync.resolveConflict(task.id, id, resolution), onClose: () => { activeTaskId = null; detailCleanup = undefined; render(sync.state); } }); detailCleanup = () => { cleanup(); activeTaskId = null; }; }));
+      if (activeTaskId && detailHandle) {
+        const task = state.snapshot?.tasks.find((item) => item.id === activeTaskId);
+        if (task) detailHandle.update(task, state.conflicts, state.error);
+        return;
+      }
+      root.replaceChildren(buildWorkspace(state, sync, onLogout, mode, myOnly, draftTitle, draftDescription, creating, (value) => { draftTitle = value; }, (value) => { draftDescription = value; }, () => { draftTitle = ''; draftDescription = ''; }, (value) => { creating = value; render(sync.state); }, (nextMode) => { mode = nextMode; render(sync.state); }, (nextMy) => { myOnly = nextMy; render(sync.state); }, (task) => { activeTaskId = task.id; detailHandle = TaskDetailView.mount(root, task, state.snapshot?.members ?? [], { conflicts: state.conflicts, onTransition: (status, payload) => sync.transitionTask(task.id, status, payload), onComment: (body) => sync.addComment(task.id, body), onDelay: (date, reason, note) => sync.addDelay(task.id, date, reason, note), onSave: (changes) => sync.patchTask(task.id, changes), onResolveConflict: (id, resolution) => sync.resolveConflict(task.id, id, resolution), onClose: () => { activeTaskId = null; detailCleanup = undefined; detailHandle = undefined; render(sync.state); } }); detailCleanup = () => { detailHandle?.(); detailHandle = undefined; activeTaskId = null; }; }));
     };
     const unsubscribe = sync.subscribe(render); render(sync.state);
     return () => { detailCleanup?.(); activeTaskId = null; unsubscribe(); };

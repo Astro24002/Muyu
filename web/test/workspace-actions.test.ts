@@ -25,8 +25,10 @@ describe('workspace actions', () => {
     const description = root.querySelector<HTMLInputElement>('input[placeholder="任务描述"]')!;
     title.value = ' Draft task ';
     description.value = 'Details';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+    description.dispatchEvent(new Event('input', { bubbles: true }));
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sync.createTask).toHaveBeenCalledWith('Draft task', 'Details');
     expect(root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.value).toBe('');
     cleanup();
@@ -39,6 +41,7 @@ describe('workspace actions', () => {
     const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
     const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
     title.value = 'Keep me';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await Promise.resolve();
     expect(title.value).toBe('Keep me');
@@ -52,6 +55,7 @@ describe('workspace actions', () => {
     const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
     const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
     title.value = 'Keep handled error';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await Promise.resolve();
     expect(title.value).toBe('Keep handled error');

@@ -16,6 +16,13 @@ device acceptance.
   `7` test files and `51 tests` passed; Vite build completed.
 - `make boundary-check`: passed.
 - `make check-deployment`: passed for the checked-in Compose example topology.
+- `API_BASE_URL=https://muyu.bkverse.space make client-build`: passed at source
+  commit `2b07d27b178b339dd960e2eee2195ed1be88edfb`.
+- Commit-named debug artifact:
+  `client/build/app/outputs/flutter-apk/Muyu-2b07d27.apk`; SHA-256
+  `0146fc682fb639a52e457d5df0b16b73ae6bf7aa0de90e3c64149dd15a7b2203`.
+- APK inspection found `https://muyu.bkverse.space` in the packaged Flutter
+  assets.
 - Real Android device acceptance: pending because no connected device was
   available during this run.
 
@@ -38,13 +45,14 @@ Items below remain unchecked unless the described release evidence is produced.
 
 ## Deliverables
 
-- [ ] Android debug APK: `app-debug.apk` for internal installation/testing.
+- [x] Android debug APK: `Muyu-2b07d27.apk` for internal installation/testing;
+      SHA-256 is recorded above.
 - [ ] Signed Android App Bundle: `app-release.aab`, produced only by the
       protected signing workflow.
 - [ ] Web static bundle: `web-release.tar.gz` containing `web/dist`.
 - [ ] SHA-256 checksums for every artifact, mapped to the source commit and
       release version.
-- [ ] No iOS artifact is produced in this release.
+- [x] No iOS artifact is produced in this release.
 
 ## After release
 

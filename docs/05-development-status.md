@@ -31,6 +31,11 @@
   npm test -- --run && npm run build` 通过（`7` 个测试文件、`51 tests`）；
   `make boundary-check` 和 `make check-deployment` 均通过。后端测试保留既有
   Starlette/httpx 弃用警告；云协议测试保持 opt-in，未开启时会 skip。
+- Android 发布证据：源 commit `2b07d27b178b339dd960e2eee2195ed1be88edfb` 上，
+  `API_BASE_URL=https://muyu.bkverse.space make client-build` 成功；产物为
+  `client/build/app/outputs/flutter-apk/Muyu-2b07d27.apk`，SHA-256 为
+  `0146fc682fb639a52e457d5df0b16b73ae6bf7aa0de90e3c64149dd15a7b2203`。
+  APK 检查确认包含该 API origin。
 - 范围：本轮没有新增生产 API、数据库结构、离线写队列、P2P、iOS、附件、项目层级、
   Elasticsearch 或密钥；测试只使用 disposable PostgreSQL schema。
 - 真机验收：待执行。必须在 `adb devices` 显示真实 Android 设备后再安装

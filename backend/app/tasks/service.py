@@ -211,6 +211,15 @@ class TaskService:
                     raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
                 self.last_cursor = existing.cursor
                 return task
+            live_child = self.session.scalar(
+                select(Task.id).where(
+                    Task.workspace_id == workspace_id,
+                    Task.parent_task_id == task.id,
+                    Task.deleted_at.is_(None),
+                )
+            )
+            if live_child is not None:
+                raise TaskConflictError("lifecycle_conflict", "parent task has live children")
             if task.lifecycle_version != base_lifecycle_version:
                 raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
             before = self.snapshot(task)
@@ -252,6 +261,8 @@ class TaskService:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
+        if task.deleted_at is not None:
+            raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before status changes")
         before = self.snapshot(task)
         raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
         current_public = "DONE" if raw_status == "COMPLETED" else raw_status

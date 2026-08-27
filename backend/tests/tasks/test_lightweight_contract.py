@@ -74,3 +74,43 @@ def test_transition_replay_keeps_cursor_and_rejects_unassigned_handler(db_engine
                 resume_handler_id=user_b.id,
             )
         assert error.value.code == "invalid_request"
+
+
+def test_waiting_requires_reason_and_restore_respects_lifecycle_version(db_engine):
+    with Session(db_engine) as session:
+        user, _, workspace = _workspace_with_two_users(session)
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动")
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).transition(
+                workspace.id,
+                user.id,
+                task.id,
+                uuid4(),
+                "WAITING",
+                1,
+                resume_handler_id=user.id,
+            )
+        assert error.value.code == "invalid_request"
+
+        deleted = TaskService(session).lifecycle(workspace.id, user.id, task.id, uuid4(), "delete", 1)
+        assert deleted.deleted_at is not None
+        assert deleted.lifecycle_version == 2
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "TODO", deleted.status_version)
+        assert error.value.code == "lifecycle_conflict"
+        restored = TaskService(session).restore(workspace.id, user.id, task.id, uuid4(), 2)
+        assert restored.deleted_at is None
+        assert restored.lifecycle_version == 3
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).restore(workspace.id, user.id, task.id, uuid4(), 2)
+        assert error.value.code == "lifecycle_conflict"
+
+
+def test_parent_delete_is_rejected_while_child_is_live(db_engine):
+    with Session(db_engine) as session:
+        user, _, workspace = _workspace_with_two_users(session)
+        parent = TaskService(session).create(workspace.id, user.id, uuid4(), "父任务")
+        TaskService(session).create(workspace.id, user.id, uuid4(), "子任务", parent_task_id=parent.id)
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).lifecycle(workspace.id, user.id, parent.id, uuid4(), "delete", 1)
+        assert error.value.code == "lifecycle_conflict"

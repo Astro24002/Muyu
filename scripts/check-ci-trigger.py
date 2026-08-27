@@ -26,4 +26,10 @@ for workflow_name, workflow_text in workflow_texts:
     assert "API_BASE_URL=https://example.invalid" not in workflow_text, (
         f"{workflow_name} must not publish Android artifacts with a placeholder API"
     )
+    assert 'commit_id="${SOURCE_COMMIT:0:7}"' in workflow_text, (
+        f"{workflow_name} Android artifacts must use a short source commit name"
+    )
+    assert 'Muyu-${commit_id}.apk' in workflow_text, (
+        f"{workflow_name} must publish a commit-named Android APK"
+    )
 print("CI and release trigger check passed")

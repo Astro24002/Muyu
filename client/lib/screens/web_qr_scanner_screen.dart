@@ -42,7 +42,12 @@ class _WebQrScannerScreenState extends State<WebQrScannerScreen> {
     try {
       final request = await widget.repository.scanWebQr(value);
       await _scanner.stop();
-      if (mounted) setState(() => _request = request);
+      if (mounted) {
+        setState(() {
+          _request = request;
+          _busy = false;
+        });
+      }
     } on DeviceAuthorizationFailure catch (error) {
       if (mounted) {
         setState(() {

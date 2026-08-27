@@ -19,6 +19,25 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-08-27 - Task Domain Completion: PostgreSQL Acceptance
+
+- 类型：验收 / 文档 / 发布准备。
+- 变更：补充可选执行的两用户 PostgreSQL 任务闭环验收，覆盖创建、另一用户
+  snapshot/cursor 可见性、并发字段冲突与 proposed 解决、`WAITING`/`DONE` 状态流转、
+  评论、延期、软删除和恢复；补充 Android/Web 任务工作流操作说明。
+- 验证：disposable PostgreSQL focused E2E `1 passed`；`make backend-test`
+  `64 passed, 3 skipped`，并完成 `compileall`；`make client-test` 的 format、
+  `flutter analyze` 和 `33 tests` 通过；Web `npm ci && npm run typecheck &&
+  npm test -- --run && npm run build` 通过（`7` 个测试文件、`51 tests`）；
+  `make boundary-check` 和 `make check-deployment` 均通过。后端测试保留既有
+  Starlette/httpx 弃用警告；云协议测试保持 opt-in，未开启时会 skip。
+- 范围：本轮没有新增生产 API、数据库结构、离线写队列、P2P、iOS、附件、项目层级、
+  Elasticsearch 或密钥；测试只使用 disposable PostgreSQL schema。
+- 真机验收：待执行。必须在 `adb devices` 显示真实 Android 设备后再安装
+  commit-named APK；没有设备时不得把扫码、任务创建和冲突交互标记为通过。
+- 详细操作：[轻量任务工作流](./operations/task-workflow.md)；发布核对项见
+  [Release Checklist](./operations/release-checklist.md)。
+
 ### 2026-08-26 - Android 与独立 Web 客户端边界完成
 
 - 类型：实施完成 / 发布流水线收口

@@ -1,5 +1,26 @@
 # Release Checklist
 
+## Observed acceptance evidence (2026-08-27)
+
+The following checks were run against the repository and a disposable
+PostgreSQL instance. They do not constitute production deployment or real
+device acceptance.
+
+- `RUN_CLOUD_PROTOCOL=1` focused two-user task E2E: `1 passed`.
+- `make backend-test` with disposable PostgreSQL: `64 passed, 3 skipped`;
+  `compileall` completed successfully. One existing Starlette/httpx
+  deprecation warning was emitted.
+- `make client-test`: Dart format unchanged, `flutter analyze` clean, `33
+  tests` passed.
+- `cd web && npm ci && npm run typecheck && npm test -- --run && npm run build`:
+  `7` test files and `51 tests` passed; Vite build completed.
+- `make boundary-check`: passed.
+- `make check-deployment`: passed for the checked-in Compose example topology.
+- Real Android device acceptance: pending because no connected device was
+  available during this run.
+
+Items below remain unchecked unless the described release evidence is produced.
+
 ## Before release
 
 - [ ] Confirm the source commit and application version.

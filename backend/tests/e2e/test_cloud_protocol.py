@@ -6,15 +6,22 @@ import base64
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.devices.signatures import signed_action_payload
+from app.auth.providers.fake import FakeSmsProvider
+from app.db.enums import MembershipStatus
+from app.db.models import User, WorkspaceMembership
+from app.main import create_app
 
 
 def _request_id() -> str:
@@ -28,6 +35,29 @@ def _keypair() -> tuple[ec.EllipticCurvePrivateKey, str]:
         serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     return private, base64.b64encode(public).decode("ascii")
+
+
+def _task_client(db_engine) -> TestClient:
+    app = create_app()
+    app.state.engine = db_engine
+    app.state.ready = True
+    app.state.sms_provider = FakeSmsProvider("000000")
+    return TestClient(app)
+
+
+def _task_user(client: TestClient, phone: str) -> dict[str, object]:
+    sent = client.post("/api/v1/auth/sms/send", json={"phone": phone})
+    assert sent.status_code == 202, sent.text
+    verified = client.post(
+        "/api/v1/auth/sms/verify",
+        json={
+            "phone": phone,
+            "code": client.app.state.sms_provider.last_code_for(phone),
+            "device": {"public_key_der": "AQID", "label": "task-acceptance"},
+        },
+    )
+    assert verified.status_code == 201, verified.text
+    return verified.json()
 
 
 @pytest.mark.cloud_protocol
@@ -185,3 +215,180 @@ def test_cloud_protocol_registration_invitation_sync_and_web_approval() -> None:
         revoked = client.post(f"/api/v1/web-login/sessions/{session_id}/revoke", headers=headers_a)
         assert revoked.status_code == 204, revoked.text
         assert client.get("/api/v1/tasks").status_code == 401
+
+
+@pytest.mark.cloud_protocol
+@pytest.mark.skipif(
+    os.getenv("RUN_CLOUD_PROTOCOL") != "1",
+    reason="set RUN_CLOUD_PROTOCOL=1 for the disposable cloud protocol stack",
+)
+def test_two_user_task_workflow_postgresql(db_engine) -> None:
+    """Run the task workflow against PostgreSQL with two authenticated users."""
+
+    phone_a = "+14155552671"
+    phone_b = "+14155552672"
+    client = _task_client(db_engine)
+    session_a = _task_user(client, phone_a)
+    session_b = _task_user(client, phone_b)
+    headers_a = {"Authorization": f"Bearer {session_a['access_token']}"}
+    headers_b = {"Authorization": f"Bearer {session_b['access_token']}"}
+
+    workspace_response = client.post(
+        "/api/v1/workspaces",
+        headers=headers_a,
+        json={"name": "Task acceptance"},
+    )
+    assert workspace_response.status_code == 201, workspace_response.text
+    workspace_id = UUID(workspace_response.json()["id"])
+
+    # Workspace onboarding is covered by the cloud protocol test above. Seed
+    # the second active membership here so this test stays focused on task
+    # synchronization and lifecycle behavior.
+    with Session(db_engine) as session:
+        user_b = session.scalar(select(User).where(User.phone == phone_b))
+        assert user_b is not None
+        session.add(
+            WorkspaceMembership(
+                workspace_id=workspace_id,
+                user_id=user_b.id,
+                member_slot=2,
+                status=MembershipStatus.ACTIVE,
+                joined_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+    before_create = client.get("/api/v1/workspaces/current/snapshot", headers=headers_b)
+    assert before_create.status_code == 200, before_create.text
+    assert before_create.json()["cursor"] == 0
+    user_a_id = UUID(str(session_a["user"]["id"]))
+    user_b_id = UUID(str(session_b["user"]["id"]))
+
+    due_at = "2026-09-01T12:00:00+00:00"
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers_a,
+        json={
+            "request_id": str(uuid4()),
+            "title": "Shared acceptance task",
+            "description": "initial description",
+            "due_at": due_at,
+            "assignee_ids": [str(user_a_id), str(user_b_id)],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    task_id = task["id"]
+    assert task["cursor"] == 1
+    assert set(task["assignee_ids"]) == {str(user_a_id), str(user_b_id)}
+
+    b_snapshot = client.get("/api/v1/workspaces/current/snapshot", headers=headers_b)
+    assert b_snapshot.status_code == 200, b_snapshot.text
+    assert b_snapshot.json()["cursor"] == task["cursor"]
+    assert b_snapshot.json()["tasks"][0]["id"] == task_id
+    b_changes = client.get("/api/v1/workspaces/current/changes?after_cursor=0", headers=headers_b)
+    assert b_changes.status_code == 200, b_changes.text
+    assert [item["cursor"] for item in b_changes.json()["changes"]] == [1]
+    assert b_changes.json()["changes"][0]["resource"]["title"] == "Shared acceptance task"
+
+    current = client.patch(
+        f"/api/v1/tasks/{task_id}",
+        headers=headers_a,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Current title"},
+            "base_field_versions": {"title": task["field_versions"]["title"]},
+        },
+    )
+    assert current.status_code == 200, current.text
+    stale = client.patch(
+        f"/api/v1/tasks/{task_id}",
+        headers=headers_b,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "B proposed title"},
+            "base_field_versions": {"title": task["field_versions"]["title"]},
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    conflict_id = stale.json()["details"]["conflicts"][0]["id"]
+    conflicts = client.get(f"/api/v1/tasks/{task_id}/conflicts", headers=headers_b)
+    assert conflicts.status_code == 200, conflicts.text
+    assert conflicts.json()[0]["status"] == "OPEN"
+    resolved = client.post(
+        f"/api/v1/tasks/{task_id}/conflicts/{conflict_id}/resolve",
+        headers=headers_a,
+        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["title"] == "B proposed title"
+    assert client.get(f"/api/v1/tasks/{task_id}/conflicts", headers=headers_b).json()[0]["status"] == "RESOLVED"
+
+    started = client.post(
+        f"/api/v1/tasks/{task_id}/transition",
+        headers=headers_a,
+        json={"request_id": str(uuid4()), "target_status": "IN_PROGRESS", "base_status_version": resolved.json()["status_version"]},
+    )
+    assert started.status_code == 200, started.text
+    waiting = client.post(
+        f"/api/v1/tasks/{task_id}/transition",
+        headers=headers_b,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "WAITING",
+            "base_status_version": started.json()["status_version"],
+            "blocked_reason": "waiting for review",
+            "resume_handler_id": str(user_b_id),
+        },
+    )
+    assert waiting.status_code == 200, waiting.text
+    done = client.post(
+        f"/api/v1/tasks/{task_id}/transition",
+        headers=headers_a,
+        json={"request_id": str(uuid4()), "target_status": "DONE", "base_status_version": waiting.json()["status_version"]},
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "DONE"
+
+    comment = client.post(
+        f"/api/v1/tasks/{task_id}/comments",
+        headers=headers_b,
+        json={"request_id": str(uuid4()), "body": "B reviewed the task"},
+    )
+    assert comment.status_code == 201, comment.text
+    comments = client.get(f"/api/v1/tasks/{task_id}/comments", headers=headers_a)
+    assert comments.status_code == 200, comments.text
+    assert comments.json()[0]["body"] == "B reviewed the task"
+
+    delayed = client.post(
+        f"/api/v1/tasks/{task_id}/delays",
+        headers=headers_a,
+        json={"request_id": str(uuid4()), "new_due_at": "2026-09-01T13:00:00+00:00", "reason": "NO_TIME"},
+    )
+    assert delayed.status_code == 201, delayed.text
+    assert delayed.json()["delay_duration_minutes"] == 60
+    delays = client.get(f"/api/v1/tasks/{task_id}/delays", headers=headers_b)
+    assert delays.status_code == 200, delays.text
+    assert len(delays.json()) == 1
+
+    deleted = client.post(
+        f"/api/v1/tasks/{task_id}/lifecycle",
+        headers=headers_a,
+        json={"request_id": str(uuid4()), "action": "delete", "base_lifecycle_version": done.json()["lifecycle_version"]},
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted_at"] is not None
+    hidden = client.get("/api/v1/workspaces/current/snapshot", headers=headers_b)
+    assert hidden.status_code == 200, hidden.text
+    assert all(item["id"] != task_id for item in hidden.json()["tasks"])
+
+    restored = client.post(
+        f"/api/v1/tasks/{task_id}/restore",
+        headers=headers_b,
+        json={"request_id": str(uuid4()), "action": "restore", "base_lifecycle_version": deleted.json()["lifecycle_version"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["deleted_at"] is None
+    visible_again = client.get("/api/v1/workspaces/current/snapshot", headers=headers_a)
+    assert visible_again.status_code == 200, visible_again.text
+    assert any(item["id"] == task_id for item in visible_again.json()["tasks"])

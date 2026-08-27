@@ -11,10 +11,16 @@ import 'web_qr_scanner_screen.dart';
 import 'task_detail_screen.dart';
 
 class CloudWorkspaceScreen extends StatefulWidget {
-  const CloudWorkspaceScreen({super.key, required this.api, this.signingKey});
+  const CloudWorkspaceScreen({
+    super.key,
+    required this.api,
+    this.signingKey,
+    this.syncController,
+  });
 
   final ApiClient api;
   final DeviceSigningKey? signingKey;
+  final WorkspaceSyncController? syncController;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -26,13 +32,15 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   @override
   void initState() {
     super.initState();
-    _sync = WorkspaceSyncController(HttpWorkspaceSyncRepository(widget.api));
-    _sync.start();
+    _sync =
+        widget.syncController ??
+        WorkspaceSyncController(HttpWorkspaceSyncRepository(widget.api));
+    if (widget.syncController == null) _sync.start();
   }
 
   @override
   void dispose() {
-    _sync.dispose();
+    if (widget.syncController == null) _sync.dispose();
     super.dispose();
   }
 
@@ -71,6 +79,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           length: 3,
           child: Column(
             children: [
+              _CreateTaskBar(sync: _sync, enabled: !state.isStale),
               const TabBar(
                 tabs: [
                   Tab(text: '我的任务'),
@@ -101,77 +110,75 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             ],
           ),
         ),
-        /* body: RefreshIndicator(
-          onRefresh: _sync.refresh,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (state.errorMessage != null)
-                ListTile(
-                  leading: const Icon(Icons.cloud_off),
-                  title: Text(state.errorMessage!),
-                  trailing: TextButton(
-                    onPressed: _sync.refresh,
-                    child: const Text('重试'),
-                  ),
-                ),
-              TextField(
-                controller: _title,
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _createTask(),
-                decoration: InputDecoration(
-                  labelText: '新任务',
-                  suffixIcon: IconButton(
-                    tooltip: '创建任务',
-                    onPressed: _creating ? null : _createTask,
-                    icon: _creating
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.add),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (state.loading && tasks.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (tasks.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(child: Text('还没有任务')),
-                )
-              else
-                ...tasks.map(
-                  (task) => Card(
-                    child: ListTile(
-                      title: Text(task.title),
-                      subtitle: Text(
-                        task.description.isEmpty
-                            ? task.status
-                            : task.description,
-                      ),
-                      trailing: Text('v${task.version}'),
-                    ),
-                  ),
-                ),
-              if (state.snapshot != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    '同步游标 ${state.cursor}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-            ],
-          ),
-        ), */
       );
     },
+  );
+}
+
+class _CreateTaskBar extends StatefulWidget {
+  const _CreateTaskBar({required this.sync, required this.enabled});
+  final WorkspaceSyncController sync;
+  final bool enabled;
+
+  @override
+  State<_CreateTaskBar> createState() => _CreateTaskBarState();
+}
+
+class _CreateTaskBarState extends State<_CreateTaskBar> {
+  final _title = TextEditingController();
+  bool _creating = false;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  Future<void> _createTask() async {
+    final title = _title.text.trim();
+    if (title.isEmpty || _creating || !widget.enabled) return;
+    setState(() => _creating = true);
+    try {
+      await widget.sync.create(title);
+      if (mounted) {
+        _title.clear();
+        setState(() => _creating = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+    child: TextField(
+      key: const Key('task-title-input'),
+      controller: _title,
+      enabled: widget.enabled && !_creating,
+      textInputAction: TextInputAction.done,
+      onSubmitted: (_) => _createTask(),
+      decoration: InputDecoration(
+        labelText: '新任务标题',
+        errorText: widget.sync.state.errorMessage,
+        suffixIcon: IconButton(
+          key: const Key('create-task-button'),
+          tooltip: '创建任务',
+          onPressed:
+              widget.enabled && !_creating && _title.text.trim().isNotEmpty
+              ? _createTask
+              : null,
+          icon: _creating
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.add),
+        ),
+      ),
+      onChanged: (_) => setState(() {}),
+    ),
   );
 }
 
@@ -223,21 +230,32 @@ Widget _board(
   BuildContext context,
   Map<String, List<TaskItem>> grouped,
   WorkspaceSyncState state,
-) => ListView(
-  padding: const EdgeInsets.all(12),
-  children: [
-    for (final status in TaskView.statuses)
-      ExpansionTile(
-        title: Text(status),
-        children: [
-          for (final task in grouped[status]!)
-            ListTile(
-              title: Text(task.title),
-              subtitle: task.status == 'WAITING'
-                  ? Text(task.blockedReason ?? '')
-                  : null,
-            ),
-        ],
-      ),
-  ],
-);
+) {
+  final screen = context.findAncestorStateOfType<_CloudWorkspaceScreenState>();
+  return ListView(
+    padding: const EdgeInsets.all(12),
+    children: [
+      for (final status in TaskView.statuses)
+        ExpansionTile(
+          title: Text(status),
+          children: [
+            for (final task in grouped[status]!)
+              ListTile(
+                title: Text(task.title),
+                subtitle: task.status == 'WAITING'
+                    ? Text(task.blockedReason ?? '')
+                    : null,
+                onTap: screen == null
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              TaskDetailScreen(task: task, sync: screen._sync),
+                        ),
+                      ),
+              ),
+          ],
+        ),
+    ],
+  );
+}

@@ -28,7 +28,8 @@ export class TaskDetailView {
     const transition = actionButton('更新状态', 'transition');
     const blockedReason = input('阻塞原因', task.blocked_reason ?? '');
     const resumeHandler = document.createElement('select'); resumeHandler.setAttribute('aria-label', '恢复负责人');
-    const handlerIds = [...new Set([...task.assignee_ids, ...members.map((member) => member.user_id)])];
+    const activeMembers = new Set(members.map((member) => member.user_id));
+    const handlerIds = task.assignee_ids.filter((id) => activeMembers.size === 0 || activeMembers.has(id));
     for (const id of handlerIds) { const option = document.createElement('option'); option.value = id; option.textContent = id; option.selected = id === (task.resume_handler_id ?? task.current_handler_id); resumeHandler.append(option); }
     const comment = input('评论'); const commentButton = actionButton('添加评论', 'comment');
     const due = input('延期至 (ISO 时间)'); due.type = 'datetime-local'; const reason = document.createElement('select'); reason.setAttribute('aria-label', '延期原因');

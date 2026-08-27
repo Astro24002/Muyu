@@ -23,7 +23,7 @@ TaskItem detailTask() => TaskItem(
   statusVersion: 7,
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
-  assigneeIds: const ['user-1', 'user-2'],
+  assigneeIds: const ['user-1'],
   fieldVersions: const {'title': 3, 'description': 2},
 );
 
@@ -33,12 +33,17 @@ class RecordingRepository implements WorkspaceSyncRepository {
   String? comment;
   String? delayReason;
   String? resolvedConflict;
+  Map<String, Object?>? updatedFields;
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
     workspaceId: 'w1',
     cursor: 1,
     tasks: [detailTask()],
+    members: const [
+      {'user_id': 'user-1'},
+      {'user_id': 'user-2'},
+    ],
     conflicts: const [
       {'id': 'conflict-1', 'task_id': 'task-1', 'status': 'OPEN'},
     ],
@@ -70,7 +75,10 @@ class RecordingRepository implements WorkspaceSyncRepository {
     required Map<String, Object?> fields,
     required Map<String, int> fieldVersions,
     required String requestId,
-  }) async => detailTask();
+  }) async {
+    updatedFields = fields;
+    return detailTask();
+  }
 
   @override
   Future<TaskItem> transition(
@@ -137,11 +145,15 @@ void main() {
         ),
       );
 
+      await tester.drag(find.byType(ListView), const Offset(0, -500));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('task-status-done')));
       await tester.tap(find.byKey(const Key('task-status-done')));
       await tester.pumpAndSettle();
       expect(repository.transitionedTo, 'DONE');
       expect(repository.transitionBaseVersion, 7);
 
+      await tester.ensureVisible(find.byKey(const Key('task-comment-input')));
       await tester.enterText(
         find.byKey(const Key('task-comment-input')),
         'done',
@@ -149,6 +161,21 @@ void main() {
       await tester.tap(find.byKey(const Key('task-comment-submit')));
       await tester.pumpAndSettle();
       expect(repository.comment, 'done');
+
+      await tester.ensureVisible(
+        find.byKey(const Key('task-detail-estimated-minutes')),
+      );
+      await tester.enterText(
+        find.byKey(const Key('task-detail-estimated-minutes')),
+        '45',
+      );
+      await tester.ensureVisible(find.byKey(const Key('task-assignee-user-2')));
+      await tester.tap(find.byKey(const Key('task-assignee-user-2')));
+      await tester.ensureVisible(find.byKey(const Key('task-save-button')));
+      await tester.tap(find.byKey(const Key('task-save-button')));
+      await tester.pumpAndSettle();
+      expect(repository.updatedFields?['estimated_minutes'], 45);
+      expect(repository.updatedFields?['assignee_ids'], contains('user-2'));
 
       expect(
         find.byKey(const Key('resolve-conflict-conflict-1')),

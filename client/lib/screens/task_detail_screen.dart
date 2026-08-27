@@ -16,7 +16,11 @@ class TaskDetailScreen extends StatefulWidget {
 class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _title;
   late final TextEditingController _description;
+  late final TextEditingController _dueAt;
+  late final TextEditingController _plannedStartAt;
+  late final TextEditingController _estimatedMinutes;
   final _comment = TextEditingController();
+  late Set<String> _selectedAssignees;
   bool _saving = false;
   bool _commenting = false;
 
@@ -25,12 +29,23 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     super.initState();
     _title = TextEditingController(text: widget.task.title);
     _description = TextEditingController(text: widget.task.description);
+    _dueAt = TextEditingController(text: _dateText(widget.task.dueAt));
+    _plannedStartAt = TextEditingController(
+      text: _dateText(widget.task.plannedStartAt),
+    );
+    _estimatedMinutes = TextEditingController(
+      text: widget.task.estimatedMinutes?.toString() ?? '',
+    );
+    _selectedAssignees = widget.task.assigneeIds.toSet();
   }
 
   @override
   void dispose() {
     _title.dispose();
     _description.dispose();
+    _dueAt.dispose();
+    _plannedStartAt.dispose();
+    _estimatedMinutes.dispose();
     _comment.dispose();
     super.dispose();
   }
@@ -46,16 +61,30 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<void> _save() async {
     final title = _title.text.trim();
     if (title.isEmpty || _saving) return;
+    final estimateText = _estimatedMinutes.text.trim();
+    final estimate = estimateText.isEmpty ? null : int.tryParse(estimateText);
+    if (estimateText.isNotEmpty && (estimate == null || estimate < 0)) {
+      setState(() {});
+      return;
+    }
+    final current = _current;
+    final fields = <String, Object?>{
+      if (title != current.title) 'title': title,
+      if (_description.text.trim() != current.description)
+        'description': _description.text.trim(),
+      if (_dateValue(_dueAt.text) != current.dueAt?.toIso8601String())
+        'due_at': _dateValue(_dueAt.text),
+      if (_dateValue(_plannedStartAt.text) !=
+          current.plannedStartAt?.toIso8601String())
+        'planned_start_at': _dateValue(_plannedStartAt.text),
+      if (estimate != current.estimatedMinutes) 'estimated_minutes': estimate,
+      if (!_sameIds(_selectedAssignees, current.assigneeIds))
+        'assignee_ids': _selectedAssignees.toList(),
+    };
+    if (fields.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await widget.sync.update(
-        _current.id,
-        fields: {
-          'title': title,
-          if (_description.text.trim() != _current.description)
-            'description': _description.text.trim(),
-        },
-      );
+      await widget.sync.update(current.id, fields: fields);
     } catch (_) {
       // The controller exposes the authoritative error in its state.
     } finally {
@@ -225,6 +254,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
+  static String _dateText(DateTime? value) =>
+      value?.toUtc().toIso8601String() ?? '';
+
+  static String? _dateValue(String text) {
+    final value = text.trim();
+    if (value.isEmpty) return null;
+    final parsed = DateTime.tryParse(value);
+    return parsed?.toUtc().toIso8601String();
+  }
+
+  static bool _sameIds(Set<String> selected, List<String> current) =>
+      selected.length == current.length && selected.containsAll(current);
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.sync,
@@ -244,6 +286,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           .toSet()
           .toList();
       if (handlerIds.isEmpty) handlerIds.addAll(task.assigneeIds);
+      final assigneeOptions = members
+          .map((member) => member['user_id'] as String?)
+          .whereType<String>()
+          .toSet()
+          .toList();
+      for (final id in task.assigneeIds) {
+        if (!assigneeOptions.contains(id)) assigneeOptions.add(id);
+      }
       return Scaffold(
         appBar: AppBar(
           title: Text(task.title),
@@ -282,6 +332,57 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               maxLines: 3,
               decoration: const InputDecoration(labelText: '描述'),
             ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('task-detail-due-at'),
+              controller: _dueAt,
+              decoration: const InputDecoration(labelText: '截止时间（ISO 8601，可选）'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('task-detail-planned-start-at'),
+              controller: _plannedStartAt,
+              decoration: const InputDecoration(labelText: '计划开始（ISO 8601，可选）'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('task-detail-estimated-minutes'),
+              controller: _estimatedMinutes,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: '预计工时（分钟）'),
+            ),
+            if (assigneeOptions.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('协作者（最多 2 人）'),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final id in assigneeOptions)
+                    FilterChip(
+                      key: Key('task-assignee-$id'),
+                      label: Text(id),
+                      selected: _selectedAssignees.contains(id),
+                      onSelected: task.deletedAt != null
+                          ? null
+                          : (selected) {
+                              if (!selected && _selectedAssignees.length <= 1) {
+                                return;
+                              }
+                              if (selected && _selectedAssignees.length >= 2) {
+                                return;
+                              }
+                              setState(() {
+                                if (selected) {
+                                  _selectedAssignees.add(id);
+                                } else {
+                                  _selectedAssignees.remove(id);
+                                }
+                              });
+                            },
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             Text('状态：${task.status}'),
             if (handlerIds.isNotEmpty)

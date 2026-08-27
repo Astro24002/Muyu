@@ -22,6 +22,7 @@ function apiStub() {
     createTask: vi.fn(),
     patchTask: vi.fn(),
     resolveConflict: vi.fn(),
+    addTaskComment: vi.fn(),
   };
 }
 
@@ -94,6 +95,17 @@ describe('WorkspaceSyncController', () => {
       changes: { title: 'Modified' },
       baseFieldVersions: { title: 3 },
     });
+  });
+
+  it('reconciles the cursor after a comment ACK', async () => {
+    const api = apiStub();
+    api.addTaskComment = vi.fn().mockResolvedValue({ id: 'comment-1', cursor: 6 });
+    api.getWorkspaceChanges.mockResolvedValue({ workspace_id: 'workspace-1', cursor: 6, changes: [{ cursor: 6, resource_type: 'comment', resource_id: 'comment-1', action: 'CREATED', operation_id: null, resource: null }] });
+    const controller = new WorkspaceSyncController(api as never, { requestIdFactory: () => '00000000-0000-4000-8000-000000000004' });
+    await controller.loadSnapshot();
+    await controller.addComment(task.id, 'A note');
+    expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
+    expect(controller.state.cursor).toBe(6);
   });
 
   it('keeps a field conflict visible after a 409 response', async () => {

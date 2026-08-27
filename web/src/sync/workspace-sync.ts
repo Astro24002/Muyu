@@ -114,7 +114,12 @@ export class WorkspaceSyncController {
   }
 
   async addComment(taskId: string, body: string): Promise<void> {
-    await this.run('无法添加评论，请检查网络后重试。', async () => { await this.api.addTaskComment(taskId, { requestId: this.requestIdFactory(), body }); });
+    const cursorBeforeWrite = this.currentState.cursor;
+    await this.run('无法添加评论，请检查网络后重试。', async () => {
+      const result = await this.api.addTaskComment(taskId, { requestId: this.requestIdFactory(), body });
+      const cursor = result && typeof result.cursor === 'number' ? result.cursor : cursorBeforeWrite;
+      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+    });
   }
 
   async addDelay(taskId: string, newDueAt: string, reason: string, note?: string): Promise<void> {

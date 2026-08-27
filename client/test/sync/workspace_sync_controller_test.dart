@@ -29,6 +29,38 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   int snapshotCalls = 0;
   final requestedAfterCursors = <int>[];
   String? lastRequestId;
+  String? createRequestId;
+
+  @override
+  Future<TaskItem> create({
+    required String title,
+    String? description,
+    String? dueAt,
+    String? parentTaskId,
+    List<String>? assigneeIds,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+    required String requestId,
+  }) async {
+    createRequestId = requestId;
+    return task(title);
+  }
+
+  @override
+  Future<TaskItem?> update(
+    String taskId, {
+    required Map<String, Object?> fields,
+    required Map<String, int> fieldVersions,
+    required String requestId,
+  }) async => task(fields['title'] as String? ?? 'updated');
+
+  @override
+  Future<TaskItem> resolveConflict(
+    String taskId,
+    String conflictId, {
+    required String resolution,
+    required String requestId,
+  }) async => task('resolved');
 
   @override
   Stream<WorkspaceChanged> openWorkspaceHints() => Stream.fromIterable(hints);
@@ -140,5 +172,27 @@ void main() {
     expect(repository.requestedAfterCursors, [11]);
     expect(controller.state.cursor, 12);
     expect(controller.state.snapshot!.tasks.single.title, 'Changed title');
+  });
+
+  test('create inserts the server task then reconciles its cursor', () async {
+    final repository = FakeSyncRepository();
+    final controller = WorkspaceSyncController(repository);
+    await controller.refresh();
+
+    final created = await controller.create('Created title');
+
+    expect(created!.title, 'Created title');
+    expect(
+      repository.createRequestId,
+      matches(
+        RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        ),
+      ),
+    );
+    expect(repository.requestedAfterCursors, [11]);
+    expect(controller.state.cursor, 12);
+    expect(controller.state.snapshot!.tasks.single.title, 'Changed title');
+    expect(controller.inFlightMutations, isEmpty);
   });
 }

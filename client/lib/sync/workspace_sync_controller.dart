@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
+import '../models/task.dart';
 import 'workspace_cache.dart';
 import 'workspace_sync_repository.dart';
 
@@ -161,6 +162,125 @@ class WorkspaceSyncController extends ChangeNotifier {
     }
   }
 
+  Future<TaskItem?> create(
+    String title, {
+    String? description,
+    String? dueAt,
+    String? parentTaskId,
+    List<String>? assigneeIds,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+  }) async {
+    final repository = _repository;
+    if (repository == null || state.snapshot == null || state.isStale) {
+      return null;
+    }
+    try {
+      final created = await repository.create(
+        title: title,
+        description: description,
+        dueAt: dueAt,
+        parentTaskId: parentTaskId,
+        assigneeIds: assigneeIds,
+        plannedStartAt: plannedStartAt,
+        estimatedMinutes: estimatedMinutes,
+        requestId: _requestId(),
+      );
+      _replaceTask(created);
+      await pull();
+      return created;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskItem?> update(
+    String taskId, {
+    required Map<String, Object?> fields,
+  }) async {
+    final repository = _repository;
+    final task = _task(taskId);
+    if (repository == null || task == null || state.isStale) return null;
+    try {
+      final updated = await repository.update(
+        taskId,
+        fields: fields,
+        fieldVersions: {
+          for (final field in fields.keys)
+            field: task.fieldVersions[field] ?? 1,
+        },
+        requestId: _requestId(),
+      );
+      if (updated != null) _replaceTask(updated);
+      await pull();
+      return updated;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<void> addComment(String taskId, String body) async {
+    final repository = _repository;
+    if (repository == null || _task(taskId) == null || state.isStale) return;
+    try {
+      await repository.addComment(taskId, body: body, requestId: _requestId());
+      await pull();
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<void> addDelay(
+    String taskId, {
+    required String newDueAt,
+    required String reason,
+    String? note,
+  }) async {
+    final repository = _repository;
+    if (repository == null || _task(taskId) == null || state.isStale) return;
+    try {
+      await repository.addDelay(
+        taskId,
+        newDueAt: newDueAt,
+        reason: reason,
+        note: note,
+        requestId: _requestId(),
+      );
+      await pull();
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskItem?> resolveConflict(
+    String taskId,
+    String conflictId, {
+    required String resolution,
+  }) async {
+    final repository = _repository;
+    if (repository == null || _task(taskId) == null || state.isStale) {
+      return null;
+    }
+    try {
+      final updated = await repository.resolveConflict(
+        taskId,
+        conflictId,
+        resolution: resolution,
+        requestId: _requestId(),
+      );
+      _replaceTask(updated);
+      await pull();
+      return updated;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
   @override
   void dispose() {
     _hintsSubscription?.cancel();
@@ -169,6 +289,38 @@ class WorkspaceSyncController extends ChangeNotifier {
 
   void _setLoading() {
     state = state.copyWith(loading: true, errorMessage: null);
+    notifyListeners();
+  }
+
+  TaskItem? _task(String taskId) {
+    for (final item in state.snapshot?.tasks ?? const <TaskItem>[]) {
+      if (item.id == taskId) return item;
+    }
+    return null;
+  }
+
+  void _replaceTask(TaskItem updated) {
+    final current = state.snapshot;
+    if (current == null) return;
+    final tasks = [...current.tasks]
+      ..removeWhere((item) => item.id == updated.id)
+      ..add(updated);
+    state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: current.workspaceId,
+        cursor: current.cursor,
+        tasks: tasks,
+        members: current.members,
+        conflicts: current.conflicts,
+        fetchedAt: DateTime.now(),
+      ),
+      isStale: false,
+    );
+    notifyListeners();
+  }
+
+  void _setError(Object error) {
+    state = state.copyWith(errorMessage: '$error');
     notifyListeners();
   }
 

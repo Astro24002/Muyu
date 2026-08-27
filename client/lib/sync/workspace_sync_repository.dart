@@ -8,6 +8,28 @@ abstract class WorkspaceSyncRepository {
 
   Future<WorkspaceChanges> changes({required int afterCursor});
 
+  Future<TaskItem> create({
+    required String title,
+    String? description,
+    String? dueAt,
+    String? parentTaskId,
+    List<String>? assigneeIds,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+    required String requestId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  Future<TaskItem?> update(
+    String taskId, {
+    required Map<String, Object?> fields,
+    required Map<String, int> fieldVersions,
+    required String requestId,
+  }) {
+    throw UnimplementedError();
+  }
+
   Future<TaskItem> transition(
     String taskId, {
     required String targetStatus,
@@ -16,19 +38,36 @@ abstract class WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     required String requestId,
-  }) => throw UnimplementedError();
+  }) {
+    throw UnimplementedError();
+  }
+
   Future<Object?> addComment(
     String taskId, {
     required String body,
     required String requestId,
-  }) => throw UnimplementedError();
+  }) {
+    throw UnimplementedError();
+  }
+
   Future<Object?> addDelay(
     String taskId, {
     required String newDueAt,
     required String reason,
     String? note,
     required String requestId,
-  }) => throw UnimplementedError();
+  }) {
+    throw UnimplementedError();
+  }
+
+  Future<TaskItem> resolveConflict(
+    String taskId,
+    String conflictId, {
+    required String resolution,
+    required String requestId,
+  }) {
+    throw UnimplementedError();
+  }
 
   Stream<WorkspaceChanged> openWorkspaceHints();
 }
@@ -41,6 +80,69 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
 
   @override
   Stream<WorkspaceChanged> openWorkspaceHints() => hints;
+
+  @override
+  Future<TaskItem> create({
+    required String title,
+    String? description,
+    String? dueAt,
+    String? parentTaskId,
+    List<String>? assigneeIds,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+    required String requestId,
+  }) async {
+    final body = <String, Object?>{'request_id': requestId, 'title': title};
+    if (description != null) {
+      body['description'] = description;
+    }
+    if (dueAt != null) {
+      body['due_at'] = dueAt;
+    }
+    if (parentTaskId != null) {
+      body['parent_task_id'] = parentTaskId;
+    }
+    if (assigneeIds != null) {
+      body['assignee_ids'] = assigneeIds;
+    }
+    if (plannedStartAt != null) {
+      body['planned_start_at'] = plannedStartAt;
+    }
+    if (estimatedMinutes != null) {
+      body['estimated_minutes'] = estimatedMinutes;
+    }
+    final value = await _api.request(
+      'POST',
+      '/api/v1/tasks',
+      body: body,
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    return TaskItem.fromJson(value as Map<String, dynamic>);
+  }
+
+  @override
+  Future<TaskItem?> update(
+    String taskId, {
+    required Map<String, Object?> fields,
+    required Map<String, int> fieldVersions,
+    required String requestId,
+  }) async {
+    final value = await _api.request(
+      'PATCH',
+      '/api/v1/tasks/$taskId',
+      body: {
+        'request_id': requestId,
+        'changes': fields,
+        'base_field_versions': fieldVersions,
+      },
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    return value is Map<String, dynamic> && value['id'] != null
+        ? TaskItem.fromJson(value)
+        : null;
+  }
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot.fromJson(
@@ -118,5 +220,21 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     },
     authenticated: true,
     headers: {'x-request-id': requestId},
+  );
+
+  @override
+  Future<TaskItem> resolveConflict(
+    String taskId,
+    String conflictId, {
+    required String resolution,
+    required String requestId,
+  }) async => TaskItem.fromJson(
+    await _api.request(
+      'POST',
+      '/api/v1/tasks/$taskId/conflicts/$conflictId/resolve',
+      body: {'request_id': requestId, 'resolution': resolution},
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    ) as Map<String, dynamic>,
   );
 }

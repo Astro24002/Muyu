@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, PUBLIC_TASK_STATUS, Resolution, TaskStatus
 from app.db.models import (
     DelayRecord,
+    ActivityEvent,
     Task,
     TaskAssignee,
     TaskComment,
@@ -468,6 +469,16 @@ class TaskService:
         return cursor
 
     def _operation(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, task: Task, operation_type: OperationType, before: dict[str, Any] | None, after: dict[str, Any] | None, cursor: int, base_versions: dict[str, Any] | None = None) -> TaskOperation:
+        self.session.add(
+            ActivityEvent(
+                workspace_id=workspace_id,
+                task_id=task.id,
+                actor_user_id=actor_user_id,
+                event_type=operation_type.value,
+                payload={"before": before, "after": after},
+                request_id=request_id,
+            )
+        )
         operation = TaskOperation(workspace_id=workspace_id, task_id=task.id, actor_user_id=actor_user_id, request_id=request_id, operation_type=operation_type, before_state=before, after_state=after, base_versions=base_versions, resulting_versions=task.field_versions, cursor=cursor)
         self.session.add(operation)
         self.session.flush()

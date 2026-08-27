@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
-from app.db.models import DelayRecord, Task, User, Workspace, WorkspaceCursor, WorkspaceMembership
+from app.db.models import ActivityEvent, DelayRecord, Task, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
 from app.tasks.comments import add_comment
 from app.tasks.delays import add_delay, list_delays
 from app.tasks.conflicts import TaskConflictError
@@ -49,6 +49,9 @@ def test_delay_requires_minute_and_other_note_and_replay_is_immutable(db_engine)
         with pytest.raises(TaskConflictError) as missing_note:
             add_delay(session, workspace.id, user.id, task.id, due + timedelta(minutes=2), "OTHER", request_id=uuid4())
         assert missing_note.value.code == "invalid_request"
+        with pytest.raises(TaskConflictError) as invalid_reason:
+            add_delay(session, workspace.id, user.id, task.id, due + timedelta(minutes=2), "UNKNOWN", request_id=uuid4())
+        assert invalid_reason.value.code == "invalid_request"
         request_id = uuid4()
         first = add_delay(session, workspace.id, user.id, task.id, due + timedelta(minutes=10), "OTHER", "because", request_id)
         session.commit()
@@ -56,6 +59,25 @@ def test_delay_requires_minute_and_other_note_and_replay_is_immutable(db_engine)
         replay = add_delay(session, workspace.id, user.id, task.id, due + timedelta(minutes=10), "OTHER", "because", request_id)
         assert replay.id == first.id
         assert len(session.scalars(select(DelayRecord).where(DelayRecord.task_id == task.id)).all()) == 1
+
+
+def test_comment_and_delay_append_activity_and_cursor_records(db_engine):
+    with Session(db_engine) as session:
+        user, workspace = _workspace(session)
+        due = datetime(2026, 8, 27, tzinfo=timezone.utc)
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=due)
+        comment_request = uuid4()
+        add_comment(session, workspace.id, user.id, task.id, "已确认", comment_request)
+        delay_request = uuid4()
+        add_delay(session, workspace.id, user.id, task.id, due + timedelta(minutes=10), "NO_TIME", request_id=delay_request)
+        session.flush()
+        comment_cursor = session.scalar(select(WorkspaceChangeLog.cursor).where(WorkspaceChangeLog.operation_id == comment_request))
+        delay_cursor = session.scalar(select(WorkspaceChangeLog.cursor).where(WorkspaceChangeLog.operation_id == delay_request))
+        assert comment_cursor is not None
+        assert delay_cursor is not None
+        assert delay_cursor > comment_cursor
+        event_types = set(session.scalars(select(ActivityEvent.event_type).where(ActivityEvent.request_id.in_([comment_request, delay_request]))))
+        assert {"COMMENTED", "DELAYED"} <= event_types
 
 
 def test_deleted_task_rejects_timeline_writes(db_engine):

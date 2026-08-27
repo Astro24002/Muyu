@@ -13,6 +13,9 @@ from app.tasks.operations import request_fingerprint
 from app.tasks.service import TaskService
 
 
+DELAY_REASONS = {"NO_TIME", "TOO_LARGE", "NOT_WILLING", "FORGOT", "WAITING_PARTNER", "INTERRUPTED", "OTHER"}
+
+
 def add_delay(session: Session, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, new_due_at: datetime, reason: str, note: str | None = None, request_id: UUID | None = None) -> DelayRecord:
     task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == workspace_id).with_for_update())
     if task is None:
@@ -21,6 +24,8 @@ def add_delay(session: Session, workspace_id: UUID, actor_user_id: UUID, task_id
         raise TaskConflictError("lifecycle_conflict", "deleted task cannot be delayed")
     if new_due_at.tzinfo is None:
         new_due_at = new_due_at.replace(tzinfo=timezone.utc)
+    if reason not in DELAY_REASONS:
+        raise TaskConflictError("invalid_request", "invalid delay reason")
     service = TaskService(session)
     request_id = request_id or UUID(int=0)
     fingerprint = request_fingerprint(

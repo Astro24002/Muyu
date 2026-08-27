@@ -10,7 +10,8 @@ import 'platform/api_http_client.dart';
 import 'platform/device_signing_key_android.dart';
 import 'workspace/workspace_bootstrap_repository.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   final sessionStore = SecureMobileSessionStore();
   final apiClient = ApiClient(
     baseUrl: AppConfig.apiBaseUrl,
@@ -24,6 +25,7 @@ void main() {
     sessionStore,
     publicKey: signingKey.getOrCreatePublicKey,
   );
+  await loginController.restore();
   final workspaceBootstrapRepository = HttpWorkspaceBootstrapRepository(
     apiClient,
   );

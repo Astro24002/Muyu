@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../auth/mobile_session_store.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
 import '../platform/device_signing_key.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../sync/workspace_sync_repository.dart';
 import '../workspace/device_authorization_repository.dart';
+import '../workspace/device_repository.dart';
 import 'web_qr_scanner_screen.dart';
 import 'task_detail_screen.dart';
+import 'my_profile_screen.dart';
 
 class CloudWorkspaceScreen extends StatefulWidget {
   const CloudWorkspaceScreen({
@@ -16,11 +19,13 @@ class CloudWorkspaceScreen extends StatefulWidget {
     required this.api,
     this.signingKey,
     this.syncController,
+    this.session,
   });
 
   final ApiClient api;
   final DeviceSigningKey? signingKey;
   final WorkspaceSyncController? syncController;
+  final MobileSession? session;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -67,6 +72,19 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                   ),
                 ),
                 icon: const Icon(Icons.qr_code_scanner),
+              ),
+            if (widget.session != null)
+              IconButton(
+                tooltip: '我的',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MyProfileScreen(
+                      session: widget.session!,
+                      repository: HttpDeviceRepository(widget.api),
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.person_outline),
               ),
             IconButton(
               tooltip: '刷新',

@@ -16,4 +16,11 @@ void main() {
     expect(httpClient, isNot(contains('dart.library.js_interop')));
     expect(httpClient, isNot(contains('BrowserClient')));
   });
+
+  test('Flutter entrypoint restores the secure mobile session before mounting', () {
+    final main = File('lib/main.dart').readAsStringSync();
+
+    expect(main, contains('WidgetsFlutterBinding.ensureInitialized();'));
+    expect(main, contains('await loginController.restore();'));
+  });
 }

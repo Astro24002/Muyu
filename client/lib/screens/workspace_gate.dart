@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../auth/mobile_session_store.dart';
 import '../platform/device_signing_key.dart';
 import '../workspace/workspace_bootstrap_controller.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
@@ -15,11 +16,13 @@ class WorkspaceGate extends StatefulWidget {
     required this.api,
     required this.signingKey,
     required this.repository,
+    this.session,
   });
 
   final ApiClient api;
   final DeviceSigningKey signingKey;
   final WorkspaceBootstrapRepository repository;
+  final MobileSession? session;
 
   @override
   State<WorkspaceGate> createState() => _WorkspaceGateState();
@@ -51,6 +54,7 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             key: ValueKey(_controller.state.workspace!.id),
             api: widget.api,
             signingKey: widget.signingKey,
+            session: widget.session,
           );
         case WorkspaceBootstrapStatus.loading:
           return const Scaffold(

@@ -40,6 +40,37 @@ def _error(error: Exception) -> ApiError:
     return ApiError(409 if code in {"workspace_limit_reached", "approval_not_allowed", "lifecycle_conflict"} else 422, code, str(error))
 
 
+@router.get("")
+def list_devices(
+    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    session: Session = Depends(get_db),
+) -> list[dict[str, object]]:
+    """Return the caller's registered devices for the Android "My" page.
+
+    Public keys and fingerprints are deliberately excluded.  Device records
+    remain long-lived on the server; a revoked record is kept visible so the
+    user can distinguish it from an unrecognized device.
+    """
+    devices = session.scalars(
+        select(AndroidDevice)
+        .where(AndroidDevice.user_id == principal.user_id)
+        .order_by(AndroidDevice.created_at.asc(), AndroidDevice.id.asc())
+    ).all()
+    return [
+        {
+            "id": str(device.id),
+            "platform": device.platform,
+            "label": device.label,
+            "status": device.status.value,
+            "is_current": device.id == principal.device_id,
+            "created_at": device.created_at.isoformat(),
+            "enrolled_at": device.enrolled_at.isoformat() if device.enrolled_at else None,
+            "revoked_at": device.revoked_at.isoformat() if device.revoked_at else None,
+        }
+        for device in devices
+    ]
+
+
 @router.post("/authorization-requests", status_code=status.HTTP_201_CREATED)
 def create_authorization_request(
     body: DeviceRequestBody,

@@ -7,7 +7,10 @@ import 'package:muyu_client/models/user.dart';
 class FakeMobileRepository implements MobileAuthRepository {
   MobileSession? verifyResult;
   MobileAuthFailure? verifyFailure;
+  MobileSession? refreshResult;
+  MobileAuthFailure? refreshFailure;
   int sendCalls = 0;
+  int refreshCalls = 0;
 
   @override
   Future<void> sendSms(String phone) async => sendCalls++;
@@ -23,7 +26,11 @@ class FakeMobileRepository implements MobileAuthRepository {
   }
 
   @override
-  Future<MobileSession> refresh() async => verifyResult!;
+  Future<MobileSession> refresh() async {
+    refreshCalls++;
+    if (refreshFailure != null) throw refreshFailure!;
+    return refreshResult ?? verifyResult!;
+  }
 
   @override
   Future<void> logout() async {}
@@ -108,5 +115,41 @@ void main() {
     expect(controller.status, MobileLoginStatus.failure);
     expect(controller.errorMessage, '验证码无效或已过期');
     expect(store.value, isNull);
+  });
+
+  test('restores a persisted session without requesting another OTP', () async {
+    final repository = FakeMobileRepository()..refreshResult = session;
+    final store = MemoryMobileSessionStore()..value = session;
+    final controller = MobileLoginController(
+      repository,
+      store,
+      publicKey: () async => 'public-key',
+    );
+
+    await controller.restore();
+
+    expect(repository.sendCalls, 0);
+    expect(repository.refreshCalls, 1);
+    expect(controller.status, MobileLoginStatus.signedIn);
+    expect(controller.currentSession, session);
+    expect(store.value, session);
+  });
+
+  test('clears an invalid persisted session and requires OTP again', () async {
+    final repository = FakeMobileRepository()
+      ..refreshFailure = const MobileAuthFailure('移动端会话已过期');
+    final store = MemoryMobileSessionStore()..value = session;
+    final controller = MobileLoginController(
+      repository,
+      store,
+      publicKey: () async => 'public-key',
+    );
+
+    await controller.restore();
+
+    expect(controller.status, MobileLoginStatus.failure);
+    expect(controller.currentSession, isNull);
+    expect(store.value, isNull);
+    expect(controller.errorMessage, '移动端会话已过期');
   });
 }

@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:muyu_client/auth/mobile_session_store.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/task.dart';
+import 'package:muyu_client/models/user.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/screens/cloud_workspace_screen.dart';
+import 'package:muyu_client/screens/my_profile_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
@@ -136,6 +139,41 @@ Future<WorkspaceSyncController> readyController(FakeTaskRepository repo) async {
 }
 
 void main() {
+  const loggedInSession = MobileSession(
+    accessToken: 'access',
+    refreshToken: 'refresh',
+    deviceId: 'device-1',
+    user: User(
+      id: 'user-1',
+      phone: '+8613800138000',
+      nickname: 'Muyu',
+      avatarKey: '',
+      role: 'member',
+    ),
+    expiresAt: null,
+  );
+
+  testWidgets('workspace opens the My page for a logged-in device', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(
+          api: testApi(),
+          syncController: sync,
+          session: loggedInSession,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('我的'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MyProfileScreen), findsOneWidget);
+    expect(find.text('我的'), findsOneWidget);
+  });
+
   testWidgets('title-only creation is available and successful task appears', (
     tester,
   ) async {

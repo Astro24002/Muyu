@@ -65,3 +65,38 @@ def test_mobile_me_requires_active_bearer_session(db_engine) -> None:
     response = client.get("/api/v1/me")
     assert response.status_code == 401
     assert response.json()["code"] == "authentication_required"
+
+
+def test_mobile_device_list_returns_only_the_callers_device_summary(db_engine) -> None:
+    app = create_app()
+    app.state.engine = db_engine
+    app.state.ready = True
+    app.state.sms_provider = FakeSmsProvider()
+    client = TestClient(app)
+    client.post("/api/v1/auth/sms/send", json={"phone": "+8613800138000"})
+    code = app.state.sms_provider.last_code_for("+8613800138000")
+    verified = client.post(
+        "/api/v1/auth/sms/verify",
+        json={
+            "phone": "+8613800138000",
+            "code": code,
+            "device": {"public_key_der": "AQID", "label": "Pixel"},
+        },
+    )
+    assert verified.status_code == 201, verified.text
+    tokens = verified.json()
+
+    response = client.get(
+        "/api/v1/devices",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+
+    assert response.status_code == 200, response.text
+    devices = response.json()
+    assert len(devices) == 1
+    assert devices[0]["id"] == tokens["device_id"]
+    assert devices[0]["label"] == "Pixel"
+    assert devices[0]["platform"] == "ANDROID"
+    assert devices[0]["status"] == "ACTIVE"
+    assert devices[0]["is_current"] is True
+    assert "public_key_der" not in devices[0]

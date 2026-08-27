@@ -76,6 +76,7 @@ class _AndroidHome extends StatelessWidget {
             api: apiClient,
             signingKey: signingKey,
             repository: workspaceBootstrapRepository,
+            session: controller.currentSession,
           )
         : MobilePhoneLoginScreen(controller: controller),
   );

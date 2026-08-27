@@ -43,6 +43,19 @@ describe('workspace actions', () => {
     expect(title.value).toBe('Keep me');
     cleanup();
   });
+
+  it('retains the draft when the sync controller reports a handled error', async () => {
+    const sync = fakeSync({ tasks: [], cursor: 1 });
+    sync.createTask.mockImplementation(async () => { sync.state = { ...sync.state, error: '无法创建任务' }; });
+    const root = document.createElement('div');
+    const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
+    const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
+    title.value = 'Keep handled error';
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    expect(title.value).toBe('Keep handled error');
+    cleanup();
+  });
 });
 
 function makeTask(id: string, title: string): TaskItem {

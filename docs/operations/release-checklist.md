@@ -17,10 +17,10 @@ device acceptance.
 - `make boundary-check`: passed.
 - `make check-deployment`: passed for the checked-in Compose example topology.
 - `API_BASE_URL=https://muyu.bkverse.space make client-build`: passed at source
-  commit `2b07d27b178b339dd960e2eee2195ed1be88edfb`.
+  commit `5e1fa66`.
 - Commit-named debug artifact:
-  `client/build/app/outputs/flutter-apk/Muyu-2b07d27.apk`; SHA-256
-  `0146fc682fb639a52e457d5df0b16b73ae6bf7aa0de90e3c64149dd15a7b2203`.
+  `client/build/app/outputs/flutter-apk/Muyu-5e1fa66.apk`; SHA-256
+  `cb9b2d07901442a3bca746aa08d4aa44827a33d8f57894989fa6ea992941c5c4`.
 - APK inspection found `https://muyu.bkverse.space` in the packaged Flutter
   assets.
 - Real Android device acceptance: pending because no connected device was
@@ -45,7 +45,7 @@ Items below remain unchecked unless the described release evidence is produced.
 
 ## Deliverables
 
-- [x] Android debug APK: `Muyu-2b07d27.apk` for internal installation/testing;
+- [x] Android debug APK: `Muyu-5e1fa66.apk` for internal installation/testing;
       SHA-256 is recorded above.
 - [ ] Signed Android App Bundle: `app-release.aab`, produced only by the
       protected signing workflow.

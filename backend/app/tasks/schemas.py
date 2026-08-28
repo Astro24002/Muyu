@@ -17,6 +17,7 @@ class CreateTaskRequest(BaseModel):
     assignee_ids: list[UUID] | None = None
     planned_start_at: str | None = None
     estimated_minutes: int | None = Field(default=None, ge=0)
+    quadrant: str | None = None
 
 
 class PatchTaskRequest(BaseModel):

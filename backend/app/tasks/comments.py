@@ -15,3 +15,7 @@ def add_comment(session: Session, workspace_id: UUID, actor_user_id: UUID, task_
 
 def list_comments(session: Session, workspace_id: UUID, task_id: UUID) -> list[TaskComment]:
     return list(session.scalars(select(TaskComment).where(TaskComment.workspace_id == workspace_id, TaskComment.task_id == task_id).order_by(TaskComment.created_at)))
+
+
+def delete_comment(session: Session, workspace_id: UUID, actor_user_id: UUID, comment_id: UUID, request_id: UUID, base_version: int) -> TaskComment:
+    return TaskService(session).delete_comment(workspace_id, actor_user_id, comment_id, request_id, base_version)

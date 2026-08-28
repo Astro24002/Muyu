@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, PUBLIC_TASK_STATUS, Resolution, TaskStatus
+from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, PUBLIC_TASK_STATUS, Resolution, TaskQuadrant, TaskStatus
 from app.db.models import (
     DelayRecord,
     ActivityEvent,
@@ -24,9 +24,11 @@ from app.db.models import (
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.operations import request_fingerprint
+from app.tasks.numbering import TaskNumberAllocator
 
 
-MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "assignee_ids"}
+MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "assignee_ids", "quadrant", "progress"}
+ALLOWED_PROGRESS = {20, 40, 60, 80}
 TRANSITIONS = {
     "TODO": {"IN_PROGRESS", "WAITING", "DONE", "CANCELLED"},
     "IN_PROGRESS": {"WAITING", "DONE", "CANCELLED"},
@@ -42,10 +44,12 @@ class TaskService:
         self.now = now
         self.last_cursor: int | None = None
 
-    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, assignee_ids: list[UUID] | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None) -> Task:
+    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, assignee_ids: list[UUID] | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None, quadrant: str | None = None) -> Task:
         title = title.strip()
         if not title:
             raise TaskConflictError("invalid_request", "title is required")
+        if quadrant is not None and quadrant not in {item.value for item in TaskQuadrant}:
+            raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
         if parent_task_id is not None:
             parent = self.session.scalar(select(Task).where(Task.id == parent_task_id, Task.workspace_id == workspace_id))
             if parent is None:
@@ -62,7 +66,7 @@ class TaskService:
             raise TaskConflictError("invalid_request", "assignees must be active workspace members")
         fingerprint = request_fingerprint(
             "/api/v1/tasks",
-            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "assignee_ids": [str(item) for item in assignees], "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes},
+            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "assignee_ids": [str(item) for item in assignees], "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant},
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
@@ -75,16 +79,18 @@ class TaskService:
             return existing_task
         task = Task(
             workspace_id=workspace_id,
+            task_number=TaskNumberAllocator().allocate(self.session, self.now()),
             title=title,
             description=description,
             due_at=due_at,
             parent_task_id=parent_task_id,
             planned_start_at=planned_start_at,
             estimated_minutes=estimated_minutes,
+            quadrant=TaskQuadrant(quadrant) if quadrant else None,
             current_handler_id=actor_user_id,
             status=TaskStatus.TODO,
             created_by=actor_user_id,
-            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "assignee_ids": 1},
+            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "assignee_ids": 1, "quadrant": 1, "progress": 1},
         )
         self.session.add(task)
         self.session.flush()
@@ -106,6 +112,7 @@ class TaskService:
 
     def patch(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, changes: dict[str, Any], base_field_versions: dict[str, int]) -> Task:
         task = self._task(workspace_id, task_id)
+        self._require_handler(task, actor_user_id)
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}", {"changes": changes, "base_field_versions": base_field_versions})
         if existing is not None:
@@ -129,6 +136,19 @@ class TaskService:
                 changes["current_handler_id"] = UUID(str(changes["current_handler_id"]))
             except (TypeError, ValueError) as exc:
                 raise TaskConflictError("invalid_request", "invalid handler id") from exc
+        if "quadrant" in changes:
+            quadrant = changes["quadrant"]
+            if quadrant is not None and quadrant not in {item.value for item in TaskQuadrant}:
+                raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
+            if quadrant is not None:
+                changes = dict(changes)
+                changes["quadrant"] = TaskQuadrant(quadrant)
+        if "progress" in changes:
+            progress = changes["progress"]
+            if progress is not None and progress not in ALLOWED_PROGRESS:
+                raise TaskConflictError("invalid_request", "progress must be 20, 40, 60, or 80")
+            if task.status != TaskStatus.IN_PROGRESS:
+                raise TaskConflictError("invalid_request", "progress can only be changed while task is in progress")
         current_versions = dict(task.field_versions or {})
         conflicts: list[TaskConflict] = []
         before = self.snapshot(task)
@@ -143,8 +163,8 @@ class TaskService:
                     task_id=task.id,
                     target=field,
                     base_value=before.get(field),
-                    current_value=[str(item) for item in self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all()] if field == "assignee_ids" else (str(getattr(task, field)) if isinstance(getattr(task, field), UUID) else getattr(task, field)),
-                    proposed_value=[str(item) for item in value] if field == "assignee_ids" else (str(value) if isinstance(value, UUID) else value),
+                    current_value=[str(item) for item in self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all()] if field == "assignee_ids" else (str(getattr(task, field)) if isinstance(getattr(task, field), UUID) else getattr(task, field).value if isinstance(getattr(task, field), TaskQuadrant) else getattr(task, field)),
+                    proposed_value=[str(item) for item in value] if field == "assignee_ids" else (str(value) if isinstance(value, UUID) else value.value if isinstance(value, TaskQuadrant) else value),
                     base_version=base,
                     current_version=current,
                     request_id=request_id,
@@ -205,6 +225,7 @@ class TaskService:
         action = action.lower()
         if action == "delete":
             task = self._task(workspace_id, task_id)
+            self._require_handler(task, actor_user_id)
             fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}/lifecycle", {"action": action, "base_lifecycle_version": base_lifecycle_version})
             existing = self._existing_operation(workspace_id, actor_user_id, request_id)
             if existing is not None:
@@ -236,6 +257,7 @@ class TaskService:
         if target is None:
             raise TaskConflictError("invalid_request", "unsupported lifecycle action")
         task = self._task(workspace_id, task_id)
+        self._require_handler(task, actor_user_id)
         fingerprint = request_fingerprint(
             f"/api/v1/tasks/{task_id}/lifecycle",
             {"action": action, "base_lifecycle_version": base_lifecycle_version},
@@ -252,6 +274,7 @@ class TaskService:
 
     def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None, operation_fingerprint: str | None = None) -> Task:
         task = self._task(workspace_id, task_id)
+        self._require_handler(task, actor_user_id)
         target_status = str(target_status)
         if target_status not in TRANSITIONS:
             raise TaskConflictError("invalid_request", "unsupported target status")
@@ -292,6 +315,11 @@ class TaskService:
             task.blocked_since = self.now()
             task.resume_handler_id = resume_handler_id
             task.waiting_for_user_id = waiting_for_user_id
+        elif target_status == "IN_PROGRESS" and task.progress is None:
+            task.progress = 20
+            versions = dict(task.field_versions or {})
+            versions["progress"] = int(versions.get("progress", 1)) + 1
+            task.field_versions = versions
         elif current_public == "WAITING" or target_status == "IN_PROGRESS":
             task.blocked_reason = task.blocked_since = task.resume_handler_id = task.waiting_for_user_id = None
             if resume_handler_id is not None:
@@ -324,6 +352,7 @@ class TaskService:
 
     def restore(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_lifecycle_version: int) -> Task:
         task = self._task(workspace_id, task_id)
+        self._require_handler(task, actor_user_id)
         fingerprint = request_fingerprint(
             f"/api/v1/tasks/{task_id}/restore",
             {"base_lifecycle_version": base_lifecycle_version},
@@ -483,17 +512,64 @@ class TaskService:
         )
         return comment
 
+    def delete_comment(self, workspace_id: UUID, actor_user_id: UUID, comment_id: UUID, request_id: UUID, base_version: int) -> TaskComment:
+        comment = self.session.scalar(
+            select(TaskComment)
+            .where(TaskComment.id == comment_id, TaskComment.workspace_id == workspace_id)
+            .with_for_update()
+        )
+        if comment is None:
+            raise TaskConflictError("not_found", "comment not found")
+        if comment.author_user_id != actor_user_id:
+            raise TaskConflictError("approval_required", "comment author approval is required")
+        task = self._task(workspace_id, comment.task_id)
+        fingerprint = request_fingerprint(
+            f"/api/v1/tasks/{task.id}/comments/{comment.id}",
+            {"base_version": base_version},
+        )
+        existing = self._existing_operation(workspace_id, actor_user_id, request_id)
+        if existing is not None:
+            if existing.base_versions != {"fingerprint": fingerprint}:
+                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
+            return comment
+        if comment.deleted_at is not None:
+            raise TaskConflictError("lifecycle_conflict", "comment already deleted")
+        if comment.version != base_version:
+            raise TaskConflictError("field_conflict", "comment changed", [])
+        before = {"comment_id": str(comment.id), "body": comment.body, "version": comment.version, "deleted_at": None}
+        comment.deleted_at = self.now()
+        comment.deleted_by = actor_user_id
+        comment.version += 1
+        cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        self._operation(
+            workspace_id,
+            actor_user_id,
+            request_id,
+            task,
+            OperationType.UPDATED,
+            self.snapshot(task),
+            {"task": self.snapshot(task), "comment": {**before, "deleted_at": comment.deleted_at.isoformat(), "deleted_by": str(actor_user_id), "version": comment.version}},
+            cursor,
+            base_versions={"fingerprint": fingerprint},
+        )
+        return comment
+
     def snapshot(self, task: Task) -> dict[str, Any]:
         raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
         public_status = "DONE" if raw_status == "COMPLETED" else raw_status
+        public_progress = 0 if public_status == "TODO" else 100 if public_status == "DONE" else task.progress if public_status == "IN_PROGRESS" else None
         return {
             "id": str(task.id),
             "workspace_id": str(task.workspace_id),
             "parent_task_id": str(task.parent_task_id) if task.parent_task_id else None,
+            "task_number": task.task_number,
             "title": task.title,
             "description": task.description,
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": public_status,
+            "quadrant": task.quadrant.value if isinstance(task.quadrant, TaskQuadrant) else task.quadrant,
+            "progress": public_progress,
             "current_handler_id": str(task.current_handler_id) if task.current_handler_id else "",
             "blocked_reason": task.blocked_reason,
             "blocked_since": task.blocked_since.isoformat() if task.blocked_since else None,
@@ -520,6 +596,10 @@ class TaskService:
         if task is None:
             raise TaskConflictError("not_found", "task not found")
         return task
+
+    def _require_handler(self, task: Task, actor_user_id: UUID) -> None:
+        if task.current_handler_id != actor_user_id:
+            raise TaskConflictError("approval_required", "task owner approval is required")
 
     def _validated_member(self, workspace_id: UUID, user_id: UUID | str) -> UUID:
         try:

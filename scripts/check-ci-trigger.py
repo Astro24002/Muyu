@@ -20,6 +20,16 @@ assert "--clobber" in release, "release APK upload must be repeatable"
 assert 'apk_path="build/app/outputs/flutter-apk/Muyu-${RELEASE_TAG}.apk"' in release, (
     "only the version-named APK may be attached to a GitHub Release"
 )
+assert "actions/download-artifact@v4" in release, "tag publishing must consume the verified Android artifact"
+assert "release-assets/Muyu-${RELEASE_TAG}.apk" in release, (
+    "tag publishing must select only the version-named APK"
+)
+assert "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')" in release, (
+    "automatic Release creation must be limited to version tag pushes"
+)
+assert "vars.ENABLE_SIGNED_RELEASE == 'true'" in release, (
+    "signed release artifacts must remain explicitly opt-in"
+)
 
 workflow_texts = (
     ("ci.yml", Path(".github/workflows/ci.yml").read_text(encoding="utf-8")),

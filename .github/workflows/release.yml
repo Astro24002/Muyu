@@ -119,9 +119,43 @@ jobs:
           name: release-web-dist
           path: web/dist
 
+  publish:
+    name: publish version APK
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: [backend, android, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-android-debug-apk-${{ github.ref_name }}
+          path: release-assets
+      - name: Create Release and attach version APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          apk_path="release-assets/Muyu-${RELEASE_TAG}.apk"
+          test -f "$apk_path"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$apk_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" "$apk_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "木鱼协作 $RELEASE_TAG" \
+              --notes "Android 客户端版本，下载 Muyu-${RELEASE_TAG}.apk 安装体验。" \
+              --verify-tag
+          fi
+
   release:
     needs: [backend, android, web]
-    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' && vars.ENABLE_SIGNED_RELEASE == 'true' }}
     runs-on: ubuntu-latest
     environment: production
     steps:

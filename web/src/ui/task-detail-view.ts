@@ -32,6 +32,7 @@ export class TaskDetailView {
     let currentComments = actions.comments ?? [];
     let disposed = false;
     let busy = false;
+    const activeActions = new Set<string>();
     let pendingMessage: string | null = null;
     const dirty = new Set<string>();
     const dialog = document.createElement('section');
@@ -180,7 +181,7 @@ export class TaskDetailView {
             remove.addEventListener('click', () => void run(async () => {
               const result = await actions.onDeleteComment!(item.id, item.version);
               if (isPendingApproval(result)) pendingMessage = '评论删除等待作者审批';
-            }));
+            }, 'delete-comment'));
             row.append(remove);
           }
         }
@@ -215,8 +216,9 @@ export class TaskDetailView {
       dialog.dataset.busy = value ? 'true' : 'false';
       renderComments();
     };
-    const run = (operation: () => Promise<unknown>): Promise<void> => {
-      if (busy) return Promise.resolve();
+    const run = (operation: () => Promise<unknown>, action = 'operation'): Promise<void> => {
+      if (activeActions.has(action)) return Promise.resolve();
+      activeActions.add(action);
       setBusy(true);
       error.textContent = '';
       let result: Promise<unknown>;
@@ -231,7 +233,8 @@ export class TaskDetailView {
         })
         .finally(() => {
           if (disposed) return;
-          setBusy(false);
+          activeActions.delete(action);
+          setBusy(activeActions.size > 0);
           renderMetadata();
           renderComments();
           if (pendingMessage) {
@@ -243,7 +246,7 @@ export class TaskDetailView {
         .then(() => undefined);
     };
     const resolve = (id: string, choice: 'current' | 'proposed') =>
-      actions.onResolveConflict ? run(() => actions.onResolveConflict!(id, choice)) : Promise.resolve();
+      actions.onResolveConflict ? run(() => actions.onResolveConflict!(id, choice), 'conflict') : Promise.resolve();
 
     const updateIfClean = (fieldName: string, control: HTMLInputElement | HTMLTextAreaElement, value: string) => {
       if (!dirty.has(fieldName)) control.value = value;
@@ -286,7 +289,7 @@ export class TaskDetailView {
       const result = actions.onSave(changes);
       void result.then((value) => { if (isPendingApproval(value)) pendingMessage = '等待负责人审批'; }, () => undefined);
       return result;
-    }));
+    }, 'save'));
     transition.addEventListener('click', () => void run(() => {
       const blocked = blockedReason.value.trim();
       const handler = resumeHandler.value;
@@ -302,18 +305,18 @@ export class TaskDetailView {
         ? actions.onTransition(status.value)
         : actions.onTransition(status.value, payload);
       return result.then((value) => { if (isPendingApproval(value)) pendingMessage = '等待负责人审批'; });
-    }));
+    }, 'transition'));
     commentButton.addEventListener('click', () => {
       const body = comment.value.trim();
       if (!body) return;
       void run(async () => {
         await actions.onComment(body);
         comment.value = '';
-      });
+      }, 'comment');
     });
     delayButton.addEventListener('click', () => {
       if (!due.value) return;
-      void run(async () => { await actions.onDelay(new Date(due.value).toISOString(), reason.value, note.value.trim() || undefined); });
+      void run(async () => { await actions.onDelay(new Date(due.value).toISOString(), reason.value, note.value.trim() || undefined); }, 'delay');
     });
     close.addEventListener('click', () => {
       handle();

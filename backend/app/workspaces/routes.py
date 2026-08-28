@@ -8,11 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import MobilePrincipal, require_active_mobile_principal
+from app.auth.dependencies import MobilePrincipal, require_active_mobile_principal, require_mobile_principal
 from app.db.enums import MembershipStatus
 from app.db.models import WorkspaceInvite, WorkspaceMembership
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
+from app.workspaces.bootstrap_schemas import BootstrapPayload
+from app.workspaces.bootstrap_service import WorkspaceBootstrapService
+from app.workspaces.schemas import AcceptInviteBody, BindPartnerBody
 from app.workspaces.service import WorkspaceConflict, WorkspaceService
 
 
@@ -30,7 +33,8 @@ router = APIRouter(prefix="/api/v1", tags=["workspaces"])
 
 
 def _error(error: WorkspaceConflict) -> ApiError:
-    return ApiError(409 if error.code in {"workspace_limit_reached", "approval_not_allowed", "lifecycle_conflict"} else 422, error.code, str(error))
+    status_code = 409 if error.code in {"workspace_limit_reached", "approval_not_allowed", "lifecycle_conflict", "idempotency_key_reused", "partner_already_bound"} else 404 if error.code == "not_found" else 403 if error.code == "device_not_active" else 422
+    return ApiError(status_code, error.code, str(error))
 
 
 @router.post("/workspaces", status_code=status.HTTP_201_CREATED)
@@ -64,23 +68,48 @@ def create_invite(
     return {"id": str(invite.id), "status": invite.status.value, "expires_at": invite.expires_at.isoformat()}
 
 
-@router.post("/workspace-invites/{invite_id}/accept", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/workspace-invites/{invite_id}/accept", response_model=BootstrapPayload, status_code=status.HTTP_200_OK)
 def accept_invite(
     invite_id: UUID,
-    body: dict[str, str],
+    body: AcceptInviteBody,
+    principal: MobilePrincipal = Depends(require_mobile_principal),
+    session: Session = Depends(get_db),
+) -> BootstrapPayload:
+    device_id = body.device_id or principal.device_id
+    try:
+        payload = WorkspaceBootstrapService(session).accept_invite(invite_id, principal.user_id, device_id, body.request_id)
+        session.commit()
+    except WorkspaceConflict as error:
+        session.rollback()
+        raise _error(error) from error
+    return payload
+
+
+@router.get("/workspaces/bootstrap", response_model=BootstrapPayload)
+def workspace_bootstrap(
+    principal: MobilePrincipal = Depends(require_mobile_principal),
+    session: Session = Depends(get_db),
+) -> BootstrapPayload:
+    try:
+        return WorkspaceBootstrapService(session).get_state(principal)
+    except WorkspaceConflict as error:
+        session.rollback()
+        raise _error(error) from error
+
+
+@router.post("/workspaces/bind-partner", response_model=BootstrapPayload, status_code=status.HTTP_201_CREATED)
+def bind_partner(
+    body: BindPartnerBody,
     principal: MobilePrincipal = Depends(require_active_mobile_principal),
     session: Session = Depends(get_db),
-) -> dict[str, object]:
-    device_id = UUID(body.get("device_id", str(principal.device_id)))
+) -> BootstrapPayload:
     try:
-        request, safety_code = WorkspaceService(session).accept_invite(invite_id, principal.user_id, device_id)
+        payload = WorkspaceBootstrapService(session).bind_partner(principal.user_id, body.phone, body.request_id)
         session.commit()
-    except (ValueError, WorkspaceConflict) as error:
+    except WorkspaceConflict as error:
         session.rollback()
-        if isinstance(error, ValueError):
-            raise ApiError(422, "invalid_request", "invalid device id") from error
         raise _error(error) from error
-    return {"authorization_request_id": str(request.id), "status": request.status.value, "safety_code": safety_code, "expires_at": request.expires_at.isoformat()}
+    return payload
 
 
 @router.get("/workspaces/current")

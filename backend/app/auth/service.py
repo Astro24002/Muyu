@@ -9,7 +9,7 @@ from hashlib import sha256
 import secrets
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.otp import digest_otp, generate_otp, verify_otp
@@ -17,6 +17,7 @@ from app.auth.providers.base import SmsDeliveryError, SmsProvider
 from app.auth.rate_limit import OtpRateLimitError, OtpRateLimiter, hash_client_ip
 from app.db.enums import DeviceStatus, MembershipStatus, UserStatus
 from app.db.models import AndroidDevice, MobileSession, SmsVerificationChallenge, User as CloudUser
+from app.workspaces.bootstrap_schemas import device_status_for_device_count
 from app.workspaces.models import WorkspaceMembership
 
 
@@ -161,14 +162,17 @@ class SmsAuthService:
             )
         )
         if android_device is None:
-            workspace_id = self._workspace_id(user.id)
+            existing_device_count = self.session.scalar(
+                select(func.count(AndroidDevice.id)).where(AndroidDevice.user_id == user.id)
+            ) or 0
+            device_status = device_status_for_device_count(int(existing_device_count))
             android_device = AndroidDevice(
                 user_id=user.id,
                 public_key_der=public_key,
                 fingerprint=fingerprint,
                 label=device.get("label") if isinstance(device.get("label"), str) else None,
-                status=DeviceStatus.PENDING if workspace_id is not None else DeviceStatus.ACTIVE,
-                enrolled_at=now if workspace_id is None else None,
+                status=device_status,
+                enrolled_at=now if device_status == DeviceStatus.ACTIVE else None,
             )
             self.session.add(android_device)
             self.session.flush()

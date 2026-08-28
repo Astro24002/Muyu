@@ -36,6 +36,28 @@ describe('ApiClient', () => {
     await expect(new ApiClient().logoutWebSession()).resolves.toBeUndefined();
   });
 
+  it('uses the WebSession management endpoints with browser credentials', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path.endsWith('/api/v1/web-sessions')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (path.includes('/api/v1/web-sessions/session-1/revoke')) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(JSON.stringify({ revoked_count: 1 }), { status: 200 });
+    });
+    const client = new ApiClient();
+
+    await expect(client.listWebSessions()).resolves.toEqual([]);
+    await expect(client.revokeWebSession('session-1')).resolves.toBeUndefined();
+    await expect(client.revokeAllWebSessions()).resolves.toEqual({ revoked_count: 1 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetchMock.mock.calls) expect(init).toEqual(expect.objectContaining({ credentials: 'include' }));
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/web-sessions/session-1/revoke');
+  });
+
   it('normalizes a root base URL without producing protocol-relative paths', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ workspace_id: 'w1' }), { status: 200 }),

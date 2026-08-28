@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../config';
-import type { TaskItem, WebChallenge, WebChallengeStatus, WebSessionExchange, WorkspaceChanges, WorkspaceSnapshot } from './types';
+import type { TaskItem, WebChallenge, WebChallengeStatus, WebSessionExchange, WebSessionRevokeAllResult, WebSessionSummary, WorkspaceChanges, WorkspaceSnapshot } from './types';
 export type TaskWriteResult = TaskItem & { cursor: number };
 
 export type ApiRequestInit = Omit<RequestInit, 'body'> & { body?: unknown };
@@ -51,6 +51,9 @@ export class ApiClient {
   getWebChallengeStatus(id: string): Promise<WebChallengeStatus> { return this.request(`/api/v1/web-login/challenges/${encodeURIComponent(id)}`); }
   exchangeWebChallenge(id: string, browserProof: string): Promise<WebSessionExchange> { return this.request(`/api/v1/web-login/challenges/${encodeURIComponent(id)}/exchange`, { method: 'POST', body: { browser_proof: browserProof } }); }
   logoutWebSession(): Promise<void> { return this.request<void>('/api/v1/web-login/logout', { method: 'POST' }); }
+  listWebSessions(): Promise<WebSessionSummary[]> { return this.request('/api/v1/web-sessions'); }
+  revokeWebSession(id: string): Promise<void> { return this.request<void>(`/api/v1/web-sessions/${encodeURIComponent(id)}/revoke`, { method: 'POST' }); }
+  revokeAllWebSessions(): Promise<WebSessionRevokeAllResult> { return this.request('/api/v1/web-sessions/revoke-all', { method: 'POST' }); }
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> { return this.request('/api/v1/workspaces/current/snapshot'); }
   getWorkspaceChanges(afterCursor: number): Promise<WorkspaceChanges> { return this.request(`/api/v1/workspaces/current/changes?after_cursor=${encodeURIComponent(afterCursor)}`); }
   createTask(input: { requestId: string; title: string; description: string }): Promise<TaskItem & { cursor: number }> { return this.request('/api/v1/tasks', { method: 'POST', body: { request_id: input.requestId, title: input.title, description: input.description } }); }

@@ -1,4 +1,5 @@
 import type { ApiClient } from './api/client';
+import type { WebSessionViewApi } from './ui/web-session-view';
 import type { QrLoginController } from './auth/qr-login';
 import { WorkspaceSocket, type WebSocketFactory } from './realtime/workspace-socket';
 import type { WorkspaceSyncController } from './sync/workspace-sync';
@@ -6,7 +7,7 @@ import { QrLoginView } from './ui/qr-login-view';
 import { WorkspaceView } from './ui/workspace-view';
 
 export interface AppDependencies {
-  api: Pick<ApiClient, 'logoutWebSession'>;
+  api: Pick<ApiClient, 'logoutWebSession'> & Partial<WebSessionViewApi>;
   login: QrLoginController;
   sync: WorkspaceSyncController;
   socketFactory?: WebSocketFactory;
@@ -68,7 +69,7 @@ export class App {
     this.#loginView?.();
     this.#loginView = undefined;
     this.stopWorkspace();
-    this.#workspaceView = WorkspaceView.mount(root, this.dependencies.sync, () => void this.logout());
+    this.#workspaceView = WorkspaceView.mount(root, this.dependencies.sync, () => void this.logout(), webSessionApi(this.dependencies.api), () => void this.logout());
     this.#socket = new WorkspaceSocket(snapshot.workspace_id, {
       factory: this.dependencies.socketFactory,
       onHint: (cursor) => {
@@ -140,4 +141,11 @@ export class App {
     this.#loginView = undefined;
     this.stopWorkspace();
   }
+}
+
+function webSessionApi(api: AppDependencies['api']): WebSessionViewApi | undefined {
+  if (typeof api.listWebSessions !== 'function'
+    || typeof api.revokeWebSession !== 'function'
+    || typeof api.revokeAllWebSessions !== 'function') return undefined;
+  return api as WebSessionViewApi;
 }

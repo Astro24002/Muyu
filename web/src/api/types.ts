@@ -2,6 +2,15 @@ export interface WebChallenge { challenge_id: string; qr_payload: string; origin
 export type WebChallengeLifecycle = 'PENDING' | 'APPROVED' | 'CONSUMED' | 'EXPIRED' | 'REVOKED';
 export interface WebChallengeStatus { challenge_id: string; status: WebChallengeLifecycle; expires_at: string }
 export interface WebSessionExchange { status: 'authenticated'; expires_at: string }
+export type WebSessionStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+export interface WebSessionSummary {
+  id: string;
+  status: WebSessionStatus;
+  origin: string | null;
+  created_at: string;
+  expires_at: string;
+}
+export interface WebSessionRevokeAllResult { revoked_count: number }
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'WAITING' | 'DONE' | 'CANCELLED';
 export interface TaskItem {
   id: string; workspace_id: string; parent_task_id: string | null; title: string; description: string;

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 from uuid import UUID
@@ -10,10 +9,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.enums import PublicDeviceStatus
+from app.db.enums import DeviceStatus
 from app.db.models import AndroidDevice
 from app.recovery.service import RecoveryConflict, RecoveryService
-from app.workspaces.bootstrap_schemas import public_device_status
+from app.workspaces.bootstrap_schemas import DeviceSummary, public_device_status
 from app.workspaces.service import ApprovalChallenge, WorkspaceConflict, WorkspaceService
 
 
@@ -21,32 +20,6 @@ class DeviceConflict(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-
-
-@dataclass(frozen=True)
-class DeviceSummary:
-    id: UUID
-    platform: str
-    label: str | None
-    status: PublicDeviceStatus
-    is_current: bool
-    can_write: bool
-    created_at: datetime
-    enrolled_at: datetime | None
-    revoked_at: datetime | None
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "id": str(self.id),
-            "platform": self.platform,
-            "label": self.label,
-            "status": self.status.value,
-            "is_current": self.is_current,
-            "can_write": self.can_write,
-            "created_at": self.created_at.isoformat(),
-            "enrolled_at": self.enrolled_at.isoformat() if self.enrolled_at else None,
-            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
-        }
 
 
 class DeviceService:
@@ -61,7 +34,7 @@ class DeviceService:
         self.session = session
         self.now = now
 
-    def list_for_user(self, user_id: UUID, current_device_id: UUID) -> list[DeviceSummary]:
+    def list_for_user(self, user_id: UUID, current_device_id: UUID | None) -> list[DeviceSummary]:
         devices = self.session.scalars(
             select(AndroidDevice)
             .where(AndroidDevice.user_id == user_id)
@@ -74,7 +47,7 @@ class DeviceService:
                 label=device.label,
                 status=public_device_status(device.status),
                 is_current=device.id == current_device_id,
-                can_write=device.status.value == "ACTIVE",
+                can_write=device.status == DeviceStatus.ACTIVE,
                 created_at=device.created_at,
                 enrolled_at=device.enrolled_at,
                 revoked_at=device.revoked_at,
@@ -83,21 +56,9 @@ class DeviceService:
         ]
 
     def revoke(self, device_id: UUID, actor_user_id: UUID, actor_device_id: UUID) -> DeviceSummary:
-        target = self.session.scalar(
-            select(AndroidDevice).where(AndroidDevice.id == device_id).with_for_update()
-        )
-        if target is None:
-            raise DeviceConflict("not_found", "device not found")
-        if target.user_id != actor_user_id:
-            raise DeviceConflict("approval_not_allowed", "only your other devices can be revoked")
-        if target.id == actor_device_id:
-            raise DeviceConflict("approval_not_allowed", "cannot revoke the current device")
-        if target.status.value == "REVOKED":
-            raise DeviceConflict("device_already_revoked", "device is already revoked")
-
         try:
             device = RecoveryService(self.session, now=self.now).revoke_device(
-                target.id,
+                device_id,
                 actor_user_id,
                 actor_device_id,
             )
@@ -109,7 +70,7 @@ class DeviceService:
             label=device.label,
             status=public_device_status(device.status),
             is_current=device.id == actor_device_id,
-            can_write=device.status.value == "ACTIVE",
+            can_write=device.status == DeviceStatus.ACTIVE,
             created_at=device.created_at,
             enrolled_at=device.enrolled_at,
             revoked_at=device.revoked_at,

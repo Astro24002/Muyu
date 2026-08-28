@@ -97,6 +97,6 @@ def test_mobile_device_list_returns_only_the_callers_device_summary(db_engine) -
     assert devices[0]["id"] == tokens["device_id"]
     assert devices[0]["label"] == "Pixel"
     assert devices[0]["platform"] == "ANDROID"
-    assert devices[0]["status"] == "ACTIVE"
+    assert devices[0]["status"] == "VERIFIED"
     assert devices[0]["is_current"] is True
     assert "public_key_der" not in devices[0]

@@ -13,11 +13,10 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import MobilePrincipal, require_active_mobile_principal, require_mobile_principal
 from app.db.enums import ApprovalStatus, DeviceStatus
 from app.db.models import AndroidDevice, DeviceAuthorizationRequest
+from app.devices.service import DeviceConflict, DeviceService, DeviceSummary
 from app.devices.signatures import b64url, signed_action_payload
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
-from app.devices.service import DeviceConflict, DeviceService
-from app.recovery.service import RecoveryConflict
 from app.workspaces.service import WorkspaceConflict, WorkspaceService
 
 
@@ -39,33 +38,38 @@ compat_router = APIRouter(prefix="/api/v1/device-authorization-requests", tags=[
 def _error(error: Exception) -> ApiError:
     code = getattr(error, "code", "invalid_request")
     return ApiError(
-        404
-        if code == "not_found"
-        else 403
-        if code == "approval_not_allowed"
-        else 409
-        if code in {"workspace_limit_reached", "lifecycle_conflict", "device_already_revoked"}
+        404 if code == "not_found" else 409
+        if code in {"workspace_limit_reached", "approval_not_allowed", "lifecycle_conflict"}
         else 422,
         code,
         str(error),
     )
 
 
-@router.get("")
+def _revoke_error(error: DeviceConflict) -> ApiError:
+    status_code = {
+        "not_found": 404,
+        "approval_not_allowed": 403,
+        "device_not_active": 403,
+        "device_not_verified": 403,
+        "device_already_revoked": 409,
+        "lifecycle_conflict": 409,
+    }.get(error.code, 422)
+    return ApiError(status_code, error.code, str(error))
+
+
+@router.get("", response_model=list[DeviceSummary])
 def list_devices(
     principal: MobilePrincipal = Depends(require_mobile_principal),
     session: Session = Depends(get_db),
-) -> list[dict[str, object]]:
+) -> list[DeviceSummary]:
     """Return the caller's registered devices for the Android "My" page.
 
     Public keys and fingerprints are deliberately excluded.  Device records
     remain long-lived on the server; a revoked record is kept visible so the
     user can distinguish it from an unrecognized device.
     """
-    return [
-        item.as_dict()
-        for item in DeviceService(session).list_for_user(principal.user_id, principal.device_id)
-    ]
+    return DeviceService(session).list_for_user(principal.user_id, principal.device_id)
 
 
 @router.post("/authorization-requests", status_code=status.HTTP_201_CREATED)
@@ -194,7 +198,7 @@ def approve_request(
     return {"id": str(request.id), "status": request.status.value}
 
 
-@router.post("/{device_id}/revoke", status_code=status.HTTP_200_OK)
+@router.post("/{device_id}/revoke", response_model=DeviceSummary, status_code=status.HTTP_200_OK)
 def revoke_device(
     device_id: UUID,
     principal: MobilePrincipal = Depends(require_active_mobile_principal),
@@ -205,8 +209,8 @@ def revoke_device(
         session.commit()
     except DeviceConflict as error:
         session.rollback()
-        raise _error(error) from error
-    return device.as_dict()
+        raise _revoke_error(error) from error
+    return device
 
 
 # Keep the plan's resource-oriented paths as aliases while the Android

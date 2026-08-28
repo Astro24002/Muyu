@@ -108,29 +108,28 @@ class RecoveryService:
         device = self.session.scalar(select(AndroidDevice).where(AndroidDevice.id == device_id).with_for_update())
         if device is None:
             raise RecoveryConflict("not_found", "device not found")
-        target_workspace_ids = select(WorkspaceMembership.workspace_id).where(
-            WorkspaceMembership.user_id == device.user_id,
-            WorkspaceMembership.status == MembershipStatus.ACTIVE,
-        )
-        actor_member = self.session.scalar(
-            select(WorkspaceMembership.id).where(
-                WorkspaceMembership.user_id == actor_user_id,
-                WorkspaceMembership.workspace_id.in_(target_workspace_ids),
-                WorkspaceMembership.status == MembershipStatus.ACTIVE,
-            )
-        )
-        if actor_member is None:
-            raise RecoveryConflict("approval_not_allowed", "device revocation is not authorized")
-        if device.user_id == actor_user_id and actor_device_id == device_id:
+        if device.user_id != actor_user_id:
+            raise RecoveryConflict("approval_not_allowed", "only your other devices can be revoked")
+        if actor_device_id == device_id:
             raise RecoveryConflict("approval_not_allowed", "cannot revoke the current device")
+        if actor_device_id is not None:
+            actor_device = self.session.get(AndroidDevice, actor_device_id)
+            if actor_device is None or actor_device.user_id != actor_user_id:
+                raise RecoveryConflict("approval_not_allowed", "actor device is not owned by the actor")
+            if actor_device.status == DeviceStatus.REVOKED:
+                raise RecoveryConflict("device_not_active", "actor device is not active")
+            if actor_device.status != DeviceStatus.ACTIVE:
+                raise RecoveryConflict("device_not_verified", "actor device has not been verified")
         if device.status == DeviceStatus.REVOKED:
-            return device
+            raise RecoveryConflict("device_already_revoked", "device is already revoked")
+        revoked_at = self.now()
         device.status = DeviceStatus.REVOKED
-        device.revoked_at = self.now()
+        device.revoked_at = revoked_at
+        device.updated_at = revoked_at
         self.session.execute(
             update(MobileSession)
             .where(MobileSession.device_id == device_id, MobileSession.revoked_at.is_(None))
-            .values(revoked_at=self.now())
+            .values(revoked_at=revoked_at, updated_at=revoked_at)
         )
         self.session.execute(
             update(DeviceAuthorizationRequest)
@@ -140,14 +139,14 @@ class RecoveryService:
             )
             .values(
                 status=ApprovalStatus.REVOKED,
-                revoked_at=self.now(),
-                updated_at=self.now(),
+                revoked_at=revoked_at,
+                updated_at=revoked_at,
             )
         )
         self.session.execute(
             update(WebSession)
             .where(WebSession.approving_device_id == device_id, WebSession.status == WebSessionStatus.ACTIVE)
-            .values(status=WebSessionStatus.REVOKED, revoked_at=self.now(), updated_at=self.now())
+            .values(status=WebSessionStatus.REVOKED, revoked_at=revoked_at, updated_at=revoked_at)
         )
         self._audit(None, actor_user_id, "device_revoked", device_id)
         return device

@@ -16,7 +16,8 @@ from app.db.models import AndroidDevice, DeviceAuthorizationRequest
 from app.devices.signatures import b64url, signed_action_payload
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
-from app.recovery.service import RecoveryConflict, RecoveryService
+from app.devices.service import DeviceConflict, DeviceService
+from app.recovery.service import RecoveryConflict
 from app.workspaces.service import WorkspaceConflict, WorkspaceService
 
 
@@ -37,12 +38,22 @@ compat_router = APIRouter(prefix="/api/v1/device-authorization-requests", tags=[
 
 def _error(error: Exception) -> ApiError:
     code = getattr(error, "code", "invalid_request")
-    return ApiError(409 if code in {"workspace_limit_reached", "approval_not_allowed", "lifecycle_conflict"} else 422, code, str(error))
+    return ApiError(
+        404
+        if code == "not_found"
+        else 403
+        if code == "approval_not_allowed"
+        else 409
+        if code in {"workspace_limit_reached", "lifecycle_conflict", "device_already_revoked"}
+        else 422,
+        code,
+        str(error),
+    )
 
 
 @router.get("")
 def list_devices(
-    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    principal: MobilePrincipal = Depends(require_mobile_principal),
     session: Session = Depends(get_db),
 ) -> list[dict[str, object]]:
     """Return the caller's registered devices for the Android "My" page.
@@ -51,23 +62,9 @@ def list_devices(
     remain long-lived on the server; a revoked record is kept visible so the
     user can distinguish it from an unrecognized device.
     """
-    devices = session.scalars(
-        select(AndroidDevice)
-        .where(AndroidDevice.user_id == principal.user_id)
-        .order_by(AndroidDevice.created_at.asc(), AndroidDevice.id.asc())
-    ).all()
     return [
-        {
-            "id": str(device.id),
-            "platform": device.platform,
-            "label": device.label,
-            "status": device.status.value,
-            "is_current": device.id == principal.device_id,
-            "created_at": device.created_at.isoformat(),
-            "enrolled_at": device.enrolled_at.isoformat() if device.enrolled_at else None,
-            "revoked_at": device.revoked_at.isoformat() if device.revoked_at else None,
-        }
-        for device in devices
+        item.as_dict()
+        for item in DeviceService(session).list_for_user(principal.user_id, principal.device_id)
     ]
 
 
@@ -204,12 +201,12 @@ def revoke_device(
     session: Session = Depends(get_db),
 ) -> dict[str, object]:
     try:
-        device = RecoveryService(session).revoke_device(device_id, principal.user_id, principal.device_id)
+        device = DeviceService(session).revoke(device_id, principal.user_id, principal.device_id)
         session.commit()
-    except RecoveryConflict as error:
+    except DeviceConflict as error:
         session.rollback()
         raise _error(error) from error
-    return {"id": str(device.id), "status": device.status.value}
+    return device.as_dict()
 
 
 # Keep the plan's resource-oriented paths as aliases while the Android

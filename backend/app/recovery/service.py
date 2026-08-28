@@ -12,6 +12,7 @@ from app.db.enums import ApprovalStatus, DeviceStatus, MembershipStatus, WebSess
 from app.db.models import (
     ActivityEvent,
     AndroidDevice,
+    DeviceAuthorizationRequest,
     MobileSession,
     PhoneChangeRequest,
     RecoveryRequest,
@@ -121,15 +122,7 @@ class RecoveryService:
         if actor_member is None:
             raise RecoveryConflict("approval_not_allowed", "device revocation is not authorized")
         if device.user_id == actor_user_id and actor_device_id == device_id:
-            other_active = self.session.scalar(
-                select(AndroidDevice.id).where(
-                    AndroidDevice.user_id == actor_user_id,
-                    AndroidDevice.status == DeviceStatus.ACTIVE,
-                    AndroidDevice.id != device_id,
-                )
-            )
-            if other_active is None:
-                raise RecoveryConflict("approval_not_allowed", "cannot revoke the last active device outside recovery")
+            raise RecoveryConflict("approval_not_allowed", "cannot revoke the current device")
         if device.status == DeviceStatus.REVOKED:
             return device
         device.status = DeviceStatus.REVOKED
@@ -138,6 +131,18 @@ class RecoveryService:
             update(MobileSession)
             .where(MobileSession.device_id == device_id, MobileSession.revoked_at.is_(None))
             .values(revoked_at=self.now())
+        )
+        self.session.execute(
+            update(DeviceAuthorizationRequest)
+            .where(
+                DeviceAuthorizationRequest.candidate_device_id == device_id,
+                DeviceAuthorizationRequest.status == ApprovalStatus.PENDING,
+            )
+            .values(
+                status=ApprovalStatus.REVOKED,
+                revoked_at=self.now(),
+                updated_at=self.now(),
+            )
         )
         self.session.execute(
             update(WebSession)

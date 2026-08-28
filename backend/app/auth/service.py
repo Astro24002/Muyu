@@ -208,7 +208,7 @@ class SmsAuthService:
         stored = self.session.scalar(
             select(MobileSession).where(MobileSession.refresh_token_digest == _hash_token(refresh_token)).with_for_update()
         )
-        if stored is None or stored.revoked_at is not None or stored.expires_at <= now:
+        if stored is None:
             self.session.rollback()
             raise SmsAuthError("mobile_session_expired", "mobile session expired", 401)
         device = self.session.get(AndroidDevice, stored.device_id)
@@ -216,6 +216,9 @@ class SmsAuthService:
         if device is None or device.status == DeviceStatus.REVOKED:
             self.session.rollback()
             raise SmsAuthError("device_not_active", "device is not active", 403)
+        if stored.revoked_at is not None or stored.expires_at <= now:
+            self.session.rollback()
+            raise SmsAuthError("mobile_session_expired", "mobile session expired", 401)
         if user is None or getattr(user, "status", UserStatus.ACTIVE) != UserStatus.ACTIVE:
             self.session.rollback()
             raise SmsAuthError("authentication_required", "user is not active", 401)

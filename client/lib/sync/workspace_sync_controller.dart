@@ -521,7 +521,11 @@ class WorkspaceSyncController extends ChangeNotifier {
       tasks: tasks,
       comments: comments,
       approvalRequests: approvals,
-      cursor: result.cursor,
+      cursor: result.cursor == null
+          ? null
+          : result.cursor! > current.cursor
+          ? result.cursor
+          : current.cursor,
       notify: true,
     );
   }

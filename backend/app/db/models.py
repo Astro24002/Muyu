@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import Enum as SAEnum
@@ -208,6 +208,7 @@ class SmsVerificationChallenge(Base):
 
 class WebLoginChallenge(Base):
     __tablename__ = "web_login_challenges"
+    __table_args__ = (Index("ix_web_login_challenges_status_expires_at", "status", "expires_at"),)
 
     id = _id()
     browser_proof_digest: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -226,6 +227,7 @@ class WebLoginChallenge(Base):
 
 class WebSession(Base):
     __tablename__ = "web_sessions"
+    __table_args__ = (Index("ix_web_sessions_status_expires_at", "status", "expires_at"),)
 
     id = _id()
     user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

@@ -12,6 +12,23 @@ class DeviceStatus(StrEnum):
     REVOKED = "REVOKED"
 
 
+class PublicDeviceStatus(StrEnum):
+    """Stable device status values exposed outside the persistence layer."""
+
+    UNVERIFIED = "UNVERIFIED"
+    VERIFIED = "VERIFIED"
+    REVOKED = "REVOKED"
+
+
+class BootstrapState(StrEnum):
+    """Derived workspace onboarding states returned by the bootstrap API."""
+
+    NEEDS_PARTNER = "NEEDS_PARTNER"
+    WAITING_FOR_PARTNER = "WAITING_FOR_PARTNER"
+    INVITED = "INVITED"
+    READY = "READY"
+
+
 class WorkspaceStatus(StrEnum):
     ACTIVE = "ACTIVE"
     ARCHIVED = "ARCHIVED"

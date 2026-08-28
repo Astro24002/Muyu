@@ -22,6 +22,7 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.syncController,
     this.session,
     this.canWrite = true,
+    this.waitingForPartner = false,
   });
 
   final ApiClient api;
@@ -29,6 +30,7 @@ class CloudWorkspaceScreen extends StatefulWidget {
   final WorkspaceSyncController? syncController;
   final MobileSession? session;
   final bool canWrite;
+  final bool waitingForPartner;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -108,6 +110,12 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                 const MaterialBanner(
                   key: Key('read-only-device-banner'),
                   content: Text('当前设备尚未验证，仅可查看和刷新任务'),
+                  actions: [SizedBox.shrink()],
+                ),
+              if (widget.waitingForPartner)
+                const MaterialBanner(
+                  key: Key('waiting-for-partner-banner'),
+                  content: Text('共享空间已创建，等待对方加入，不影响当前使用'),
                   actions: [SizedBox.shrink()],
                 ),
               _CreateTaskBar(

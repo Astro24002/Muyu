@@ -17,14 +17,18 @@ class FakeWorkspaceBootstrapRepository
         LegacyWorkspaceBootstrapRepository {
   WorkspaceSummary? currentResult;
   WorkspaceSummary? createResult;
+  WorkspaceBootstrapPayload? bootstrapResult;
   WorkspaceBootstrapFailure? currentFailure;
   WorkspaceBootstrapFailure? createFailure;
   int currentCalls = 0;
   int createCalls = 0;
 
   @override
-  Future<WorkspaceBootstrapPayload> loadBootstrap() =>
-      throw UnsupportedError('bootstrap API is not used');
+  Future<WorkspaceBootstrapPayload> loadBootstrap() async {
+    final result = bootstrapResult;
+    if (result == null) throw UnsupportedError('bootstrap API is not used');
+    return result;
+  }
 
   @override
   Future<WorkspaceBootstrapPayload> bindPartner(
@@ -187,4 +191,40 @@ void main() {
     expect(find.text('创建共享空间失败，请稍后重试'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '创建共享空间'), findsOneWidget);
   });
+
+  testWidgets(
+    'owner can use the workspace while waiting for the partner to join',
+    (tester) async {
+      final repository = FakeWorkspaceBootstrapRepository()
+        ..bootstrapResult = WorkspaceBootstrapPayload.fromJson({
+          'state': 'WAITING_FOR_PARTNER',
+          'workspace': {'id': 'w1', 'name': '共同空间', 'member_count': 1},
+          'invite': {
+            'id': 'invite-1',
+            'phone_masked': '+86******0169',
+            'status': 'PENDING',
+            'expires_at': '2026-08-29T00:00:00Z',
+          },
+          'device': {'status': 'VERIFIED', 'can_write': true},
+        });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WorkspaceGate(
+            api: testApiClient(),
+            signingKey: FakeDeviceSigningKey(),
+            repository: repository,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CloudWorkspaceScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('waiting-for-partner-banner')),
+        findsOneWidget,
+      );
+      expect(find.text('创建共享空间'), findsNothing);
+    },
+  );
 }

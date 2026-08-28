@@ -14,7 +14,7 @@ describe('TaskDetailView', () => {
     const title = root.querySelector<HTMLInputElement>('input[aria-label="标题"]')!;
     title.value = 'Updated';
     root.querySelector<HTMLButtonElement>('button[data-action="save"]')!.click();
-    await Promise.resolve();
+    await settle();
     expect(actions.onSave).toHaveBeenCalledWith({ title: 'Updated', description: 'Details' });
     root.querySelector<HTMLSelectElement>('select[aria-label="状态"]')!.value = 'IN_PROGRESS';
     root.querySelector<HTMLButtonElement>('button[data-action="transition"]')!.click();

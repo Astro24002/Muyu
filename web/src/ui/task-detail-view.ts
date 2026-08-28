@@ -215,16 +215,22 @@ export class TaskDetailView {
       dialog.dataset.busy = value ? 'true' : 'false';
       renderComments();
     };
-    const run = async (operation: () => Promise<unknown>) => {
-      if (busy) return;
+    const run = (operation: () => Promise<unknown>): Promise<void> => {
+      if (busy) return Promise.resolve();
       setBusy(true);
       error.textContent = '';
+      let result: Promise<unknown>;
       try {
-        await operation();
+        result = operation();
       } catch (cause) {
-        if (!disposed) error.textContent = cause instanceof Error ? cause.message : '操作失败，请重试。';
-      } finally {
-        if (!disposed) {
+        result = Promise.reject(cause);
+      }
+      return result
+        .catch((cause: unknown) => {
+          if (!disposed) error.textContent = cause instanceof Error ? cause.message : '操作失败，请重试。';
+        })
+        .finally(() => {
+          if (disposed) return;
           setBusy(false);
           renderMetadata();
           renderComments();
@@ -233,8 +239,8 @@ export class TaskDetailView {
             renderMetadata();
             pendingMessage = null;
           }
-        }
-      }
+        })
+        .then(() => undefined);
     };
     const resolve = (id: string, choice: 'current' | 'proposed') =>
       actions.onResolveConflict ? run(() => actions.onResolveConflict!(id, choice)) : Promise.resolve();
@@ -277,10 +283,9 @@ export class TaskDetailView {
         const nextProgress = Number(progress.value);
         if (nextProgress !== (currentTask.progress ?? 20)) changes.progress = nextProgress;
       }
-      return actions.onSave(changes).then((value) => {
-        if (isPendingApproval(value)) pendingMessage = '等待负责人审批';
-        return value;
-      });
+      const result = actions.onSave(changes);
+      void result.then((value) => { if (isPendingApproval(value)) pendingMessage = '等待负责人审批'; }, () => undefined);
+      return result;
     }));
     transition.addEventListener('click', () => void run(() => {
       const blocked = blockedReason.value.trim();

@@ -24,6 +24,24 @@ export interface WorkspaceSyncOptions {
 type Listener = (state: WorkspaceSyncState) => void;
 type IsCurrent = () => boolean;
 
+export type WorkspaceSyncApi = Pick<ApiClient,
+  | 'getWorkspaceSnapshot'
+  | 'getWorkspaceChanges'
+  | 'createTask'
+  | 'patchTask'
+  | 'resolveConflict'
+  | 'transitionTask'
+  | 'addTaskComment'
+  | 'addTaskDelay'
+> & Partial<Pick<ApiClient,
+  | 'createApprovalRequest'
+  | 'listApprovalRequests'
+  | 'approveApproval'
+  | 'rejectApproval'
+  | 'cancelApproval'
+  | 'deleteTaskComment'
+>>;
+
 const INITIAL_STATE: WorkspaceSyncState = {
   snapshot: null,
   cursor: 0,
@@ -41,7 +59,7 @@ export class WorkspaceSyncController {
   private generation = 0;
   private readonly requestIdFactory: () => string;
 
-  constructor(private readonly api: Pick<ApiClient, 'getWorkspaceSnapshot' | 'getWorkspaceChanges' | 'createTask' | 'patchTask' | 'resolveConflict' | 'transitionTask' | 'addTaskComment' | 'addTaskDelay' | 'createApprovalRequest' | 'listApprovalRequests' | 'approveApproval' | 'rejectApproval' | 'cancelApproval' | 'deleteTaskComment'>, options: WorkspaceSyncOptions = {}) {
+  constructor(private readonly api: WorkspaceSyncApi, options: WorkspaceSyncOptions = {}) {
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
   }
 
@@ -143,10 +161,14 @@ export class WorkspaceSyncController {
   }): Promise<TaskApprovalRequest | undefined> {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return undefined;
+    if (!this.api.createApprovalRequest) {
+      this.setState({ error: '当前 API 不支持审批操作，请刷新页面后重试。' });
+      return undefined;
+    }
     const cursorBeforeWrite = this.currentState.cursor;
     let created: TaskApprovalRequest | undefined;
     await this.run('无法提交审批请求，请检查网络后重试。', async () => {
-      const approval = await this.api.createApprovalRequest({
+      const approval = await this.api.createApprovalRequest!({
         workspaceId: snapshot.workspace_id,
         requestId: this.requestIdFactory(),
         taskId,
@@ -166,9 +188,13 @@ export class WorkspaceSyncController {
   async listApprovalRequests(box?: 'incoming' | 'outgoing'): Promise<TaskApprovalRequest[]> {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return [];
+    if (!this.api.listApprovalRequests) {
+      this.setState({ error: '当前 API 不支持审批操作，请刷新页面后重试。' });
+      return [];
+    }
     let result: TaskApprovalRequest[] = [];
     await this.run('无法加载审批请求，请检查网络后重试。', async () => {
-      result = await this.api.listApprovalRequests(snapshot.workspace_id, box);
+      result = await this.api.listApprovalRequests!(snapshot.workspace_id, box);
       this.mergeApprovals(result);
     });
     return result;
@@ -189,10 +215,14 @@ export class WorkspaceSyncController {
   async deleteTaskComment(taskId: string, commentId: string, baseVersion: number): Promise<(TaskComment & { cursor?: number }) | PendingApproval | undefined> {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return undefined;
+    if (!this.api.deleteTaskComment) {
+      this.setState({ error: '当前 API 不支持评论删除，请刷新页面后重试。' });
+      return undefined;
+    }
     const cursorBeforeWrite = this.currentState.cursor;
     let result: (TaskComment & { cursor?: number }) | PendingApproval | undefined;
     await this.run('无法删除评论，请检查网络后重试。', async () => {
-      const response = await this.api.deleteTaskComment(taskId, commentId, { requestId: this.requestIdFactory(), baseVersion });
+      const response = await this.api.deleteTaskComment!(taskId, commentId, { requestId: this.requestIdFactory(), baseVersion });
       result = response;
       if (isPendingApproval(response)) this.mergeApproval(response.approval_request);
       else this.mergeComment(response);
@@ -228,15 +258,24 @@ export class WorkspaceSyncController {
   private async runApprovalAction(action: 'approve' | 'reject' | 'cancel', approvalId: string, reason?: string): Promise<ApprovalActionResult | undefined> {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return undefined;
+    const approvalMethod = action === 'approve'
+      ? this.api.approveApproval
+      : action === 'reject'
+        ? this.api.rejectApproval
+        : this.api.cancelApproval;
+    if (!approvalMethod) {
+      this.setState({ error: '当前 API 不支持审批操作，请刷新页面后重试。' });
+      return undefined;
+    }
     const cursorBeforeAction = this.currentState.cursor;
     let result: ApprovalActionResult | undefined;
     await this.run('无法处理审批请求，请检查网络后重试。', async () => {
       const input = { workspaceId: snapshot.workspace_id, requestId: this.requestIdFactory() };
       const response = action === 'approve'
-        ? await this.api.approveApproval(approvalId, input)
+        ? await this.api.approveApproval!(approvalId, input)
         : action === 'reject'
-          ? await this.api.rejectApproval(approvalId, { ...input, reason })
-          : await this.api.cancelApproval(approvalId, input);
+          ? await this.api.rejectApproval!(approvalId, { ...input, reason })
+          : await this.api.cancelApproval!(approvalId, input);
       result = response;
       const cursor = cursorFrom(response);
       if (cursor > cursorBeforeAction) await this.pullFrom(cursorBeforeAction);

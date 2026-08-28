@@ -75,14 +75,19 @@ function requestCard(
     message('approval-meta', `${requestTypeLabel(request.request_type)} · ${statusLabel(request.status)}`),
     message('approval-meta', `发起人：${request.requester_id}`),
     message('approval-meta', `审批人：${request.approver_id}`),
+    message('approval-meta', `创建时间：${request.created_at}`),
   );
   if (Object.keys(request.proposed_changes).length > 0) {
     card.append(message('approval-changes', `建议变更：${formatChanges(request.proposed_changes)}`));
+  }
+  if (Object.keys(request.base_field_versions).length > 0) {
+    card.append(message('approval-meta', `基准版本：${formatChanges(request.base_field_versions)}`));
   }
   if (request.comment_id) {
     const comment = comments.find((item) => item.id === request.comment_id);
     card.append(message('approval-changes', `评论：${comment ? comment.deleted_at ? '评论已删除' : comment.body : request.comment_id}`));
   }
+  if (request.status === 'CONFLICTED') card.append(message('approval-reason', '版本冲突，变更未应用'));
   if (request.rejection_reason) card.append(message('approval-reason', `说明：${request.rejection_reason}`));
 
   if (request.status === 'PENDING' && incoming) {

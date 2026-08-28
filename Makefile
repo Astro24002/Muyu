@@ -1,5 +1,6 @@
 PYTHON_IMAGE := m.daocloud.io/docker.io/library/python:3.12-slim
 PYPI_INDEX_URL ?= https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+TEST_DOCKER_NETWORK ?= host
 COMPOSE_ENV_FILE ?= deploy/.env.example
 COMPOSE_PROJECT_NAME ?= muyu-cloud
 TEST_DATABASE_URL ?= postgresql+psycopg://muyu:muyu@localhost:5432/muyu_test
@@ -14,7 +15,7 @@ test: backend-test client-test web-test
 verify: backend-migrate backend-test client-test web-test web-build check-deployment legacy-check boundary-check
 
 backend-test:
-	docker run --rm --network host \
+	docker run --rm --network $(TEST_DOCKER_NETWORK) \
 		-e TEST_DATABASE_URL=$(TEST_DATABASE_URL) \
 		-e PYPI_INDEX_URL=$(PYPI_INDEX_URL) \
 		-v "$(CURDIR)/backend:/src" \
@@ -23,16 +24,16 @@ backend-test:
 		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" -e ".[dev]" && python -m pytest -q && python -m compileall -q app alembic'
 
 test-task-approval:
-	docker run --rm --network host \
+	docker run --rm --network $(TEST_DOCKER_NETWORK) \
 		-e TEST_DATABASE_URL=$(TEST_DATABASE_URL) \
 		-e PYPI_INDEX_URL=$(PYPI_INDEX_URL) \
 		-v "$(CURDIR)/backend:/src" \
 		-w /src \
 		$(PYTHON_IMAGE) \
-		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" -e ".[dev]" && python -m pytest -q tests/tasks tests/httpapi/test_task_approval_routes.py tests/httpapi/test_task_approval_sync.py tests/e2e/test_two_person_task_approval.py'
+		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" -e ".[dev]" && python -m pytest -q tests/tasks tests/httpapi/test_task_approval_routes.py tests/sync/test_task_approval_sync.py tests/e2e/test_two_person_task_approval.py'
 
 backend-migrate:
-	docker run --rm --network host \
+	docker run --rm --network $(TEST_DOCKER_NETWORK) \
 		-e DATABASE_URL=$(TEST_DATABASE_URL) \
 		-e PYPI_INDEX_URL=$(PYPI_INDEX_URL) \
 		-v "$(CURDIR)/backend:/src" \

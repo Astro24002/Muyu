@@ -55,3 +55,6 @@ Task 6: complete (commit 62ee632; focused model/repository/sync tests and the ex
 Task 6: implementation note: HTTP 202 is represented as `PendingApproval`; cursor changes normalize server action enums before applying task, approval and comment resources.
 Task 7: complete (commit af58f8a; Android screen suite passed: 18 tests; `flutter analyze` clean).
 Task 7: implementation note: task detail delegates all writes to `WorkspaceSyncController`; approval inbox actions are enabled only for verified devices and the derived incoming/outgoing actor.
+Task 8: complete (commits cc5b6ed, 848053b; Web suite passed: 10 files, 65 tests; `npm run typecheck` and `npm run build` clean).
+Task 8: implementation note: Vite Web mirrors the approval API, preserves HTTP 202 pending writes, applies task/approval/comment cursor resources, and exposes incoming/outgoing approval actions with task number, quadrant, progress and comment tombstones.
+Task 9: acceptance implementation complete; final full verification passed (backend 124 passed/3 skipped, focused 40 passed, smoke 1 passed, Flutter 61 passed, Web 65 passed), release artifact build and GitHub Release publication remain the last gates for this run.

@@ -19,6 +19,26 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-08-28 - 双人任务审批闭环与 0.1.2 发布准备
+
+- 类型：实施完成 / 全量验收 / 发布准备。
+- 变更：完成双人任务审批模型、任务负责人约束、四象限与进行中进度、评论软删除、
+  审批状态机、快照/增量同步，以及 Android 和 TypeScript + Vite Web 两端的审批收件箱。
+  同一 Workspace 严格保持两位 ACTIVE 成员；非负责人写入返回 `202` 待审批，不会乐观修改任务。
+  新增可重复的 PostgreSQL smoke 入口，并统一使用 Python 3.12 容器和清华 PyPI 源。
+- 代码：`cc5b6ed`（Web 审批闭环）、`848053b`（Web 交互和兼容性修正）；客户端版本为
+  `0.1.2+1`，正式发布资产命名为 `Muyu-v0.1.2.apk`。
+- 验证：后端全量 `124 passed, 3 skipped`；审批专项 `make test-task-approval` 为
+  `40 passed`；两人 smoke `1 passed`，输出任务编号、审批请求标识、`APPROVED` 和最终游标；
+  Flutter format 无改动、`flutter analyze` clean、`61 tests`；Web `10` 个测试文件、
+  `65 tests`，typecheck 和 Vite build 均通过；客户端边界、旧运行时、CI 触发器和 Compose
+  部署拓扑检查均通过。后端保留既有 Starlette/httpx 弃用警告。
+- 数据库：验证使用 disposable PostgreSQL 容器 `muyu-task1-postgres`，未操作生产数据；开发阶段
+  允许丢失旧数据，生产迁移仍需在新空库执行并复核。
+- 范围：仍只交付 Android 与 Web；不引入离线写队列、P2P、iOS、附件、Elasticsearch 或密码登录。
+- 待发布：尚未创建 GitHub `v0.1.2` Release；需完成 release APK 构建、SHA-256 记录、推送 tag，
+  并等待 GitHub Actions 成功后才可标记发布完成。真实 Android 扫码/安装验收仍取决于连接设备。
+
 ### 2026-08-27 - Task Domain Completion: PostgreSQL Acceptance
 
 - 类型：验收 / 文档 / 发布准备。

@@ -28,6 +28,17 @@ device acceptance.
 
 Items below remain unchecked unless the described release evidence is produced.
 
+## 0.1.2 pre-release evidence (2026-08-28)
+
+- [x] Backend full suite: `124 passed, 3 skipped` in disposable PostgreSQL;
+      approval target: `40 passed`; two-person smoke: `1 passed`.
+- [x] Flutter: format unchanged, `flutter analyze` clean, `61 tests` passed.
+- [x] Web: `10` test files / `65 tests` passed, typecheck and Vite build passed.
+- [x] Client boundary, legacy-runtime, CI-trigger and Compose topology checks passed.
+- [x] Version set to `0.1.2+1`; release APK filename reserved as
+      `Muyu-v0.1.2.apk`.
+- [ ] Release APK build, checksum, GitHub tag/release and successful Action run.
+
 ## Before release
 
 - [ ] Confirm the source commit and application version.

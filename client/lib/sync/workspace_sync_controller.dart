@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
 import '../models/task.dart';
+import '../models/task_approval_request.dart';
 import 'workspace_cache.dart';
 import 'workspace_sync_repository.dart';
 
@@ -23,6 +24,11 @@ class WorkspaceSyncState {
   final String? errorMessage;
 
   int get cursor => snapshot?.cursor ?? 0;
+
+  List<TaskApprovalRequest> get approvalRequests =>
+      snapshot?.approvalRequests ?? const <TaskApprovalRequest>[];
+
+  List<TaskComment> get comments => snapshot?.comments ?? const <TaskComment>[];
 
   WorkspaceSyncState copyWith({
     WorkspaceSnapshot? snapshot,
@@ -87,8 +93,12 @@ class WorkspaceSyncController extends ChangeNotifier {
         return;
       }
       final tasks = [...current.tasks];
+      final approvals = [...current.approvalRequests];
+      final comments = [...current.comments];
       for (final change in result.changes) {
-        _apply(tasks, change);
+        _applyTask(tasks, change);
+        _applyApproval(approvals, change);
+        _applyComment(comments, change);
       }
       state = WorkspaceSyncState(
         snapshot: WorkspaceSnapshot(
@@ -97,6 +107,9 @@ class WorkspaceSyncController extends ChangeNotifier {
           tasks: tasks,
           members: current.members,
           conflicts: current.conflicts,
+          viewerUserId: current.viewerUserId,
+          comments: comments,
+          approvalRequests: approvals,
           fetchedAt: DateTime.now(),
         ),
         isStale: false,
@@ -109,7 +122,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     }
   }
 
-  Future<void> transition(
+  Future<TaskMutationResult?> transition(
     String taskId,
     String targetStatus, {
     String? blockedReason,
@@ -121,9 +134,9 @@ class WorkspaceSyncController extends ChangeNotifier {
         state.snapshot?.tasks.where((item) => item.id == taskId).toList() ??
         const [];
     final task = matches.isEmpty ? null : matches.first;
-    if (repository == null || task == null) return;
+    if (repository == null || task == null) return null;
     try {
-      final updated = await repository.transition(
+      final result = await repository.transition(
         taskId,
         targetStatus: targetStatus,
         baseStatusVersion: task.statusVersion,
@@ -132,33 +145,22 @@ class WorkspaceSyncController extends ChangeNotifier {
         waitingForUserId: waitingForUserId,
         requestId: _requestId(),
       );
-      final current = state.snapshot;
-      if (current != null) {
-        final tasks = [...current.tasks]
-          ..removeWhere((item) => item.id == updated.id)
-          ..add(updated);
-        state = WorkspaceSyncState(
-          snapshot: WorkspaceSnapshot(
-            workspaceId: current.workspaceId,
-            cursor: current.cursor,
-            tasks: tasks,
-            members: current.members,
-            conflicts: current.conflicts,
-            fetchedAt: DateTime.now(),
-          ),
-          isStale: false,
-        );
-        notifyListeners();
+      if (result is TaskItem) {
+        _replaceTask(result);
+        // The write response carries no cursor; reconcile through the
+        // authoritative cursor endpoint before accepting another mutation.
+        await pull();
+      } else if (result is PendingApproval) {
+        _mergeApproval(result.approvalRequest);
       }
-      // The write response carries no cursor; reconcile through the authoritative
-      // cursor endpoint before accepting another mutation.
-      await pull();
+      return result;
     } catch (error) {
       state = state.copyWith(
         isStale: error is! Exception || state.snapshot != null,
         errorMessage: '$error',
       );
       notifyListeners();
+      return null;
     }
   }
 
@@ -195,7 +197,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     }
   }
 
-  Future<TaskItem?> update(
+  Future<TaskMutationResult?> update(
     String taskId, {
     required Map<String, Object?> fields,
   }) async {
@@ -203,7 +205,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     final task = _task(taskId);
     if (repository == null || task == null || state.isStale) return null;
     try {
-      final updated = await repository.update(
+      final result = await repository.update(
         taskId,
         fields: fields,
         fieldVersions: {
@@ -212,9 +214,153 @@ class WorkspaceSyncController extends ChangeNotifier {
         },
         requestId: _requestId(),
       );
-      if (updated != null) _replaceTask(updated);
-      await pull();
-      return updated;
+      if (result is TaskItem) {
+        _replaceTask(result);
+        await pull();
+      } else if (result is PendingApproval) {
+        _mergeApproval(result.approvalRequest);
+      }
+      return result;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskApprovalRequest?> createApprovalRequest(
+    String taskId, {
+    String? commentId,
+    required String requestType,
+    required Map<String, Object?> proposedChanges,
+    required Map<String, int> baseFieldVersions,
+  }) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    if (repository == null || snapshot == null || state.isStale) return null;
+    try {
+      final approval = await repository.createApprovalRequest(
+        workspaceId: snapshot.workspaceId,
+        taskId: taskId,
+        commentId: commentId,
+        requestType: requestType,
+        proposedChanges: proposedChanges,
+        baseFieldVersions: baseFieldVersions,
+        requestId: _requestId(),
+      );
+      _mergeApproval(approval);
+      return approval;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<List<TaskApprovalRequest>> listApprovalRequests({String? box}) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    if (repository == null || snapshot == null) return const [];
+    try {
+      final approvals = await repository.listApprovalRequests(
+        workspaceId: snapshot.workspaceId,
+        box: box,
+      );
+      _mergeApprovals(approvals);
+      return approvals;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<ApprovalActionResult> approveApproval(String approvalId) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    if (repository == null || snapshot == null || state.isStale) {
+      throw StateError('workspace sync is unavailable');
+    }
+    try {
+      final result = await repository.approveApproval(
+        approvalId,
+        workspaceId: snapshot.workspaceId,
+        requestId: _requestId(),
+      );
+      await _refreshAfterAction(result.cursor);
+      _mergeApprovalResult(result);
+      return result;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<ApprovalActionResult> rejectApproval(
+    String approvalId, {
+    String? reason,
+  }) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    if (repository == null || snapshot == null || state.isStale) {
+      throw StateError('workspace sync is unavailable');
+    }
+    try {
+      final result = await repository.rejectApproval(
+        approvalId,
+        workspaceId: snapshot.workspaceId,
+        requestId: _requestId(),
+        reason: reason,
+      );
+      await _refreshAfterAction(result.cursor);
+      _mergeApprovalResult(result);
+      return result;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<ApprovalActionResult> cancelApproval(String approvalId) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    if (repository == null || snapshot == null || state.isStale) {
+      throw StateError('workspace sync is unavailable');
+    }
+    try {
+      final result = await repository.cancelApproval(
+        approvalId,
+        workspaceId: snapshot.workspaceId,
+        requestId: _requestId(),
+      );
+      await _refreshAfterAction(result.cursor);
+      _mergeApprovalResult(result);
+      return result;
+    } catch (error) {
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskMutationResult?> deleteComment(
+    String taskId,
+    String commentId, {
+    required int baseVersion,
+  }) async {
+    final repository = _repository;
+    if (repository == null || state.snapshot == null || state.isStale) {
+      return null;
+    }
+    try {
+      final result = await repository.deleteComment(
+        taskId,
+        commentId,
+        baseVersion: baseVersion,
+        requestId: _requestId(),
+      );
+      if (result is PendingApproval) {
+        _mergeApproval(result.approvalRequest);
+      } else if (result is TaskComment) {
+        _mergeComment(result);
+      }
+      return result;
     } catch (error) {
       _setError(error);
       rethrow;
@@ -312,11 +458,104 @@ class WorkspaceSyncController extends ChangeNotifier {
         tasks: tasks,
         members: current.members,
         conflicts: current.conflicts,
+        viewerUserId: current.viewerUserId,
+        comments: current.comments,
+        approvalRequests: current.approvalRequests,
         fetchedAt: DateTime.now(),
       ),
       isStale: false,
     );
     notifyListeners();
+  }
+
+  void _mergeApproval(TaskApprovalRequest approval) {
+    final current = state.snapshot;
+    if (current == null) return;
+    final approvals = [...current.approvalRequests]
+      ..removeWhere((item) => item.id == approval.id)
+      ..add(approval);
+    _setResources(current, approvalRequests: approvals, notify: true);
+  }
+
+  void _mergeApprovals(List<TaskApprovalRequest> approvals) {
+    final current = state.snapshot;
+    if (current == null) return;
+    final merged = [...current.approvalRequests];
+    for (final approval in approvals) {
+      merged
+        ..removeWhere((item) => item.id == approval.id)
+        ..add(approval);
+    }
+    _setResources(current, approvalRequests: merged, notify: true);
+  }
+
+  void _mergeComment(TaskComment comment) {
+    final current = state.snapshot;
+    if (current == null) return;
+    final comments = [...current.comments]
+      ..removeWhere((item) => item.id == comment.id)
+      ..add(comment);
+    _setResources(current, comments: comments, notify: true);
+  }
+
+  void _mergeApprovalResult(ApprovalActionResult result) {
+    final current = state.snapshot;
+    if (current == null) return;
+    final approvals = [...current.approvalRequests]
+      ..removeWhere((item) => item.id == result.approvalRequest.id)
+      ..add(result.approvalRequest);
+    final tasks = [...current.tasks];
+    if (result.task != null) {
+      tasks
+        ..removeWhere((item) => item.id == result.task!.id)
+        ..add(result.task!);
+    }
+    final comments = [...current.comments];
+    if (result.comment != null) {
+      comments
+        ..removeWhere((item) => item.id == result.comment!.id)
+        ..add(result.comment!);
+    }
+    _setResources(
+      current,
+      tasks: tasks,
+      comments: comments,
+      approvalRequests: approvals,
+      cursor: result.cursor,
+      notify: true,
+    );
+  }
+
+  Future<void> _refreshAfterAction(int? cursor) async {
+    if (cursor == null || cursor <= state.cursor) return;
+    // Pull the authoritative resources before applying the response fallback.
+    // This also keeps the local cache aligned with the server cursor.
+    await pull();
+  }
+
+  void _setResources(
+    WorkspaceSnapshot current, {
+    List<TaskItem>? tasks,
+    List<TaskComment>? comments,
+    List<TaskApprovalRequest>? approvalRequests,
+    int? cursor,
+    required bool notify,
+  }) {
+    state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: current.workspaceId,
+        cursor: cursor ?? current.cursor,
+        tasks: tasks ?? current.tasks,
+        members: current.members,
+        conflicts: current.conflicts,
+        viewerUserId: current.viewerUserId,
+        comments: comments ?? current.comments,
+        approvalRequests: approvalRequests ?? current.approvalRequests,
+        fetchedAt: DateTime.now(),
+      ),
+      isStale: false,
+    );
+    if (notify) notifyListeners();
   }
 
   void _setError(Object error) {
@@ -335,15 +574,49 @@ class WorkspaceSyncController extends ChangeNotifier {
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
 
-  static void _apply(List tasks, WorkspaceChange change) {
-    if (change.resourceType != 'task' || change.task == null) return;
-    final index = tasks.indexWhere((task) => task.id == change.resourceId);
+  static void _applyTask(List<TaskItem> tasks, WorkspaceChange change) {
+    final task = change.task;
+    if (change.resourceType != 'task' || task == null) return;
+    final index = tasks.indexWhere((item) => item.id == change.resourceId);
     if (change.action == 'deleted') {
-      if (index != -1) tasks[index] = change.task;
+      if (index != -1) tasks[index] = task;
     } else if (index == -1) {
-      tasks.add(change.task);
+      tasks.add(task);
     } else {
-      tasks[index] = change.task;
+      tasks[index] = task;
+    }
+  }
+
+  static void _applyApproval(
+    List<TaskApprovalRequest> approvals,
+    WorkspaceChange change,
+  ) {
+    if (change.resourceType != 'approval_request' ||
+        change.approvalRequest == null) {
+      return;
+    }
+    final index = approvals.indexWhere((item) => item.id == change.resourceId);
+    if (change.action == 'deleted') {
+      if (index != -1) approvals.removeAt(index);
+    } else if (index == -1) {
+      approvals.add(change.approvalRequest!);
+    } else {
+      approvals[index] = change.approvalRequest!;
+    }
+  }
+
+  static void _applyComment(
+    List<TaskComment> comments,
+    WorkspaceChange change,
+  ) {
+    if (change.resourceType != 'comment' || change.comment == null) return;
+    final index = comments.indexWhere((item) => item.id == change.resourceId);
+    if (change.action == 'deleted') {
+      if (index != -1) comments[index] = change.comment!;
+    } else if (index == -1) {
+      comments.add(change.comment!);
+    } else {
+      comments[index] = change.comment!;
     }
   }
 }

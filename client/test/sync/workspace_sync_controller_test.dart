@@ -116,6 +116,9 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     String? note,
     required String requestId,
   }) async => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {

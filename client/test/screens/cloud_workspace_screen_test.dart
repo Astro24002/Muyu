@@ -125,6 +125,9 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
 
   @override
   Stream<WorkspaceChanged> openWorkspaceHints() => const Stream.empty();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 ApiClient testApi() => ApiClient(

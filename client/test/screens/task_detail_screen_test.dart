@@ -130,6 +130,9 @@ class RecordingRepository implements WorkspaceSyncRepository {
 
   @override
   Stream<WorkspaceChanged> openWorkspaceHints() => const Stream.empty();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {

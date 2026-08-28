@@ -1,4 +1,5 @@
 import 'task.dart';
+import 'task_approval_request.dart';
 
 class WorkspaceChange {
   const WorkspaceChange({
@@ -7,6 +8,8 @@ class WorkspaceChange {
     required this.resourceId,
     required this.action,
     this.task,
+    this.approvalRequest,
+    this.comment,
   });
 
   final int cursor;
@@ -14,6 +17,8 @@ class WorkspaceChange {
   final String resourceId;
   final String action;
   final TaskItem? task;
+  final TaskApprovalRequest? approvalRequest;
+  final TaskComment? comment;
 
   factory WorkspaceChange.taskUpdated({
     required int cursor,
@@ -26,16 +31,52 @@ class WorkspaceChange {
     task: task,
   );
 
-  factory WorkspaceChange.fromJson(Map<String, dynamic> json) =>
-      WorkspaceChange(
-        cursor: json['cursor'] as int,
-        resourceType: json['resource_type'] as String,
-        resourceId: json['resource_id'] as String,
-        action: json['action'] as String,
-        task: json['resource_type'] == 'task' && json['resource'] != null
-            ? TaskItem.fromJson(json['resource'] as Map<String, dynamic>)
-            : null,
-      );
+  factory WorkspaceChange.approvalRequestUpdated({
+    required int cursor,
+    required TaskApprovalRequest approvalRequest,
+    String action = 'updated',
+  }) => WorkspaceChange(
+    cursor: cursor,
+    resourceType: 'approval_request',
+    resourceId: approvalRequest.id,
+    action: action,
+    approvalRequest: approvalRequest,
+  );
+
+  factory WorkspaceChange.commentUpdated({
+    required int cursor,
+    required TaskComment comment,
+    String action = 'updated',
+  }) => WorkspaceChange(
+    cursor: cursor,
+    resourceType: 'comment',
+    resourceId: comment.id,
+    action: action,
+    comment: comment,
+  );
+
+  factory WorkspaceChange.fromJson(Map<String, dynamic> json) {
+    final resourceType = json['resource_type'] as String;
+    final resource = json['resource'];
+    final resourceMap = resource is Map
+        ? resource.cast<String, dynamic>()
+        : null;
+    return WorkspaceChange(
+      cursor: json['cursor'] as int,
+      resourceType: resourceType,
+      resourceId: json['resource_id'] as String,
+      action: (json['action'] as String).toLowerCase(),
+      task: resourceType == 'task' && resourceMap != null
+          ? TaskItem.fromJson(resourceMap)
+          : null,
+      approvalRequest: resourceType == 'approval_request' && resourceMap != null
+          ? TaskApprovalRequest.fromJson(resourceMap)
+          : null,
+      comment: resourceType == 'comment' && resourceMap != null
+          ? TaskComment.fromJson(resourceMap)
+          : null,
+    );
+  }
 }
 
 class WorkspaceChanged {

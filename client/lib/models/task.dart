@@ -1,11 +1,20 @@
-class TaskItem {
+// ignore_for_file: prefer_initializing_formals
+
+abstract interface class TaskMutationResult {}
+
+class TaskItem implements TaskMutationResult {
   const TaskItem({
     required this.id,
     required this.parentTaskId,
+    this.taskNumber = '',
     required this.title,
     required this.description,
     required this.status,
     required this.currentHandlerId,
+    this.quadrant,
+    // Keep a public `progress` parameter while storing the nullable wire value.
+    // The getter supplies 0/100 for terminal statuses when the server omits it.
+    int? progress,
     this.blockedReason,
     this.blockedSince,
     this.resumeHandlerId,
@@ -25,14 +34,24 @@ class TaskItem {
     this.fieldVersions = const {},
     this.lifecycleVersion = 1,
     this.deletedAt,
-  });
+  }) : _progress = progress;
 
   final String id;
   final String? parentTaskId;
+  final String taskNumber;
   final String title;
   final String description;
   final String status;
   final String currentHandlerId;
+  final String? quadrant;
+  final int? _progress;
+
+  int? get progress => switch (status) {
+    'TODO' => 0,
+    'DONE' || 'COMPLETED' => 100,
+    'IN_PROGRESS' => _progress,
+    _ => null,
+  };
   final String? blockedReason;
   final DateTime? blockedSince;
   final String? resumeHandlerId;
@@ -53,40 +72,55 @@ class TaskItem {
   final int lifecycleVersion;
   final DateTime? deletedAt;
 
-  factory TaskItem.fromJson(Map<String, dynamic> json) => TaskItem(
-    id: json['id'] as String,
-    parentTaskId: json['parent_task_id'] as String?,
-    title: json['title'] as String,
-    description: json['description'] as String,
-    status: json['status'] as String,
-    currentHandlerId: json['current_handler_id'] as String,
-    blockedReason: json['blocked_reason'] as String?,
-    blockedSince: _date(json['blocked_since']),
-    resumeHandlerId: json['resume_handler_id'] as String?,
-    waitingForUserId: json['waiting_for_user_id'] as String?,
-    plannedStartAt: _date(json['planned_start_at']),
-    dueAt: _date(json['due_at']),
-    estimatedMinutes: json['estimated_minutes'] as int?,
-    completedAt: _date(json['completed_at']),
-    createdBy: json['created_by'] as String,
-    version: json['version'] as int,
-    statusVersion: json['status_version'] as int,
-    createdAt: DateTime.parse(json['created_at'] as String),
-    updatedAt: DateTime.parse(json['updated_at'] as String),
-    assigneeIds: (json['assignee_ids'] as List<dynamic>).cast<String>(),
-    delayCount: json['delay_count'] as int? ?? 0,
-    totalDelayMinutes: json['total_delay_minutes'] as int? ?? 0,
-    fieldVersions:
-        (json['field_versions'] as Map<Object?, Object?>?)?.map(
-          (key, value) => MapEntry(key as String, value as int),
-        ) ??
-        const {},
-    lifecycleVersion: json['lifecycle_version'] as int? ?? 1,
-    deletedAt: _date(json['deleted_at']),
-  );
+  factory TaskItem.fromJson(Map<String, dynamic> json) {
+    final status = json['status'] as String;
+    final rawProgress = json['progress'];
+    final progress = rawProgress is num
+        ? rawProgress.toInt()
+        : _derivedProgress(status);
+    return TaskItem(
+      id: json['id'] as String,
+      parentTaskId: json['parent_task_id'] as String?,
+      taskNumber: json['task_number'] as String? ?? '',
+      title: json['title'] as String,
+      description: json['description'] as String,
+      status: status,
+      quadrant: json['quadrant'] as String?,
+      progress: progress,
+      currentHandlerId: json['current_handler_id'] as String,
+      blockedReason: json['blocked_reason'] as String?,
+      blockedSince: _date(json['blocked_since']),
+      resumeHandlerId: json['resume_handler_id'] as String?,
+      waitingForUserId: json['waiting_for_user_id'] as String?,
+      plannedStartAt: _date(json['planned_start_at']),
+      dueAt: _date(json['due_at']),
+      estimatedMinutes: json['estimated_minutes'] as int?,
+      completedAt: _date(json['completed_at']),
+      createdBy: json['created_by'] as String,
+      version: json['version'] as int,
+      statusVersion: json['status_version'] as int,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      updatedAt: DateTime.parse(json['updated_at'] as String),
+      assigneeIds: (json['assignee_ids'] as List<dynamic>).cast<String>(),
+      delayCount: json['delay_count'] as int? ?? 0,
+      totalDelayMinutes: json['total_delay_minutes'] as int? ?? 0,
+      fieldVersions:
+          (json['field_versions'] as Map<Object?, Object?>?)?.map(
+            (key, value) => MapEntry(key as String, value as int),
+          ) ??
+          const {},
+      lifecycleVersion: json['lifecycle_version'] as int? ?? 1,
+      deletedAt: _date(json['deleted_at']),
+    );
+  }
 
   TaskItem copyWith({
+    String? taskNumber,
+    String? title,
+    String? description,
     String? status,
+    String? quadrant,
+    int? progress,
     String? currentHandlerId,
     Map<String, int>? fieldVersions,
     int? lifecycleVersion,
@@ -94,9 +128,12 @@ class TaskItem {
   }) => TaskItem(
     id: id,
     parentTaskId: parentTaskId,
-    title: title,
-    description: description,
+    taskNumber: taskNumber ?? this.taskNumber,
+    title: title ?? this.title,
+    description: description ?? this.description,
     status: status ?? this.status,
+    quadrant: quadrant ?? this.quadrant,
+    progress: progress ?? this.progress,
     currentHandlerId: currentHandlerId ?? this.currentHandlerId,
     blockedReason: blockedReason,
     blockedSince: blockedSince,
@@ -119,8 +156,45 @@ class TaskItem {
     deletedAt: deletedAt ?? this.deletedAt,
   );
 
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'parent_task_id': parentTaskId,
+    'task_number': taskNumber,
+    'title': title,
+    'description': description,
+    'status': status,
+    'quadrant': quadrant,
+    'progress': progress,
+    'current_handler_id': currentHandlerId,
+    'blocked_reason': blockedReason,
+    'blocked_since': blockedSince?.toUtc().toIso8601String(),
+    'resume_handler_id': resumeHandlerId,
+    'waiting_for_user_id': waitingForUserId,
+    'planned_start_at': plannedStartAt?.toUtc().toIso8601String(),
+    'due_at': dueAt?.toUtc().toIso8601String(),
+    'estimated_minutes': estimatedMinutes,
+    'completed_at': completedAt?.toUtc().toIso8601String(),
+    'created_by': createdBy,
+    'version': version,
+    'status_version': statusVersion,
+    'created_at': createdAt.toUtc().toIso8601String(),
+    'updated_at': updatedAt.toUtc().toIso8601String(),
+    'assignee_ids': assigneeIds,
+    'delay_count': delayCount,
+    'total_delay_minutes': totalDelayMinutes,
+    'field_versions': fieldVersions,
+    'lifecycle_version': lifecycleVersion,
+    'deleted_at': deletedAt?.toUtc().toIso8601String(),
+  };
+
   static DateTime? _date(Object? value) =>
       value == null ? null : DateTime.parse(value as String);
+
+  static int? _derivedProgress(String status) => switch (status) {
+    'TODO' => 0,
+    'DONE' || 'COMPLETED' => 100,
+    _ => null,
+  };
 }
 
 const taskDelayReasonLabels = <String, String>{

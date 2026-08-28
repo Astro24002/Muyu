@@ -6,16 +6,18 @@ class DeviceSummary {
     required this.platform,
     required this.label,
     required this.status,
+    bool? canWrite,
     required this.isCurrent,
     required this.createdAt,
     required this.enrolledAt,
     required this.revokedAt,
-  });
+  }) : canWrite = canWrite ?? status == 'ACTIVE' || status == 'VERIFIED';
 
   final String id;
   final String platform;
   final String? label;
   final String status;
+  final bool canWrite;
   final bool isCurrent;
   final DateTime createdAt;
   final DateTime? enrolledAt;
@@ -26,6 +28,7 @@ class DeviceSummary {
     platform: json['platform'] as String? ?? 'ANDROID',
     label: json['label'] as String?,
     status: json['status'] as String,
+    canWrite: json['can_write'] as bool?,
     isCurrent: json['is_current'] as bool? ?? false,
     createdAt: DateTime.parse(json['created_at'] as String),
     enrolledAt: _date(json['enrolled_at']),

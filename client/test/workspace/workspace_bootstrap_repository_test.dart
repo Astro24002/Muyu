@@ -25,6 +25,78 @@ class StaticTokenStore implements TokenStore {
 }
 
 void main() {
+  test('bootstrap endpoints parse state and normalize partner phone', () async {
+    final requests = <http.Request>[];
+    final repository = HttpWorkspaceBootstrapRepository(
+      ApiClient(
+        baseUrl: 'https://api.example',
+        httpClient: MockClient((incoming) async {
+          requests.add(incoming);
+          if (incoming.method == 'GET') {
+            return http.Response(
+              jsonEncode({
+                'state': 'NEEDS_PARTNER',
+                'workspace': null,
+                'invite': null,
+                'device': {'status': 'VERIFIED', 'can_write': true},
+              }),
+              200,
+            );
+          }
+          if (incoming.url.path.endsWith('bind-partner')) {
+            return http.Response(
+              jsonEncode({
+                'state': 'WAITING_FOR_PARTNER',
+                'workspace': {
+                  'id': 'workspace-1',
+                  'name': null,
+                  'member_count': 1,
+                },
+                'invite': {
+                  'id': 'invite-1',
+                  'phone_masked': '+86******0169',
+                  'status': 'PENDING',
+                  'expires_at': '2026-08-29T00:00:00Z',
+                },
+                'device': {'status': 'VERIFIED', 'can_write': true},
+              }),
+              201,
+            );
+          }
+          return http.Response(
+            jsonEncode({
+              'state': 'READY',
+              'workspace': {
+                'id': 'workspace-1',
+                'name': null,
+                'member_count': 2,
+              },
+              'invite': null,
+              'device': {'status': 'VERIFIED', 'can_write': true},
+            }),
+            200,
+          );
+        }),
+        tokenStore: StaticTokenStore(),
+      ),
+    );
+
+    expect(
+      (await repository.loadBootstrap()).state,
+      WorkspaceBootstrapPhase.needsPartner,
+    );
+    await repository.bindPartner('15028180169', 'request-1');
+    await repository.acceptInvite('invite-1', 'request-2');
+
+    expect(requests[0].url.path, '/api/v1/workspaces/bootstrap');
+    expect(jsonDecode(requests[1].body), {
+      'phone': '+8615028180169',
+      'request_id': 'request-1',
+    });
+    expect(requests[2].url.path, '/api/v1/workspace-invites/invite-1/accept');
+    expect(jsonDecode(requests[2].body), {'request_id': 'request-2'});
+  });
+
   test('current workspace returns null for a new authenticated user', () async {
     late http.Request request;
     final repository = HttpWorkspaceBootstrapRepository(

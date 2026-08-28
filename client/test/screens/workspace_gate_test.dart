@@ -11,13 +11,32 @@ import 'package:muyu_client/screens/cloud_workspace_screen.dart';
 import 'package:muyu_client/screens/workspace_gate.dart';
 import 'package:muyu_client/workspace/workspace_bootstrap_repository.dart';
 
-class FakeWorkspaceBootstrapRepository implements WorkspaceBootstrapRepository {
+class FakeWorkspaceBootstrapRepository
+    implements
+        WorkspaceBootstrapRepository,
+        LegacyWorkspaceBootstrapRepository {
   WorkspaceSummary? currentResult;
   WorkspaceSummary? createResult;
   WorkspaceBootstrapFailure? currentFailure;
   WorkspaceBootstrapFailure? createFailure;
   int currentCalls = 0;
   int createCalls = 0;
+
+  @override
+  Future<WorkspaceBootstrapPayload> loadBootstrap() =>
+      throw UnsupportedError('bootstrap API is not used');
+
+  @override
+  Future<WorkspaceBootstrapPayload> bindPartner(
+    String phone,
+    String requestId,
+  ) => throw UnsupportedError('bootstrap API is not used');
+
+  @override
+  Future<WorkspaceBootstrapPayload> acceptInvite(
+    String inviteId,
+    String requestId,
+  ) => throw UnsupportedError('bootstrap API is not used');
 
   @override
   Future<WorkspaceSummary?> currentWorkspace() async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../auth/mobile_session_store.dart';
+import '../devices/device_management_repository.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
 import '../platform/device_signing_key.dart';
@@ -20,12 +21,14 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.signingKey,
     this.syncController,
     this.session,
+    this.canWrite = true,
   });
 
   final ApiClient api;
   final DeviceSigningKey? signingKey;
   final WorkspaceSyncController? syncController;
   final MobileSession? session;
+  final bool canWrite;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -60,7 +63,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         appBar: AppBar(
           title: const Text('共享任务'),
           actions: [
-            if (widget.signingKey != null)
+            if (widget.signingKey != null && widget.canWrite)
               IconButton(
                 tooltip: '扫码登录 Web',
                 onPressed: () => Navigator.of(context).push(
@@ -81,6 +84,10 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                     builder: (_) => MyProfileScreen(
                       session: widget.session!,
                       repository: HttpDeviceRepository(widget.api),
+                      managementRepository: HttpDeviceManagementRepository(
+                        widget.api,
+                      ),
+                      canWrite: widget.canWrite,
                     ),
                   ),
                 ),
@@ -97,7 +104,16 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           length: 3,
           child: Column(
             children: [
-              _CreateTaskBar(sync: _sync, enabled: !state.isStale),
+              if (!widget.canWrite)
+                const MaterialBanner(
+                  key: Key('read-only-device-banner'),
+                  content: Text('当前设备尚未验证，仅可查看和刷新任务'),
+                  actions: [SizedBox.shrink()],
+                ),
+              _CreateTaskBar(
+                sync: _sync,
+                enabled: widget.canWrite && !state.isStale,
+              ),
               const TabBar(
                 tabs: [
                   Tab(text: '我的任务'),
@@ -233,8 +249,11 @@ Widget _taskList(
                   ? null
                   : () => Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            TaskDetailScreen(task: task, sync: screen._sync),
+                        builder: (_) => TaskDetailScreen(
+                          task: task,
+                          sync: screen._sync,
+                          canWrite: screen.widget.canWrite,
+                        ),
                       ),
                     ),
             ),
@@ -267,8 +286,11 @@ Widget _board(
                     ? null
                     : () => Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) =>
-                              TaskDetailScreen(task: task, sync: screen._sync),
+                          builder: (_) => TaskDetailScreen(
+                            task: task,
+                            sync: screen._sync,
+                            canWrite: screen.widget.canWrite,
+                          ),
                         ),
                       ),
               ),

@@ -50,22 +50,31 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
     builder: (context, _) {
       switch (_controller.state.status) {
         case WorkspaceBootstrapStatus.ready:
+        case WorkspaceBootstrapStatus.readOnlyDevice:
           return CloudWorkspaceScreen(
             key: ValueKey(_controller.state.workspace!.id),
             api: widget.api,
             signingKey: widget.signingKey,
             session: widget.session,
+            canWrite: _controller.state.canWrite,
           );
         case WorkspaceBootstrapStatus.loading:
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
+        case WorkspaceBootstrapStatus.needsPartner:
+        case WorkspaceBootstrapStatus.bindingPartner:
+        case WorkspaceBootstrapStatus.waitingForPartner:
+        case WorkspaceBootstrapStatus.invited:
+        case WorkspaceBootstrapStatus.acceptingInvite:
         case WorkspaceBootstrapStatus.needsWorkspace:
         case WorkspaceBootstrapStatus.creatingWorkspace:
         case WorkspaceBootstrapStatus.failure:
           return WorkspaceBootstrapScreen(
             state: _controller.state,
             onCreate: _controller.createWorkspace,
+            onBindPartner: _controller.bindPartner,
+            onAcceptInvite: _controller.acceptInvite,
             onRetry: _controller.load,
           );
       }

@@ -231,4 +231,65 @@ void main() {
       expect(find.textContaining('create failed'), findsAtLeastNWidgets(1));
     },
   );
+
+  testWidgets('unverified device can read but cannot use task write controls', (
+    tester,
+  ) async {
+    final repo = FakeTaskRepository()..tasks.add(task('task-1', 'Read only'));
+    final sync = await readyController(repo);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(
+          api: testApi(),
+          syncController: sync,
+          canWrite: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('read-only-device-banner')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('task-title-input')))
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('create-task-button')))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.text('Read only'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('task-detail-title')))
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('task-save-button')))
+          .onPressed,
+      isNull,
+    );
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('task-comment-input')))
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(find.byKey(const Key('task-delay-button')))
+          .onPressed,
+      isNull,
+    );
+  });
 }

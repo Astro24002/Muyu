@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../auth/mobile_session_store.dart';
+import '../devices/device_management_repository.dart';
 import '../workspace/device_repository.dart';
 
 class MyProfileScreen extends StatefulWidget {
@@ -8,10 +9,14 @@ class MyProfileScreen extends StatefulWidget {
     super.key,
     required this.session,
     required this.repository,
+    this.managementRepository,
+    this.canWrite = true,
   });
 
   final MobileSession session;
   final DeviceRepository repository;
+  final DeviceManagementRepository? managementRepository;
+  final bool canWrite;
 
   @override
   State<MyProfileScreen> createState() => _MyProfileScreenState();
@@ -23,11 +28,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _devices = widget.repository.listDevices();
+    _devices = _loadDevices();
   }
 
   void _reload() {
-    setState(() => _devices = widget.repository.listDevices());
+    setState(() {
+      _devices = _loadDevices();
+    });
+  }
+
+  Future<List<DeviceSummary>> _loadDevices() async {
+    final devices =
+        await (widget.managementRepository?.list() ??
+            widget.repository.listDevices());
+    return devices
+        .where((device) => device.platform.toUpperCase() == 'ANDROID')
+        .toList(growable: false);
   }
 
   @override
@@ -94,11 +110,16 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   Widget _deviceTile(DeviceSummary device) {
     final status = switch (device.status) {
-      'ACTIVE' => '长期绑定',
-      'PENDING' => '等待授权',
+      'VERIFIED' || 'ACTIVE' => '已验证 · 长期绑定',
+      'UNVERIFIED' || 'PENDING' => '未验证 · 等待授权',
       'REVOKED' => '已撤销',
       _ => device.status,
     };
+    final canRevoke =
+        widget.managementRepository != null &&
+        widget.canWrite &&
+        !device.isCurrent &&
+        device.status != 'REVOKED';
     return Card(
       child: ListTile(
         leading: const Icon(Icons.phone_android_outlined),
@@ -108,9 +129,48 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               : 'Android 设备',
         ),
         subtitle: Text('$status · ${device.platform}'),
-        trailing: device.isCurrent ? const Chip(label: Text('当前设备')) : null,
+        trailing: device.isCurrent
+            ? const Chip(label: Text('当前设备'))
+            : canRevoke
+            ? IconButton(
+                key: Key('profile-revoke-device-${device.id}'),
+                tooltip: '撤销设备',
+                onPressed: () => _confirmRevoke(device),
+                icon: const Icon(Icons.block_outlined),
+              )
+            : null,
         isThreeLine: false,
       ),
     );
+  }
+
+  Future<void> _confirmRevoke(DeviceSummary device) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('撤销设备'),
+        content: Text('确定撤销“${device.label ?? 'Android 设备'}”的登录权限吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('profile-confirm-revoke-device'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('撤销'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.managementRepository!.revoke(device.id);
+      _reload();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('撤销设备失败，请稍后重试')));
+    }
   }
 }

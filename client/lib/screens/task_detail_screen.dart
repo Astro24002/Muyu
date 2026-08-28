@@ -4,10 +4,16 @@ import '../models/task.dart';
 import '../sync/workspace_sync_controller.dart';
 
 class TaskDetailScreen extends StatefulWidget {
-  const TaskDetailScreen({super.key, required this.task, required this.sync});
+  const TaskDetailScreen({
+    super.key,
+    required this.task,
+    required this.sync,
+    this.canWrite = true,
+  });
 
   final TaskItem task;
   final WorkspaceSyncController sync;
+  final bool canWrite;
 
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
@@ -60,7 +66,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Future<void> _save() async {
     final title = _title.text.trim();
-    if (title.isEmpty || _saving) return;
+    if (!widget.canWrite || title.isEmpty || _saving) return;
     final estimateText = _estimatedMinutes.text.trim();
     final estimate = estimateText.isEmpty ? null : int.tryParse(estimateText);
     if (estimateText.isNotEmpty && (estimate == null || estimate < 0)) {
@@ -94,7 +100,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Future<void> _addComment() async {
     final body = _comment.text.trim();
-    if (body.isEmpty || _commenting) return;
+    if (!widget.canWrite || body.isEmpty || _commenting) return;
     setState(() => _commenting = true);
     try {
       await widget.sync.addComment(_current.id, body);
@@ -107,6 +113,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _addDelay() async {
+    if (!widget.canWrite) return;
     final note = TextEditingController();
     var selectedReason = 'OTHER';
     final accepted = await showDialog<bool>(
@@ -178,6 +185,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _resolveConflict(String conflictId, String resolution) async {
+    if (!widget.canWrite) return;
     try {
       await widget.sync.resolveConflict(
         _current.id,
@@ -190,6 +198,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _transition(String status) async {
+    if (!widget.canWrite) return;
     String? blockedReason;
     if (status == 'WAITING') {
       blockedReason = await showDialog<String>(
@@ -243,6 +252,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _changeHandler(String? handlerId) async {
+    if (!widget.canWrite) return;
     if (handlerId == null || handlerId == _current.currentHandlerId) return;
     try {
       await widget.sync.update(
@@ -301,7 +311,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             IconButton(
               key: const Key('task-save-button'),
               tooltip: '保存任务',
-              onPressed: _saving || task.deletedAt != null ? null : _save,
+              onPressed: !widget.canWrite || _saving || task.deletedAt != null
+                  ? null
+                  : _save,
               icon: _saving
                   ? const SizedBox(
                       width: 18,
@@ -323,6 +335,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             TextField(
               key: const Key('task-detail-title'),
               controller: _title,
+              enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '标题'),
             ),
             const SizedBox(height: 8),
@@ -330,18 +343,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               key: const Key('task-detail-description'),
               controller: _description,
               maxLines: 3,
+              enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '描述'),
             ),
             const SizedBox(height: 8),
             TextField(
               key: const Key('task-detail-due-at'),
               controller: _dueAt,
+              enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '截止时间（ISO 8601，可选）'),
             ),
             const SizedBox(height: 8),
             TextField(
               key: const Key('task-detail-planned-start-at'),
               controller: _plannedStartAt,
+              enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '计划开始（ISO 8601，可选）'),
             ),
             const SizedBox(height: 8),
@@ -349,6 +365,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               key: const Key('task-detail-estimated-minutes'),
               controller: _estimatedMinutes,
               keyboardType: TextInputType.number,
+              enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '预计工时（分钟）'),
             ),
             if (assigneeOptions.isNotEmpty) ...[
@@ -362,7 +379,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       key: Key('task-assignee-$id'),
                       label: Text(id),
                       selected: _selectedAssignees.contains(id),
-                      onSelected: task.deletedAt != null
+                      onSelected: !widget.canWrite || task.deletedAt != null
                           ? null
                           : (selected) {
                               if (!selected && _selectedAssignees.length <= 1) {
@@ -395,7 +412,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 items: handlerIds
                     .map((id) => DropdownMenuItem(value: id, child: Text(id)))
                     .toList(),
-                onChanged: task.deletedAt != null ? null : _changeHandler,
+                onChanged: !widget.canWrite || task.deletedAt != null
+                    ? null
+                    : _changeHandler,
               ),
             const SizedBox(height: 8),
             Wrap(
@@ -411,14 +430,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ])
                   OutlinedButton(
                     key: Key('task-status-${status.toLowerCase()}'),
-                    onPressed: task.deletedAt != null
+                    onPressed: !widget.canWrite || task.deletedAt != null
                         ? null
                         : () => _transition(status),
                     child: Text(status),
                   ),
                 OutlinedButton(
                   key: const Key('task-delay-button'),
-                  onPressed: task.deletedAt != null ? null : _addDelay,
+                  onPressed: !widget.canWrite || task.deletedAt != null
+                      ? null
+                      : _addDelay,
                   child: const Text('记录延期'),
                 ),
               ],
@@ -427,12 +448,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             TextField(
               key: const Key('task-comment-input'),
               controller: _comment,
+              enabled: widget.canWrite,
               decoration: InputDecoration(
                 labelText: '添加评论',
                 suffixIcon: IconButton(
                   key: const Key('task-comment-submit'),
                   tooltip: '发送评论',
-                  onPressed: _commenting ? null : _addComment,
+                  onPressed: !widget.canWrite || _commenting
+                      ? null
+                      : _addComment,
                   icon: _commenting
                       ? const SizedBox(
                           width: 18,
@@ -454,17 +478,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       children: [
                         TextButton(
                           key: Key('resolve-conflict-${conflict['id']}'),
-                          onPressed: () => _resolveConflict(
-                            conflict['id'] as String,
-                            'current',
-                          ),
+                          onPressed: widget.canWrite
+                              ? () => _resolveConflict(
+                                  conflict['id'] as String,
+                                  'current',
+                                )
+                              : null,
                           child: const Text('保留当前'),
                         ),
                         TextButton(
-                          onPressed: () => _resolveConflict(
-                            conflict['id'] as String,
-                            'proposed',
-                          ),
+                          onPressed: widget.canWrite
+                              ? () => _resolveConflict(
+                                  conflict['id'] as String,
+                                  'proposed',
+                                )
+                              : null,
                           child: const Text('采用对方'),
                         ),
                       ],

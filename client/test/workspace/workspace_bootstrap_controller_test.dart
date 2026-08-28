@@ -4,7 +4,55 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/workspace/workspace_bootstrap_controller.dart';
 import 'package:muyu_client/workspace/workspace_bootstrap_repository.dart';
 
-class FakeWorkspaceBootstrapRepository implements WorkspaceBootstrapRepository {
+class BootstrapFakeRepository
+    implements
+        WorkspaceBootstrapRepository,
+        LegacyWorkspaceBootstrapRepository {
+  BootstrapFakeRepository(this.payload);
+
+  WorkspaceBootstrapPayload payload;
+  WorkspaceBootstrapPayload? bindResult;
+  String? boundPhone;
+  String? acceptedInviteId;
+  int loadCalls = 0;
+
+  @override
+  Future<WorkspaceBootstrapPayload> loadBootstrap() async {
+    loadCalls++;
+    return payload;
+  }
+
+  @override
+  Future<WorkspaceBootstrapPayload> bindPartner(
+    String phone,
+    String requestId,
+  ) async {
+    boundPhone = phone;
+    return bindResult ?? payload;
+  }
+
+  @override
+  Future<WorkspaceBootstrapPayload> acceptInvite(
+    String inviteId,
+    String requestId,
+  ) async {
+    acceptedInviteId = inviteId;
+    return payload;
+  }
+
+  @override
+  Future<WorkspaceSummary?> currentWorkspace() =>
+      throw UnsupportedError('legacy API is not used');
+
+  @override
+  Future<WorkspaceSummary> createWorkspace() =>
+      throw UnsupportedError('legacy API is not used');
+}
+
+class FakeWorkspaceBootstrapRepository
+    implements
+        WorkspaceBootstrapRepository,
+        LegacyWorkspaceBootstrapRepository {
   WorkspaceSummary? currentResult;
   List<WorkspaceSummary?> currentResults = [];
   WorkspaceBootstrapFailure? currentFailure;
@@ -14,6 +62,22 @@ class FakeWorkspaceBootstrapRepository implements WorkspaceBootstrapRepository {
   Future<WorkspaceSummary>? createFuture;
   int currentCalls = 0;
   int createCalls = 0;
+
+  @override
+  Future<WorkspaceBootstrapPayload> loadBootstrap() =>
+      throw UnsupportedError('bootstrap API is not used');
+
+  @override
+  Future<WorkspaceBootstrapPayload> bindPartner(
+    String phone,
+    String requestId,
+  ) => throw UnsupportedError('bootstrap API is not used');
+
+  @override
+  Future<WorkspaceBootstrapPayload> acceptInvite(
+    String inviteId,
+    String requestId,
+  ) => throw UnsupportedError('bootstrap API is not used');
 
   @override
   Future<WorkspaceSummary?> currentWorkspace() async {
@@ -38,6 +102,97 @@ class FakeWorkspaceBootstrapRepository implements WorkspaceBootstrapRepository {
 }
 
 void main() {
+  test(
+    'bootstrap maps each server state and preserves device capability',
+    () async {
+      final repository = BootstrapFakeRepository(
+        WorkspaceBootstrapPayload.fromJson({
+          'state': 'READY',
+          'workspace': {'id': 'w1', 'name': '共同空间', 'member_count': 2},
+          'invite': null,
+          'device': {'status': 'UNVERIFIED', 'can_write': false},
+        }),
+      );
+      final controller = WorkspaceBootstrapController(repository);
+
+      await controller.load();
+
+      expect(controller.state.status, WorkspaceBootstrapStatus.readOnlyDevice);
+      expect(controller.state.workspace!.id, 'w1');
+      expect(controller.state.canWrite, isFalse);
+      expect(
+        controller.state.payload!.device.status,
+        WorkspaceDeviceStatus.unverified,
+      );
+    },
+  );
+
+  test(
+    'bind partner normalizes an 11 digit phone at the controller boundary',
+    () async {
+      final repository = BootstrapFakeRepository(
+        WorkspaceBootstrapPayload.fromJson({
+          'state': 'NEEDS_PARTNER',
+          'workspace': null,
+          'invite': null,
+          'device': {'status': 'VERIFIED', 'can_write': true},
+        }),
+      );
+      repository.bindResult = WorkspaceBootstrapPayload.fromJson({
+        'state': 'WAITING_FOR_PARTNER',
+        'workspace': {'id': 'w1', 'name': null, 'member_count': 1},
+        'invite': {
+          'id': 'invite-1',
+          'phone_masked': '+86******0169',
+          'status': 'PENDING',
+          'expires_at': '2026-08-29T00:00:00Z',
+        },
+        'device': {'status': 'VERIFIED', 'can_write': true},
+      });
+      final controller = WorkspaceBootstrapController(repository);
+      await controller.load();
+
+      await controller.bindPartner('15028180169');
+
+      expect(repository.boundPhone, '+8615028180169');
+      expect(
+        controller.state.status,
+        WorkspaceBootstrapStatus.waitingForPartner,
+      );
+    },
+  );
+
+  test('invited user can accept the invitation and reach ready', () async {
+    final repository = BootstrapFakeRepository(
+      WorkspaceBootstrapPayload.fromJson({
+        'state': 'READY',
+        'workspace': {'id': 'w1', 'name': null, 'member_count': 2},
+        'invite': null,
+        'device': {'status': 'VERIFIED', 'can_write': true},
+      }),
+    );
+    final controller = WorkspaceBootstrapController(repository);
+    controller.state = WorkspaceBootstrapState(
+      status: WorkspaceBootstrapStatus.invited,
+      payload: WorkspaceBootstrapPayload.fromJson({
+        'state': 'INVITED',
+        'workspace': {'id': 'w1', 'name': null, 'member_count': 1},
+        'invite': {
+          'id': 'invite-1',
+          'phone_masked': '+86******0169',
+          'status': 'PENDING',
+          'expires_at': '2026-08-29T00:00:00Z',
+        },
+        'device': {'status': 'VERIFIED', 'can_write': true},
+      }),
+    );
+
+    await controller.acceptInvite();
+
+    expect(repository.acceptedInviteId, 'invite-1');
+    expect(controller.state.status, WorkspaceBootstrapStatus.ready);
+  });
+
   test('no current workspace enters the explicit creation state', () async {
     final repository = FakeWorkspaceBootstrapRepository()..currentResult = null;
     final controller = WorkspaceBootstrapController(repository);

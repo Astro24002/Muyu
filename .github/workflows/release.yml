@@ -8,7 +8,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-${{ github.event.release.tag_name || github.ref_name }}
@@ -80,6 +80,19 @@ jobs:
             "build/app/outputs/flutter-apk/Muyu-${commit_id}.apk"
           cp build/app/outputs/flutter-apk/app-debug.apk \
             "build/app/outputs/flutter-apk/Muyu-${version_name}.apk"
+      - name: Publish version APK to GitHub Release
+        if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
+        working-directory: client
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          apk_path="build/app/outputs/flutter-apk/Muyu-${RELEASE_TAG}.apk"
+          test -f "$apk_path"
+          gh release upload "$RELEASE_TAG" "$apk_path" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: release-android-debug-apk-${{ github.ref_name }}

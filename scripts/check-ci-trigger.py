@@ -14,6 +14,12 @@ for workflow in ("ci.yml", "release.yml"):
 release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 assert "workflow_dispatch:" not in release, "manual dispatch must not bypass the release event gate"
 assert "github.event_name == 'release'" in release, "protected artifact publication must only run for a Release"
+assert "contents: write" in release, "release workflow must be able to attach the APK to a GitHub Release"
+assert "gh release upload" in release, "release workflow must attach the version APK to the GitHub Release"
+assert "--clobber" in release, "release APK upload must be repeatable"
+assert 'apk_path="build/app/outputs/flutter-apk/Muyu-${RELEASE_TAG}.apk"' in release, (
+    "only the version-named APK may be attached to a GitHub Release"
+)
 
 workflow_texts = (
     ("ci.yml", Path(".github/workflows/ci.yml").read_text(encoding="utf-8")),

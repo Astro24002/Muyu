@@ -14,7 +14,11 @@ from app.db.enums import WebSessionStatus
 from app.db.models import WebLoginChallenge, WebSession
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
-from app.web_login.dependencies import WebPrincipal, require_web_principal
+from app.web_login.dependencies import (
+    WebPrincipal,
+    require_web_or_active_mobile_principal,
+    require_web_principal,
+)
 from app.web_login.service import WebLoginConflict, WebLoginService, WebSessionConflict, WebSessionService
 
 
@@ -163,23 +167,37 @@ def revoke_session(session_id: UUID, principal: MobilePrincipal = Depends(requir
 
 @sessions_router.get("")
 def list_sessions_alias(
-    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    principal: WebPrincipal | MobilePrincipal = Depends(require_web_or_active_mobile_principal),
     session: Session = Depends(get_db),
 ) -> list[dict[str, object]]:
+    service = WebSessionService(session)
+    if isinstance(principal, WebPrincipal):
+        # Browsers can inspect and manage only their current temporary session.
+        # Workspace-wide session administration stays on verified Android.
+        return [
+            item.as_dict()
+            for item in service.list_active(principal.workspace_id)
+            if item.id == principal.session_id
+        ]
     if principal.workspace_id is None:
         raise ApiError(403, "workspace_access_denied", "active workspace membership required")
-    return [item.as_dict() for item in WebSessionService(session).list_active(principal.workspace_id)]
+    return [item.as_dict() for item in service.list_active(principal.workspace_id)]
 
 
 @sessions_router.post("/revoke-all")
 def revoke_all_sessions(
-    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    principal: WebPrincipal | MobilePrincipal = Depends(require_web_or_active_mobile_principal),
     session: Session = Depends(get_db),
 ) -> dict[str, int]:
-    if principal.workspace_id is None:
-        raise ApiError(403, "workspace_access_denied", "active workspace membership required")
     try:
-        count = WebSessionService(session).revoke_all(principal.workspace_id, principal.device_id)
+        service = WebSessionService(session)
+        if isinstance(principal, WebPrincipal):
+            service.revoke_own(principal.session_id, principal.user_id, principal.workspace_id)
+            count = 1
+        else:
+            if principal.workspace_id is None:
+                raise ApiError(403, "workspace_access_denied", "active workspace membership required")
+            count = service.revoke_all(principal.workspace_id, principal.device_id)
         session.commit()
     except WebSessionConflict as error:
         session.rollback()
@@ -188,5 +206,23 @@ def revoke_all_sessions(
 
 
 @sessions_router.post("/{session_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)
-def revoke_session_alias(session_id: UUID, principal: MobilePrincipal = Depends(require_active_mobile_principal), session: Session = Depends(get_db)) -> Response:
-    return revoke_session(session_id, principal, session)
+def revoke_session_alias(
+    session_id: UUID,
+    principal: WebPrincipal | MobilePrincipal = Depends(require_web_or_active_mobile_principal),
+    session: Session = Depends(get_db),
+) -> Response:
+    try:
+        if isinstance(principal, WebPrincipal):
+            if session_id != principal.session_id:
+                raise WebSessionConflict("approval_not_allowed", "session revocation is not authorized", 403)
+            WebSessionService(session).revoke_own(
+                principal.session_id,
+                principal.user_id,
+                principal.workspace_id,
+            )
+            session.commit()
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        return revoke_session(session_id, principal, session)
+    except WebSessionConflict as error:
+        session.rollback()
+        raise _session_error(error) from error

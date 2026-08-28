@@ -28,7 +28,8 @@ volume to this project.
    `ALLOWED_ORIGINS`/`ALLOWED_HOSTS` value for the public origin.
 3. Point DNS A/AAAA records at the host and allow TCP 80/443. Caddy obtains
    and renews the certificate automatically after DNS resolves.
-4. Render and inspect the deployment before starting it:
+4. Render and inspect the deployment before starting it. The stack includes a small
+   `web-session-cleanup` worker; it uses the same database and runs once per day:
 
    ```sh
    docker compose --env-file deploy/.env -f deploy/docker-compose.yml config

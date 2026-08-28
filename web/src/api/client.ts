@@ -28,10 +28,10 @@ export class ApiClient {
       headers,
     });
     if (response.status === 204) return undefined as T;
-    const hasBody = response.headers.get('content-length') !== '0' && response.status !== 204;
     let payload: unknown;
-    if (hasBody) {
-      try { payload = await response.json(); } catch { payload = undefined; }
+    const rawBody = await response.text();
+    if (rawBody.trim() !== '') {
+      try { payload = JSON.parse(rawBody); } catch { payload = undefined; }
     }
     if (!response.ok) {
       const problem = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};

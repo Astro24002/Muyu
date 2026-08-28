@@ -184,5 +184,7 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_2
-          script: flutter test integration_test/mobile_cloud_flow_test.dart
+          script: >-
+            flutter test integration_test/mobile_cloud_flow_test.dart
+            integration_test/account_workspace_device_flow_test.dart
           working-directory: client

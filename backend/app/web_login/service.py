@@ -138,6 +138,36 @@ class WebSessionService:
             self._audit(workspace_id, actor_user_id, "web_session_revoked", row.id)
         return len(rows)
 
+    def revoke_own(self, session_id: UUID, user_id: UUID, workspace_id: UUID) -> None:
+        """End the browser session making the request.
+
+        This intentionally has a narrower authority than ``revoke``: a Web
+        session can log itself out, but only an ACTIVE Android device may
+        revoke another browser session or all sessions in a workspace.
+        """
+
+        row = self.session.scalar(
+            select(WebSession)
+            .where(
+                WebSession.id == session_id,
+                WebSession.user_id == user_id,
+                WebSession.workspace_id == workspace_id,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise WebSessionConflict("approval_not_allowed", "session revocation is not authorized", 403)
+        if row.status == WebSessionStatus.REVOKED:
+            raise WebSessionConflict("web_session_already_revoked", "web session is already revoked", 409)
+        if row.status == WebSessionStatus.EXPIRED or row.expires_at <= self.now():
+            row.status = WebSessionStatus.EXPIRED
+            row.updated_at = self.now()
+            raise WebSessionConflict("web_session_expired", "web session is expired", 409)
+        row.status = WebSessionStatus.REVOKED
+        row.revoked_at = self.now()
+        row.updated_at = self.now()
+        self._audit(workspace_id, user_id, "web_session_self_revoked", row.id)
+
     def _authorize_actor(self, workspace_id: UUID, actor_device_id: UUID) -> UUID:
         device = self.session.get(AndroidDevice, actor_device_id)
         if device is None or device.status != DeviceStatus.ACTIVE:

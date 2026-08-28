@@ -11,6 +11,7 @@ from app.auth.providers.fake import FakeSmsProvider
 from app.db.enums import DeviceStatus, WebSessionStatus
 from app.db.models import AndroidDevice, WebSession, WorkspaceMembership
 from app.main import create_app
+from app.web_login.service import _digest
 
 
 def _client(db_engine) -> TestClient:
@@ -137,3 +138,43 @@ def test_revoke_does_not_change_android_device(db_engine) -> None:
         assert device is not None and device.status == DeviceStatus.ACTIVE
         stored = session.get(WebSession, row_id)
         assert stored is not None and stored.status == WebSessionStatus.REVOKED
+
+
+def test_browser_lists_and_revokes_only_its_own_web_session(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    raw_cookie = "browser-session-cookie"
+    with Session(db_engine) as session:
+        workspace_id = session.scalar(
+            select(WorkspaceMembership.workspace_id).where(
+                WorkspaceMembership.user_id == UUID(str(owner["user"]["id"])),
+            )
+        )
+        assert workspace_id is not None
+        own = _session(
+            session,
+            UUID(str(owner["user"]["id"])),
+            workspace_id,
+            UUID(str(owner["device_id"])),
+            _digest(raw_cookie),
+        )
+        other = _session(
+            session,
+            UUID(str(partner["user"]["id"])),
+            workspace_id,
+            UUID(str(partner["device_id"])),
+            "browser-other-session",
+        )
+        own_id = str(own.id)
+        other_id = str(other.id)
+        session.commit()
+
+    client.cookies.set("muyu_web_session", raw_cookie)
+    listed = client.get("/api/v1/web-sessions")
+    assert listed.status_code == 200, listed.text
+    assert [item["id"] for item in listed.json()] == [own_id]
+
+    denied = client.post(f"/api/v1/web-sessions/{other_id}/revoke")
+    assert denied.status_code == 403, denied.text
+    revoked = client.post(f"/api/v1/web-sessions/{own_id}/revoke")
+    assert revoked.status_code == 204, revoked.text

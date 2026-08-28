@@ -2,6 +2,7 @@ import type { TaskItem } from '../api/types';
 import type { TaskConflict } from '../tasks/task-model';
 import { deriveTaskSummary, filterMyTasks, groupTasksByStatus, TASK_STATUSES } from '../tasks/task-view-model';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
+import { ApprovalView } from './approval-view';
 import { TaskDetailView, type TaskDetailHandle } from './task-detail-view';
 import { WebSessionView, type WebSessionViewApi } from './web-session-view';
 
@@ -19,10 +20,12 @@ export class WorkspaceView {
     let showSessions = false;
     let detailCleanup: (() => void) | undefined;
     let sessionCleanup: (() => void) | undefined;
+    let approvalCleanup: (() => void) | undefined;
     let detailHandle: TaskDetailHandle | undefined;
     let activeTaskId: string | null = null;
     let draftTitle = '';
     let draftDescription = '';
+    let showApprovals = false;
 
     const render = (state: WorkspaceSyncState) => {
       if (state.authRequired) {
@@ -33,12 +36,14 @@ export class WorkspaceView {
       }
       if (activeTaskId && detailHandle) {
         const task = state.snapshot?.tasks.find((item) => item.id === activeTaskId);
-        if (task) detailHandle.update(task, state.conflicts, state.error);
+        if (task) detailHandle.update(task, state.conflicts, state.error, state.comments ?? state.snapshot?.comments ?? []);
         return;
       }
 
       sessionCleanup?.();
       sessionCleanup = undefined;
+      approvalCleanup?.();
+      approvalCleanup = undefined;
       const page = buildWorkspace(
         state,
         sync,
@@ -49,6 +54,7 @@ export class WorkspaceView {
         draftDescription,
         creating,
         showSessions,
+        showApprovals,
         Boolean(sessionApi),
         (value) => { draftTitle = value; },
         (value) => { draftDescription = value; },
@@ -57,14 +63,19 @@ export class WorkspaceView {
         (nextMode) => { mode = nextMode; render(sync.state); },
         (nextMy) => { myOnly = nextMy; render(sync.state); },
         () => { showSessions = !showSessions; render(sync.state); },
+        () => { showApprovals = !showApprovals; render(sync.state); },
         (task) => {
           activeTaskId = task.id;
           detailHandle = TaskDetailView.mount(root, task, state.snapshot?.members ?? [], {
             conflicts: state.conflicts,
+            comments: state.comments ?? state.snapshot?.comments ?? [],
+            currentUserId: state.snapshot?.viewer_user_id ?? undefined,
+            hasPendingApproval: () => sync.state.approvals?.some((request) => request.task_id === task.id && request.status === 'PENDING') ?? sync.state.snapshot?.approval_requests?.some((request) => request.task_id === task.id && request.status === 'PENDING') ?? false,
             onTransition: (status, payload) => sync.transitionTask(task.id, status, payload),
             onComment: (body) => sync.addComment(task.id, body),
             onDelay: (date, reason, note) => sync.addDelay(task.id, date, reason, note),
             onSave: (changes) => sync.patchTask(task.id, changes),
+            onDeleteComment: (commentId, baseVersion) => sync.deleteTaskComment(task.id, commentId, baseVersion),
             onResolveConflict: (id, resolution) => sync.resolveConflict(task.id, id, resolution),
             onClose: () => {
               activeTaskId = null;
@@ -85,6 +96,11 @@ export class WorkspaceView {
         const slot = page.querySelector<HTMLElement>('[data-web-session-slot]');
         if (slot) sessionCleanup = WebSessionView.mount(slot, sessionApi, { onAuthRequired: onSessionAuthRequired });
       }
+      if (showApprovals) {
+        const slot = page.querySelector<HTMLElement>('[data-approval-slot]');
+        const viewerId = state.snapshot?.viewer_user_id ?? '';
+        if (slot) approvalCleanup = ApprovalView.mount(slot, sync, viewerId);
+      }
     };
 
     const unsubscribe = sync.subscribe(render);
@@ -92,6 +108,7 @@ export class WorkspaceView {
     return () => {
       detailCleanup?.();
       sessionCleanup?.();
+      approvalCleanup?.();
       activeTaskId = null;
       unsubscribe();
     };
@@ -108,6 +125,7 @@ function buildWorkspace(
   draftDescription: string,
   creating: boolean,
   showSessions: boolean,
+  showApprovals: boolean,
   hasSessionApi: boolean,
   setDraftTitle: (value: string) => void,
   setDraftDescription: (value: string) => void,
@@ -116,6 +134,7 @@ function buildWorkspace(
   setMode: (mode: 'list' | 'board') => void,
   setMyOnly: (value: boolean) => void,
   toggleSessions: () => void,
+  toggleApprovals: () => void,
   openTask: (task: TaskItem) => void,
 ): HTMLElement {
   const page = element('main', 'workspace-page');
@@ -123,12 +142,13 @@ function buildWorkspace(
   header.append(element('div', undefined, 'Muyu'));
   const controls = element('div', 'workspace-controls');
   controls.append(button('刷新', () => void sync.refresh()));
+  controls.append(button('任务审批', toggleApprovals));
   if (hasSessionApi) controls.append(button(showSessions ? '关闭网页登录会话' : '网页登录会话', toggleSessions));
   controls.append(button('退出登录', onLogout));
   header.append(controls);
   page.append(header);
   const tasks = (state.snapshot?.tasks ?? []).filter((task) => !task.deleted_at);
-  const userId = state.snapshot?.members[0]?.user_id ?? '';
+  const userId = state.snapshot?.viewer_user_id ?? '';
   const visible = myOnly ? filterMyTasks(tasks, userId) : tasks;
   const summary = deriveTaskSummary(myOnly ? visible : tasks);
   page.append(element('section', 'task-summary', `我的任务 ${summary.mine} | 阻塞 ${summary.blocked} | 24小时内 ${summary.dueSoon} | 已过期 ${summary.overdue} | 待处理冲突 ${state.conflicts.length}`));
@@ -173,6 +193,11 @@ function buildWorkspace(
     slot.hidden = !showSessions;
     if (showSessions) page.append(slot);
   }
+  if (showApprovals) {
+    const slot = element('section', 'approval-slot');
+    slot.dataset.approvalSlot = 'true';
+    page.append(slot);
+  }
   if (mode === 'board') {
     const boardNode = element('section', 'task-board');
     const groups = groupTasksByStatus(visible);
@@ -196,7 +221,11 @@ function buildWorkspace(
 function taskCard(task: TaskItem, sync: WorkspaceSyncController, loading: boolean, openTask: (task: TaskItem) => void): HTMLElement {
   const row = element('article', 'task-row');
   row.addEventListener('click', () => openTask(task));
-  row.append(element('h3', undefined, task.title), element('p', 'task-meta', `${task.status} | 截止: ${task.due_at ?? '未设置'} | 延期: ${task.delay_count} | 版本: ${task.status_version}`));
+  const progressLabel = task.status === 'IN_PROGRESS' && task.progress !== null && task.progress !== undefined
+    ? ` | 进度: ${task.progress}%`
+    : '';
+  const quadrantLabel = task.quadrant ? ` | ${task.quadrant}` : '';
+  row.append(element('h3', undefined, `${task.task_number ?? task.id} ${task.title}`), element('p', 'task-meta', `${task.status}${quadrantLabel}${progressLabel} | 截止: ${task.due_at ?? '未设置'} | 延期: ${task.delay_count} | 版本: ${task.status_version}`));
   if (task.status === 'WAITING') row.append(element('p', 'blocked-reason', `阻塞: ${task.blocked_reason ?? '未说明'}`));
   if (task.due_at && Date.parse(task.due_at) < Date.now() && task.status !== 'DONE' && task.status !== 'CANCELLED') row.append(element('p', 'overdue-warning', '已过期'));
   const done = button('完成', (event) => { event.stopPropagation(); void sync.transitionTask(task.id, 'DONE'); });

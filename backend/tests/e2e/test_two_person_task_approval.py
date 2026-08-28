@@ -166,3 +166,10 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert owner_final.json()["cursor"] == partner_final.json()["cursor"]
     assert owner_final.json()["tasks"] == partner_final.json()["tasks"]
     assert any(item["id"] == comment_id and item["deleted_at"] for item in owner_final.json()["comments"])
+    print(
+        "two-person task approval smoke: "
+        f"task_number={owner_final.json()['tasks'][0]['task_number']} "
+        f"request_id={approval['request_id']} "
+        f"approval_status={approved.json()['approval_request']['status']} "
+        f"final_cursor={owner_final.json()['cursor']}"
+    )

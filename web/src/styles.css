@@ -30,13 +30,35 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
 .web-session-item p { margin: 0; }
 .web-session-item p:not(:first-child) { color: #556070; font-size: 14px; grid-column: 1; }
 .web-session-item button { grid-column: 2; grid-row: 1 / span 3; }
+.approval-slot { border-top: 1px solid #d5dce6; margin: 20px 0; padding-top: 16px; }
+.approval-view { display: grid; gap: 16px; }
+.approval-view > h2 { margin: 0; font-size: 20px; }
+.approval-box { display: grid; gap: 10px; }
+.approval-box h2 { margin: 0; font-size: 18px; }
+.approval-empty { color: #556070; margin: 0; }
+.approval-list { display: grid; gap: 10px; }
+.approval-card { background: #fff; border: 1px solid #d5dce6; border-radius: 6px; display: grid; gap: 5px; padding: 14px; }
+.approval-card h2 { font-size: 16px; margin: 0; }
+.approval-meta, .approval-changes, .approval-reason { margin: 0; }
+.approval-meta { color: #556070; font-size: 14px; }
+.approval-changes { overflow-wrap: anywhere; }
+.approval-reason { color: #a13c12; }
+.approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .task-board { display: grid; gap: 12px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .task-column { min-width: 0; }
 .task-detail { background: #fff; border: 1px solid #d5dce6; border-radius: 6px; display: grid; gap: 10px; left: 50%; max-width: 520px; padding: 18px; position: fixed; top: 15%; transform: translateX(-50%); width: calc(100% - 32px); z-index: 2; }
 .task-detail h2 { margin: 0; }
+.task-metadata { color: #556070; display: grid; font-size: 14px; gap: 3px; }
 .task-field { display: grid; gap: 5px; color: #556070; font-size: 14px; }
 .task-field input, .task-field textarea, .task-field select { color: #172033; width: 100%; }
 .task-detail > button { justify-self: start; }
+.task-comments { border-top: 1px solid #e5e9ef; display: grid; gap: 8px; padding-top: 10px; }
+.comments-empty { color: #556070; margin: 0; }
+.comment-item { border-top: 1px solid #e5e9ef; display: grid; gap: 4px; padding-top: 8px; }
+.comment-item:first-child { border-top: 0; padding-top: 0; }
+.comment-body, .comment-meta { margin: 0; }
+.comment-meta { color: #556070; font-size: 13px; }
+.comment-tombstone .comment-body { color: #556070; font-style: italic; }
 .blocked-reason, .overdue-warning { color: #a13c12; margin: 0; }
 .task-row, .conflict-item { background: #fff; border: 1px solid #d5dce6; border-radius: 6px; padding: 14px; }
 .task-row { display: grid; gap: 10px; }

@@ -1,6 +1,21 @@
 import { API_BASE_URL } from '../config';
-import type { TaskItem, WebChallenge, WebChallengeStatus, WebSessionExchange, WebSessionRevokeAllResult, WebSessionSummary, WorkspaceChanges, WorkspaceSnapshot } from './types';
-export type TaskWriteResult = TaskItem & { cursor: number };
+import type {
+  ApprovalActionResult,
+  PendingApproval,
+  TaskApprovalRequest,
+  TaskComment,
+  TaskItem,
+  TaskApprovalRequestType,
+  WebChallenge,
+  WebChallengeStatus,
+  WebSessionExchange,
+  WebSessionRevokeAllResult,
+  WebSessionSummary,
+  WorkspaceChanges,
+  WorkspaceSnapshot,
+} from './types';
+export type AppliedTaskWriteResult = TaskItem & { cursor: number };
+export type TaskWriteResult = AppliedTaskWriteResult | PendingApproval;
 
 export type ApiRequestInit = Omit<RequestInit, 'body'> & { body?: unknown };
 
@@ -56,13 +71,74 @@ export class ApiClient {
   revokeAllWebSessions(): Promise<WebSessionRevokeAllResult> { return this.request('/api/v1/web-sessions/revoke-all', { method: 'POST' }); }
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> { return this.request('/api/v1/workspaces/current/snapshot'); }
   getWorkspaceChanges(afterCursor: number): Promise<WorkspaceChanges> { return this.request(`/api/v1/workspaces/current/changes?after_cursor=${encodeURIComponent(afterCursor)}`); }
-  createTask(input: { requestId: string; title: string; description: string }): Promise<TaskItem & { cursor: number }> { return this.request('/api/v1/tasks', { method: 'POST', body: { request_id: input.requestId, title: input.title, description: input.description } }); }
-  patchTask(id: string, input: { requestId: string; changes: Record<string, unknown>; baseFieldVersions: Record<string, number> }): Promise<TaskItem & { cursor: number }> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: { request_id: input.requestId, changes: input.changes, base_field_versions: input.baseFieldVersions } }); }
-  resolveConflict(taskId: string, conflictId: string, input: { requestId: string; resolution: 'current' | 'proposed' }): Promise<TaskItem & { cursor: number }> { return this.request(`/api/v1/tasks/${encodeURIComponent(taskId)}/conflicts/${encodeURIComponent(conflictId)}/resolve`, { method: 'POST', body: { request_id: input.requestId, resolution: input.resolution } }); }
+  createTask(input: { requestId: string; title: string; description: string }): Promise<AppliedTaskWriteResult> { return this.request('/api/v1/tasks', { method: 'POST', body: { request_id: input.requestId, title: input.title, description: input.description } }); }
+  patchTask(id: string, input: { requestId: string; changes: Record<string, unknown>; baseFieldVersions: Record<string, number> }): Promise<TaskWriteResult> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: { request_id: input.requestId, changes: input.changes, base_field_versions: input.baseFieldVersions } }); }
+  resolveConflict(taskId: string, conflictId: string, input: { requestId: string; resolution: 'current' | 'proposed' }): Promise<AppliedTaskWriteResult> { return this.request(`/api/v1/tasks/${encodeURIComponent(taskId)}/conflicts/${encodeURIComponent(conflictId)}/resolve`, { method: 'POST', body: { request_id: input.requestId, resolution: input.resolution } }); }
   transitionTask(id: string, input: { requestId: string; targetStatus: string; baseStatusVersion: number; blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string }): Promise<TaskWriteResult> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/transition`, { method: 'POST', body: { request_id: input.requestId, target_status: input.targetStatus, base_status_version: input.baseStatusVersion, blocked_reason: input.blockedReason, resume_handler_id: input.resumeHandlerId, waiting_for_user_id: input.waitingForUserId } }); }
-  getTaskComments(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`); }
-  addTaskComment(id: string, input: { requestId: string; body: string }): Promise<Record<string, unknown>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`, { method: 'POST', body: { request_id: input.requestId, body: input.body } }); }
+  getTaskComments(id: string): Promise<TaskComment[]> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`); }
+  addTaskComment(id: string, input: { requestId: string; body: string }): Promise<TaskComment & { cursor?: number }> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`, { method: 'POST', body: { request_id: input.requestId, body: input.body } }); }
   getTaskDelays(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/delays`); }
   addTaskDelay(id: string, input: { requestId: string; newDueAt: string; reason: string; note?: string }): Promise<Record<string, unknown>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/delays`, { method: 'POST', body: { request_id: input.requestId, new_due_at: input.newDueAt, reason: input.reason, note: input.note } }); }
   getTaskActivity(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/activity`); }
+
+  createApprovalRequest(input: {
+    workspaceId?: string;
+    requestId: string;
+    taskId: string;
+    commentId?: string | null;
+    requestType: TaskApprovalRequestType;
+    proposedChanges: Record<string, unknown>;
+    baseFieldVersions: Record<string, number>;
+  }): Promise<TaskApprovalRequest & { cursor?: number }> {
+    return this.request(this.approvalPath(input.workspaceId), {
+      method: 'POST',
+      body: {
+        request_id: input.requestId,
+        task_id: input.taskId,
+        comment_id: input.commentId ?? null,
+        request_type: input.requestType,
+        proposed_changes: input.proposedChanges,
+        base_field_versions: input.baseFieldVersions,
+      },
+    });
+  }
+
+  listApprovalRequests(workspaceId?: string | 'incoming' | 'outgoing' | { workspaceId?: string; box?: 'incoming' | 'outgoing' }, box?: 'incoming' | 'outgoing'): Promise<TaskApprovalRequest[]> {
+    const options: { workspaceId?: string; box?: 'incoming' | 'outgoing' } = typeof workspaceId === 'object'
+      ? workspaceId
+      : workspaceId === 'incoming' || workspaceId === 'outgoing'
+        ? { box: workspaceId }
+        : { workspaceId, box };
+    const query = options.box === undefined ? '' : `?box=${encodeURIComponent(options.box)}`;
+    return this.request(`${this.approvalPath(options.workspaceId)}${query}`);
+  }
+
+  approveApproval(approvalId: string, input: { workspaceId?: string; requestId: string } | string): Promise<ApprovalActionResult> {
+    return this.approvalAction('approve', approvalId, typeof input === 'string' ? { requestId: input } : input);
+  }
+
+  rejectApproval(approvalId: string, input: { workspaceId?: string; requestId: string; reason?: string | null } | string): Promise<ApprovalActionResult> {
+    return this.approvalAction('reject', approvalId, typeof input === 'string' ? { requestId: input } : input);
+  }
+
+  cancelApproval(approvalId: string, input: { workspaceId?: string; requestId: string } | string): Promise<ApprovalActionResult> {
+    return this.approvalAction('cancel', approvalId, typeof input === 'string' ? { requestId: input } : input);
+  }
+
+  deleteTaskComment(taskId: string, commentId: string, input: { requestId: string; baseVersion: number }): Promise<(TaskComment & { cursor?: number }) | PendingApproval> {
+    return this.request(`/api/v1/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`, {
+      method: 'DELETE',
+      body: { request_id: input.requestId, base_version: input.baseVersion },
+    });
+  }
+
+  private approvalPath(workspaceId?: string): string {
+    return `/api/v1/workspaces/${encodeURIComponent(workspaceId ?? 'current')}/approval-requests`;
+  }
+
+  private approvalAction(action: 'approve' | 'reject' | 'cancel', approvalId: string, input: { workspaceId?: string; requestId: string; reason?: string | null }): Promise<ApprovalActionResult> {
+    const body: Record<string, unknown> = { request_id: input.requestId };
+    if (action === 'reject' && input.reason !== undefined) body.reason = input.reason;
+    return this.request(`${this.approvalPath(input.workspaceId)}/${encodeURIComponent(approvalId)}/${action}`, { method: 'POST', body });
+  }
 }

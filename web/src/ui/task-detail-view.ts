@@ -1,29 +1,38 @@
-import type { TaskItem, TaskStatus } from '../api/types';
+import type { PendingApproval, TaskComment, TaskItem, TaskStatus } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 
 export interface TaskDetailActions {
-  onTransition: (status: string, payload?: { blockedReason?: string; resumeHandlerId?: string }) => Promise<void>;
-  onComment: (body: string) => Promise<void>;
-  onDelay: (date: string, reason: string, note?: string) => Promise<void>;
-  onSave: (changes: EditableTaskChanges) => Promise<void>;
+  onTransition: (status: string, payload?: { blockedReason?: string; resumeHandlerId?: string }) => Promise<unknown>;
+  onComment: (body: string) => Promise<unknown>;
+  onDelay: (date: string, reason: string, note?: string) => Promise<unknown>;
+  onSave: (changes: EditableTaskChanges) => Promise<unknown>;
+  onDeleteComment?: (commentId: string, baseVersion: number) => Promise<unknown>;
   onResolveConflict?: (conflictId: string, resolution: 'current' | 'proposed') => Promise<void>;
   onClose?: () => void;
   conflicts?: TaskConflict[];
+  comments?: TaskComment[];
+  currentUserId?: string;
+  canWrite?: boolean;
+  hasPendingApproval?: () => boolean;
 }
 
 export type TaskDetailHandle = {
   (): void;
-  update: (task: TaskItem, conflicts: TaskConflict[], error?: string | null) => void;
+  update: (task: TaskItem, conflicts: TaskConflict[], error?: string | null, comments?: TaskComment[]) => void;
 };
 
 const statuses: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCELLED'];
 const delayReasons = ['NO_TIME', 'TOO_LARGE', 'NOT_WILLING', 'FORGOT', 'WAITING_PARTNER', 'INTERRUPTED', 'OTHER'];
+const quadrants = ['', 'Q1', 'Q2', 'Q3', 'Q4'];
+const progressValues = [20, 40, 60, 80];
 
 export class TaskDetailView {
   static mount(container: Element, task: TaskItem, members: Array<{ user_id: string; member_slot: number }>, actions: TaskDetailActions): TaskDetailHandle {
     let currentTask = task;
+    let currentComments = actions.comments ?? [];
     let disposed = false;
     let busy = false;
+    let pendingMessage: string | null = null;
     const dirty = new Set<string>();
     const dialog = document.createElement('section');
     dialog.className = 'task-detail';
@@ -58,6 +67,24 @@ export class TaskDetailView {
       option.selected = id === (task.resume_handler_id ?? task.current_handler_id);
       resumeHandler.append(option);
     }
+    const quadrant = document.createElement('select');
+    quadrant.setAttribute('aria-label', '四象限');
+    for (const value of quadrants) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value || '未设置';
+      option.selected = value === (task.quadrant ?? '');
+      quadrant.append(option);
+    }
+    const progress = document.createElement('select');
+    progress.setAttribute('aria-label', '进度');
+    for (const value of progressValues) {
+      const option = document.createElement('option');
+      option.value = String(value);
+      option.textContent = `${value}%`;
+      option.selected = value === task.progress;
+      progress.append(option);
+    }
     const comment = input('评论');
     const commentButton = actionButton('添加评论', 'comment');
     const due = input('延期至 (ISO 时间)');
@@ -73,17 +100,29 @@ export class TaskDetailView {
     const note = input('延期说明');
     const delayButton = actionButton('提交延期', 'delay');
     const close = actionButton('关闭', 'close');
+    const metadata = document.createElement('div');
+    metadata.className = 'task-metadata';
+    const pendingNotice = message('pending-approval', '');
+    const progressField = field('进度', progress);
+    const commentsPanel = document.createElement('section');
+    commentsPanel.className = 'task-comments';
+    commentsPanel.setAttribute('aria-label', '评论历史');
     dialog.append(
       heading('任务详情'),
+      metadata,
+      pendingNotice,
       field('标题', title),
       field('描述', description),
       save,
+      field('四象限', quadrant),
       field('状态', status),
       field('阻塞原因', blockedReason),
       field('恢复负责人', resumeHandler),
       transition,
+      progressField,
       field('评论', comment),
       commentButton,
+      commentsPanel,
       field('新截止时间', due),
       field('原因', reason),
       field('说明', note),
@@ -93,6 +132,62 @@ export class TaskDetailView {
     );
 
     let conflictPanel: HTMLElement | undefined;
+    const isOwner = () => !actions.currentUserId || actions.currentUserId === currentTask.current_handler_id;
+    const canWrite = () => actions.canWrite !== false;
+    const renderMetadata = () => {
+      metadata.replaceChildren(
+        textNode(currentTask.task_number ? `任务编号：${currentTask.task_number}` : '任务编号：未分配'),
+        textNode(`负责人：${currentTask.current_handler_id}`),
+        textNode(isOwner() ? '当前用户是任务负责人' : '协作成员，修改将提交审批'),
+      );
+      save.textContent = isOwner() ? '保存' : '提交审批';
+      transition.textContent = isOwner() ? '更新状态' : '提交审批';
+      const pending = Boolean(pendingMessage) || Boolean(actions.hasPendingApproval?.());
+      pendingNotice.hidden = !pending;
+      pendingNotice.textContent = pending ? pendingMessage ?? '等待负责人审批' : '';
+      progressField.hidden = currentTask.status !== 'IN_PROGRESS';
+      if (!dirty.has('quadrant')) quadrant.value = currentTask.quadrant ?? '';
+      if (!dirty.has('progress')) progress.value = String(currentTask.progress ?? 20);
+      const protectedControls = [save, quadrant, status, blockedReason, resumeHandler, transition];
+      for (const control of protectedControls) control.disabled = !canWrite();
+      // The server has no pending delay response, so only the owner may delay.
+      commentButton.disabled = !canWrite();
+      delayButton.disabled = !canWrite() || !isOwner();
+    };
+
+    const renderComments = () => {
+      commentsPanel.replaceChildren();
+      if (currentComments.length === 0) {
+        commentsPanel.append(message('comments-empty', '暂无评论'));
+        return;
+      }
+      const sorted = [...currentComments].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+      for (const item of sorted) {
+        const row = document.createElement('article');
+        row.className = item.deleted_at ? 'comment-item comment-tombstone' : 'comment-item';
+        row.dataset.commentId = item.id;
+        if (item.deleted_at) {
+          row.append(message('comment-body', '评论已删除'), message('comment-meta', `删除时间：${item.deleted_at}`));
+        } else {
+          row.append(message('comment-body', item.body), message('comment-meta', `作者：${item.author_user_id}`));
+          const viewerId = actions.currentUserId ?? currentTask.current_handler_id;
+          const canDelete = canWrite() && Boolean(actions.onDeleteComment)
+            && (item.author_user_id === viewerId || currentTask.current_handler_id === viewerId);
+          if (canDelete) {
+            const remove = actionButton('删除评论', 'delete-comment');
+            remove.dataset.commentId = item.id;
+            remove.disabled = busy;
+            remove.addEventListener('click', () => void run(async () => {
+              const result = await actions.onDeleteComment!(item.id, item.version);
+              if (isPendingApproval(result)) pendingMessage = '评论删除等待作者审批';
+            }));
+            row.append(remove);
+          }
+        }
+        commentsPanel.append(row);
+      }
+    };
+
     const renderConflicts = (conflicts: TaskConflict[]) => {
       conflictPanel?.remove();
       conflictPanel = undefined;
@@ -117,9 +212,10 @@ export class TaskDetailView {
 
     const setBusy = (value: boolean) => {
       busy = value;
-      for (const button of dialog.querySelectorAll('button')) button.disabled = value;
+      dialog.dataset.busy = value ? 'true' : 'false';
+      renderComments();
     };
-    const run = async (operation: () => Promise<void>) => {
+    const run = async (operation: () => Promise<unknown>) => {
       if (busy) return;
       setBusy(true);
       error.textContent = '';
@@ -128,7 +224,16 @@ export class TaskDetailView {
       } catch (cause) {
         if (!disposed) error.textContent = cause instanceof Error ? cause.message : '操作失败，请重试。';
       } finally {
-        if (!disposed) setBusy(false);
+        if (!disposed) {
+          setBusy(false);
+          renderMetadata();
+          renderComments();
+          if (pendingMessage) {
+            error.textContent = pendingMessage;
+            renderMetadata();
+            pendingMessage = null;
+          }
+        }
       }
     };
     const resolve = (id: string, choice: 'current' | 'proposed') =>
@@ -142,40 +247,56 @@ export class TaskDetailView {
     blockedReason.addEventListener('input', () => dirty.add('blockedReason'));
     resumeHandler.addEventListener('change', () => dirty.add('resumeHandler'));
     status.addEventListener('change', () => dirty.add('status'));
+    quadrant.addEventListener('change', () => dirty.add('quadrant'));
+    progress.addEventListener('change', () => dirty.add('progress'));
 
     const handle = (() => {
       disposed = true;
       dialog.remove();
     }) as TaskDetailHandle;
-    handle.update = (nextTask, conflicts, nextError) => {
+    handle.update = (nextTask, conflicts, nextError, comments) => {
       if (disposed) return;
       currentTask = nextTask;
+      if (comments) currentComments = comments;
       updateIfClean('title', title, nextTask.title);
       updateIfClean('description', description, nextTask.description);
       updateIfClean('blockedReason', blockedReason, nextTask.blocked_reason ?? '');
       if (!dirty.has('status')) status.value = nextTask.status;
       if (!dirty.has('resumeHandler')) resumeHandler.value = nextTask.resume_handler_id ?? nextTask.current_handler_id;
       error.textContent = nextError ?? '';
+      renderMetadata();
+      renderComments();
       renderConflicts(conflicts);
     };
 
-    save.addEventListener('click', () => void run(() => actions.onSave({ title: title.value.trim(), description: description.value })));
-    transition.addEventListener('click', () => void run(async () => {
+    save.addEventListener('click', () => void run(() => {
+      const changes: EditableTaskChanges = { title: title.value.trim(), description: description.value };
+      const nextQuadrant: TaskItem['quadrant'] = quadrant.value ? quadrant.value as NonNullable<TaskItem['quadrant']> : null;
+      if (nextQuadrant !== (currentTask.quadrant ?? null)) changes.quadrant = nextQuadrant;
+      if (currentTask.status === 'IN_PROGRESS') {
+        const nextProgress = Number(progress.value);
+        if (nextProgress !== (currentTask.progress ?? 20)) changes.progress = nextProgress;
+      }
+      return actions.onSave(changes).then((value) => {
+        if (isPendingApproval(value)) pendingMessage = '等待负责人审批';
+        return value;
+      });
+    }));
+    transition.addEventListener('click', () => void run(() => {
       const blocked = blockedReason.value.trim();
       const handler = resumeHandler.value;
       if (status.value === 'WAITING' && (!blocked || !handler)) {
         error.textContent = '进入等待状态需要阻塞原因和恢复负责人。';
-        return;
+        return Promise.resolve();
       }
       const payload = {
         ...(blocked ? { blockedReason: blocked } : {}),
         ...(handler && (status.value === 'WAITING' || currentTask.status === 'WAITING') ? { resumeHandlerId: handler } : {}),
       };
-      if (Object.keys(payload).length === 0) {
-        await actions.onTransition(status.value);
-      } else {
-        await actions.onTransition(status.value, payload);
-      }
+      const result = Object.keys(payload).length === 0
+        ? actions.onTransition(status.value)
+        : actions.onTransition(status.value, payload);
+      return result.then((value) => { if (isPendingApproval(value)) pendingMessage = '等待负责人审批'; });
     }));
     commentButton.addEventListener('click', () => {
       const body = comment.value.trim();
@@ -187,7 +308,7 @@ export class TaskDetailView {
     });
     delayButton.addEventListener('click', () => {
       if (!due.value) return;
-      void run(() => actions.onDelay(new Date(due.value).toISOString(), reason.value, note.value.trim() || undefined));
+      void run(async () => { await actions.onDelay(new Date(due.value).toISOString(), reason.value, note.value.trim() || undefined); });
     });
     close.addEventListener('click', () => {
       handle();
@@ -195,6 +316,8 @@ export class TaskDetailView {
     });
 
     container.append(dialog);
+    renderMetadata();
+    renderComments();
     renderConflicts(actions.conflicts ?? []);
     return handle;
   }
@@ -226,10 +349,21 @@ function textNode(value: string): Text {
   return document.createTextNode(value);
 }
 
+function message(className: string, value: string): HTMLElement {
+  const node = document.createElement('p');
+  node.className = className;
+  node.textContent = value;
+  return node;
+}
+
 function actionButton(label: string, action: string): HTMLButtonElement {
   const node = document.createElement('button');
   node.type = 'button';
   node.textContent = label;
   node.dataset.action = action;
   return node;
+}
+
+function isPendingApproval(value: unknown): value is PendingApproval {
+  return Boolean(value && typeof value === 'object' && 'pending' in value && 'approval_request' in value);
 }

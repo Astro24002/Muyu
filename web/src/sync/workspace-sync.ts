@@ -1,5 +1,5 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
-import type { TaskItem, WorkspaceChange, WorkspaceSnapshot } from '../api/types';
+import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 import { upsertTask } from '../tasks/task-model';
 
@@ -11,6 +11,10 @@ export interface WorkspaceSyncState {
   error: string | null;
   conflicts: TaskConflict[];
   authRequired: boolean;
+  /** A convenient view of snapshot.approval_requests for approval UI consumers. */
+  approvals?: TaskApprovalRequest[];
+  /** A convenient view of snapshot.comments for detail UI consumers. */
+  comments?: TaskComment[];
 }
 
 export interface WorkspaceSyncOptions {
@@ -37,7 +41,7 @@ export class WorkspaceSyncController {
   private generation = 0;
   private readonly requestIdFactory: () => string;
 
-  constructor(private readonly api: Pick<ApiClient, 'getWorkspaceSnapshot' | 'getWorkspaceChanges' | 'createTask' | 'patchTask' | 'resolveConflict' | 'transitionTask' | 'addTaskComment' | 'addTaskDelay'>, options: WorkspaceSyncOptions = {}) {
+  constructor(private readonly api: Pick<ApiClient, 'getWorkspaceSnapshot' | 'getWorkspaceChanges' | 'createTask' | 'patchTask' | 'resolveConflict' | 'transitionTask' | 'addTaskComment' | 'addTaskDelay' | 'createApprovalRequest' | 'listApprovalRequests' | 'approveApproval' | 'rejectApproval' | 'cancelApproval' | 'deleteTaskComment'>, options: WorkspaceSyncOptions = {}) {
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
   }
 
@@ -56,14 +60,16 @@ export class WorkspaceSyncController {
 
   clear(): void {
     this.generation += 1;
-    this.setState(INITIAL_STATE);
+    this.currentState = INITIAL_STATE;
+    for (const listener of this.listeners) listener(this.currentState);
   }
 
   async loadSnapshot(): Promise<void> {
     await this.run('无法加载工作区，请检查网络后重试。', async (isCurrent) => {
       const snapshot = await this.api.getWorkspaceSnapshot();
       if (!isCurrent()) return;
-      this.setState({ snapshot, cursor: snapshot.cursor, conflicts: normalizeConflicts(snapshot.conflicts), stale: false, error: null, authRequired: false });
+      const normalized = normalizeSnapshot(snapshot);
+      this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), stale: false, error: null, authRequired: false });
     });
   }
 
@@ -83,15 +89,15 @@ export class WorkspaceSyncController {
     await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({ requestId: this.requestIdFactory(), title, description }));
   }
 
-  async patchTask(taskId: string, changes: EditableTaskChanges): Promise<void> {
+  async patchTask(taskId: string, changes: EditableTaskChanges): Promise<TaskWriteResult | undefined> {
     const task = this.currentState.snapshot?.tasks.find((item) => item.id === taskId);
     if (!task) {
       this.setState({ error: '任务不存在，请刷新后重试。' });
-      return;
+      return undefined;
     }
     const fields = Object.keys(changes);
     const baseFieldVersions = Object.fromEntries(fields.map((field) => [field, task.field_versions[field] ?? 1]));
-    await this.write('无法更新任务，请检查网络后重试。', () => this.api.patchTask(taskId, {
+    return this.write('无法更新任务，请检查网络后重试。', () => this.api.patchTask(taskId, {
       requestId: this.requestIdFactory(),
       changes,
       baseFieldVersions,
@@ -107,10 +113,13 @@ export class WorkspaceSyncController {
     }));
   }
 
-  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string } = {}): Promise<void> {
+  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string } = {}): Promise<TaskWriteResult | undefined> {
     const task = this.currentState.snapshot?.tasks.find((item) => item.id === taskId);
-    if (!task) return this.setState({ error: '任务不存在，请刷新后重试。' });
-    await this.write('无法更新任务状态，请检查网络后重试。', () => this.api.transitionTask(taskId, { requestId: this.requestIdFactory(), targetStatus, baseStatusVersion: task.status_version, ...payload }));
+    if (!task) {
+      this.setState({ error: '任务不存在，请刷新后重试。' });
+      return undefined;
+    }
+    return this.write('无法更新任务状态，请检查网络后重试。', () => this.api.transitionTask(taskId, { requestId: this.requestIdFactory(), targetStatus, baseStatusVersion: task.status_version, ...payload }));
   }
 
   async addComment(taskId: string, body: string): Promise<void> {
@@ -126,15 +135,114 @@ export class WorkspaceSyncController {
     await this.run('无法延期任务，请检查网络后重试。', async () => { await this.api.addTaskDelay(taskId, { requestId: this.requestIdFactory(), newDueAt, reason, note }); await this.pull(); });
   }
 
-  private async write(message: string, operation: () => Promise<TaskWriteResult>, onSuccess?: () => void): Promise<void> {
+  async createApprovalRequest(taskId: string, input: {
+    requestType: TaskApprovalRequest['request_type'];
+    proposedChanges: Record<string, unknown>;
+    baseFieldVersions: Record<string, number>;
+    commentId?: string | null;
+  }): Promise<TaskApprovalRequest | undefined> {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return undefined;
     const cursorBeforeWrite = this.currentState.cursor;
-    await this.run(message, async (isCurrent) => {
-      const result = await operation();
-      if (!isCurrent()) return;
-      this.mergeTask(result, result.cursor);
-      onSuccess?.();
-      if (result.cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+    let created: TaskApprovalRequest | undefined;
+    await this.run('无法提交审批请求，请检查网络后重试。', async () => {
+      const approval = await this.api.createApprovalRequest({
+        workspaceId: snapshot.workspace_id,
+        requestId: this.requestIdFactory(),
+        taskId,
+        commentId: input.commentId,
+        requestType: input.requestType,
+        proposedChanges: input.proposedChanges,
+        baseFieldVersions: input.baseFieldVersions,
+      });
+      created = approval;
+      this.mergeApproval(approval);
+      const cursor = cursorFrom(approval);
+      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
     });
+    return created;
+  }
+
+  async listApprovalRequests(box?: 'incoming' | 'outgoing'): Promise<TaskApprovalRequest[]> {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return [];
+    let result: TaskApprovalRequest[] = [];
+    await this.run('无法加载审批请求，请检查网络后重试。', async () => {
+      result = await this.api.listApprovalRequests(snapshot.workspace_id, box);
+      this.mergeApprovals(result);
+    });
+    return result;
+  }
+
+  async approveApproval(approvalId: string): Promise<ApprovalActionResult | undefined> {
+    return this.runApprovalAction('approve', approvalId);
+  }
+
+  async rejectApproval(approvalId: string, reason?: string): Promise<ApprovalActionResult | undefined> {
+    return this.runApprovalAction('reject', approvalId, reason);
+  }
+
+  async cancelApproval(approvalId: string): Promise<ApprovalActionResult | undefined> {
+    return this.runApprovalAction('cancel', approvalId);
+  }
+
+  async deleteTaskComment(taskId: string, commentId: string, baseVersion: number): Promise<(TaskComment & { cursor?: number }) | PendingApproval | undefined> {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return undefined;
+    const cursorBeforeWrite = this.currentState.cursor;
+    let result: (TaskComment & { cursor?: number }) | PendingApproval | undefined;
+    await this.run('无法删除评论，请检查网络后重试。', async () => {
+      const response = await this.api.deleteTaskComment(taskId, commentId, { requestId: this.requestIdFactory(), baseVersion });
+      result = response;
+      if (isPendingApproval(response)) this.mergeApproval(response.approval_request);
+      else this.mergeComment(response);
+      const cursor = cursorFrom(response);
+      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+    });
+    return result;
+  }
+
+  /** Alias retained for callers that use the shorter task-detail action name. */
+  deleteComment(taskId: string, commentId: string, baseVersion: number): Promise<(TaskComment & { cursor?: number }) | PendingApproval | undefined> {
+    return this.deleteTaskComment(taskId, commentId, baseVersion);
+  }
+
+  private async write(message: string, operation: () => Promise<TaskWriteResult>, onSuccess?: () => void): Promise<TaskWriteResult | undefined> {
+    const cursorBeforeWrite = this.currentState.cursor;
+    let result: TaskWriteResult | undefined;
+    await this.run(message, async (isCurrent) => {
+      const response = await operation();
+      result = response;
+      if (!isCurrent()) return;
+      if (isPendingApproval(response)) {
+        this.mergeApproval(response.approval_request);
+      } else {
+        this.mergeTask(response, response.cursor);
+      }
+      onSuccess?.();
+      if (response.cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+    });
+    return result;
+  }
+
+  private async runApprovalAction(action: 'approve' | 'reject' | 'cancel', approvalId: string, reason?: string): Promise<ApprovalActionResult | undefined> {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return undefined;
+    const cursorBeforeAction = this.currentState.cursor;
+    let result: ApprovalActionResult | undefined;
+    await this.run('无法处理审批请求，请检查网络后重试。', async () => {
+      const input = { workspaceId: snapshot.workspace_id, requestId: this.requestIdFactory() };
+      const response = action === 'approve'
+        ? await this.api.approveApproval(approvalId, input)
+        : action === 'reject'
+          ? await this.api.rejectApproval(approvalId, { ...input, reason })
+          : await this.api.cancelApproval(approvalId, input);
+      result = response;
+      const cursor = cursorFrom(response);
+      if (cursor > cursorBeforeAction) await this.pullFrom(cursorBeforeAction);
+      this.mergeApprovalResult(response);
+    });
+    return result;
   }
 
   private async pullFrom(afterCursor: number): Promise<void> {
@@ -148,20 +256,74 @@ export class WorkspaceSyncController {
       for (const change of changes.changes) this.applyChange(change);
       const cursor = Math.max(this.currentState.cursor, changes.cursor);
       const snapshot = this.currentState.snapshot;
-      this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, stale: false, error: null, authRequired: false });
+      this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, approvals: snapshot?.approval_requests, comments: snapshot?.comments, stale: false, error: null, authRequired: false });
     }, true);
   }
 
   private applyChange(change: WorkspaceChange): void {
-    if (change.resource_type !== 'task' || !change.resource) return;
-    this.mergeTask(change.resource, change.cursor, false);
+    if (!change.resource) return;
+    if (change.resource_type === 'task' && isTaskItem(change.resource)) {
+      this.mergeTask(change.resource, change.cursor, false);
+    } else if (change.resource_type === 'approval_request' && isApprovalRequest(change.resource)) {
+      this.mergeApproval(change.resource, change.cursor, false);
+    } else if (change.resource_type === 'comment' && isTaskComment(change.resource)) {
+      this.mergeComment(change.resource, change.cursor, false);
+    }
   }
 
   private mergeTask(task: TaskItem, cursor: number, updateCursor = true): void {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
     const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, task), cursor: updateCursor ? cursor : snapshot.cursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeApproval(approval: TaskApprovalRequest, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const approvals = [...(snapshot.approval_requests ?? [])]
+      .filter((item) => item.id !== approval.id);
+    approvals.push(approval);
+    const nextCursor = updateCursor ? cursor : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, approval_requests: approvals, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, approvals, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeApprovals(approvals: TaskApprovalRequest[]): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const merged = [...(snapshot.approval_requests ?? [])];
+    for (const approval of approvals) {
+      const index = merged.findIndex((item) => item.id === approval.id);
+      if (index === -1) merged.push(approval);
+      else merged[index] = approval;
+    }
+    const nextSnapshot = { ...snapshot, approval_requests: merged };
+    this.setState({ snapshot: nextSnapshot, approvals: merged, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeComment(comment: TaskComment, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const comments = [...(snapshot.comments ?? [])].filter((item) => item.id !== comment.id);
+    comments.push(comment);
+    const nextCursor = updateCursor ? cursor : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, comments, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, comments, approvals: nextSnapshot.approval_requests, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeApprovalResult(result: ApprovalActionResult): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const approvals = [...(snapshot.approval_requests ?? [])].filter((item) => item.id !== result.approval_request.id);
+    approvals.push(result.approval_request);
+    const tasks = result.task ? upsertTask(snapshot.tasks, result.task) : snapshot.tasks;
+    const comments = result.comment
+      ? [...(snapshot.comments ?? [])].filter((item) => item.id !== result.comment!.id).concat(result.comment)
+      : snapshot.comments ?? [];
+    const cursor = typeof result.cursor === 'number' && result.cursor > snapshot.cursor ? result.cursor : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, tasks, comments, approval_requests: approvals, cursor };
+    this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, stale: false, error: null, authRequired: false });
   }
 
   private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false): Promise<void> {
@@ -216,6 +378,34 @@ function conflictsFromError(error: ApiError): TaskConflict[] {
   const details = error.details;
   if (!details || typeof details !== 'object' || !Array.isArray((details as { conflicts?: unknown }).conflicts)) return [];
   return normalizeConflicts((details as { conflicts: Array<Record<string, unknown>> }).conflicts);
+}
+
+function normalizeSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...snapshot,
+    comments: snapshot.comments ?? [],
+    approval_requests: snapshot.approval_requests ?? [],
+  };
+}
+
+function isPendingApproval(value: TaskWriteResult | TaskComment | PendingApproval | undefined): value is PendingApproval {
+  return Boolean(value && typeof value === 'object' && 'pending' in value && value.pending === true && 'approval_request' in value);
+}
+
+function isTaskItem(value: TaskItem | TaskApprovalRequest | TaskComment): value is TaskItem {
+  return 'title' in value && 'workspace_id' in value && 'field_versions' in value;
+}
+
+function isApprovalRequest(value: TaskItem | TaskApprovalRequest | TaskComment): value is TaskApprovalRequest {
+  return 'request_type' in value && 'proposed_changes' in value;
+}
+
+function isTaskComment(value: TaskItem | TaskApprovalRequest | TaskComment): value is TaskComment {
+  return 'author_user_id' in value && 'body' in value && 'deleted_at' in value;
+}
+
+function cursorFrom(value: { cursor?: number | null } | undefined): number {
+  return typeof value?.cursor === 'number' ? value.cursor : 0;
 }
 
 function createRequestId(): string {

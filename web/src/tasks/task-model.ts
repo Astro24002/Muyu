@@ -1,6 +1,16 @@
 import type { TaskItem } from '../api/types';
 
-export type EditableTaskChanges = Pick<Partial<TaskItem>, 'title' | 'description'>;
+export type EditableTaskChanges = Pick<Partial<TaskItem>,
+  | 'title'
+  | 'description'
+  | 'due_at'
+  | 'planned_start_at'
+  | 'estimated_minutes'
+  | 'quadrant'
+  | 'progress'
+  | 'assignee_ids'
+  | 'current_handler_id'
+>;
 
 export interface TaskConflict {
   id: string;

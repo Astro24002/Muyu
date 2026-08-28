@@ -31,6 +31,45 @@ Status actions use `base_status_version`; deletion and restore use
 `base_lifecycle_version`. Invalid transitions, edits to a deleted task, and
 stale lifecycle/status versions are rejected without claiming success.
 
+## Two-person approvals
+
+Each Workspace is limited to exactly two active members. A task's
+`current_handler_id` is its负责人 and is the only member who can apply a
+direct task mutation. The other member may still submit a change, but the API
+returns `202` with an `approval_request` and leaves the task unchanged. The
+request is automatically addressed to the current handler; there is no
+administrator, group, or multi-person voting path.
+
+The same rule applies to the fields that need explicit agreement:
+
+- task title, description, status, assignee/handler, restore and delete;
+- quadrant changes (`Q1` through `Q4`); and
+- deleting a comment written by the other member.
+
+The request lifecycle is:
+
+`PENDING` -> `APPROVED`, `REJECTED`, `CONFLICTED`, or `CANCELLED`.
+
+Only the derived approver can approve or reject an incoming request. Only the
+requester can cancel an outgoing pending request. Approval rechecks the
+captured field/status/lifecycle versions in one transaction; if the task has
+changed, the request becomes `CONFLICTED` and does not overwrite newer data.
+Changing the task handler also cancels pending requests that targeted the old
+owner. Repeating an action with the same request ID is idempotent and cannot
+create another operation or cursor.
+
+Comments are append-only facts with soft-delete tombstones. A comment author
+can delete their own comment directly. The task负责人 can request deletion of
+the other member's comment, and that request must be approved by the comment
+author. Tombstones remain in snapshots and incremental changes so both clients
+render the same history.
+
+Android shows incoming requests in the approval inbox and outgoing requests in
+the requests list. Web shows the same two boxes after QR authorization. Both
+clients display pending changes as awaiting approval and never optimistically
+rewrite the task. Unverified devices remain read-only and cannot create,
+approve, reject, or cancel a request.
+
 ## Synchronization
 
 1. The client reads `/api/v1/workspaces/current/snapshot` to establish the
@@ -42,6 +81,22 @@ stale lifecycle/status versions are rejected without claiming success.
 
 The same contract is used by Android and Web. Web has no browser-local identity
 or password login; QR authorization is the only Web login path.
+
+## Two-user acceptance
+
+Run the focused acceptance against a disposable PostgreSQL database (never the
+production database):
+
+```sh
+TEST_DATABASE_URL="$TEST_DATABASE_URL" make test-task-approval
+TEST_DATABASE_URL="$TEST_DATABASE_URL" make smoke-task-approval
+```
+
+The acceptance creates a task, submits and approves a partner edit, adds a
+comment, approves its cross-author soft deletion, verifies a stale request is
+conflicted, and verifies a handler transfer cancels old pending requests. The
+smoke output contains only `task_number`, `request_id`, `approval_status`, and
+`final_cursor`; it never prints access tokens, OTP values, or device key data.
 
 ## Acceptance command
 

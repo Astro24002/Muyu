@@ -404,18 +404,15 @@ class TaskApprovalService:
                 .with_for_update()
             ).all()
         )
-        handler_change = any(word in reason.lower() for word in ("handler", "owner", "transfer"))
         count = 0
         for request in pending:
             if exclude and request.id in exclude:
-                continue
-            if handler_change and task.current_handler_id is not None and request.approver_id == task.current_handler_id:
                 continue
             request.status = TaskApprovalRequestStatus.CANCELLED
             request.reviewed_at = self.now()
             request.reviewed_by = None
             request.rejection_reason = reason
-            self._emit_request_event(
+            cursor = self._emit_request_event(
                 request,
                 task,
                 actor_user_id=request.requester_id,
@@ -423,6 +420,7 @@ class TaskApprovalService:
                 event_type="APPROVAL_CANCELLED",
                 change_action=ChangeAction.UPDATED,
             )
+            request.resolved_cursor = cursor
             count += 1
         self.session.flush()
         return count

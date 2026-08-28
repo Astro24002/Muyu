@@ -22,6 +22,7 @@ from app.recovery.routes import router as recovery_router
 from app.realtime.hub import WorkspaceHub
 from app.realtime.routes import router as realtime_router
 from app.tasks.routes import router as tasks_router
+from app.tasks.approval_routes import router as task_approval_router
 from app.sync.routes import router as sync_router
 from app.web_login.routes import router as web_login_router, sessions_router as web_sessions_router
 from app.workspaces.routes import router as workspaces_router
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(web_login_router)
     app.include_router(web_sessions_router)
     app.include_router(tasks_router)
+    app.include_router(task_approval_router)
     app.include_router(sync_router)
     app.include_router(realtime_router)
 

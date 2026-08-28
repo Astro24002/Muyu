@@ -76,6 +76,13 @@ class CommentRequest(BaseModel):
     body: str = Field(min_length=1, max_length=10000)
 
 
+class CommentDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    base_version: int = Field(ge=1)
+
+
 class DelayRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

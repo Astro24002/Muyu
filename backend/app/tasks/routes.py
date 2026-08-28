@@ -6,19 +6,22 @@ import hashlib
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.service import _hash_token
-from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, Resolution, WebSessionStatus
-from app.db.models import AndroidDevice, ImportantDate, MobileSession, Task, TaskConflict, TaskOperation, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
+from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, Resolution, TaskApprovalRequestType, WebSessionStatus
+from app.db.models import AndroidDevice, ImportantDate, MobileSession, Task, TaskComment, TaskConflict, TaskOperation, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
 from app.tasks.comments import add_comment, list_comments
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.delays import add_delay, list_delays
 from app.tasks.recurrence import create_rule
-from app.tasks.schemas import CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
+from app.tasks.approval_schemas import approval_request_json, comment_json
+from app.tasks.approvals import TaskApprovalError, TaskApprovalService
+from app.tasks.schemas import CommentDeleteRequest, CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
 from app.tasks.search import search_tasks
 from app.tasks.service import TaskService
 
@@ -91,13 +94,52 @@ def _task_error(error: TaskConflictError) -> ApiError:
     return ApiError(status_code, error.code, str(error), details)
 
 
+def _require_workspace(actor: Actor, workspace_id: UUID) -> None:
+    if actor.workspace_id != workspace_id:
+        raise ApiError(403, "workspace_access_denied", "workspace is not available to this actor")
+
+
+def _approval_error(error: TaskApprovalError) -> ApiError:
+    status_code = {
+        "approval_not_found": 404,
+        "approval_not_allowed": 403,
+        "approval_required": 202,
+        "approval_conflicted": 409,
+        "approval_already_resolved": 409,
+        "approval_request_reused": 409,
+    }.get(error.code, 409)
+    return ApiError(status_code, error.code, str(error))
+
+
+def _pending_response(approval, service: TaskApprovalService) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "approval_request": approval_request_json(approval),
+            "pending": True,
+            "cursor": service.last_cursor,
+        },
+    )
+
+
+def _patch_approval_type(changes: dict[str, object]) -> TaskApprovalRequestType:
+    fields = set(changes)
+    if fields == {"quadrant"}:
+        return TaskApprovalRequestType.QUADRANT_UPDATE
+    if fields == {"assignee_ids"}:
+        return TaskApprovalRequestType.ASSIGNEE_UPDATE
+    if fields == {"current_handler_id"}:
+        return TaskApprovalRequestType.HANDLER_TRANSFER
+    return TaskApprovalRequestType.TASK_UPDATE
+
+
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
 def create_task(body: CreateTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         due_at = datetime.fromisoformat(body.due_at) if body.due_at else None
         service = TaskService(session)
         planned_start_at = datetime.fromisoformat(body.planned_start_at) if body.planned_start_at else None
-        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at, body.parent_task_id, body.assignee_ids, planned_start_at, body.estimated_minutes)
+        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at, body.parent_task_id, body.assignee_ids, planned_start_at, body.estimated_minutes, body.quadrant)
         session.commit()
     except (ValueError, TaskConflictError) as error:
         session.rollback()
@@ -132,9 +174,33 @@ def get_task(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
 @router.patch("/tasks/{task_id}")
 def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
+        target = session.scalar(
+            select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)
+        )
+        if target is None:
+            raise TaskConflictError("not_found", "task not found")
+        if target.current_handler_id != actor.user_id:
+            approval_service = TaskApprovalService(session)
+            approval = approval_service.create(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                target.id,
+                _patch_approval_type(body.changes),
+                body.changes,
+                body.base_field_versions,
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+            return _pending_response(approval, approval_service)
         service = TaskService(session)
         task = service.patch(actor.workspace_id, actor.user_id, task_id, body.request_id, body.changes, body.base_field_versions)
+        if "current_handler_id" in body.changes:
+            TaskApprovalService(session).cancel_stale_for_task(actor.workspace_id, task.id, "task handler changed")
         session.commit()
+    except TaskApprovalError as error:
+        session.commit() if error.code == "approval_conflicted" else session.rollback()
+        raise _approval_error(error) from error
     except TaskConflictError as error:
         session.commit() if error.code == "field_conflict" else session.rollback()
         raise _task_error(error) from error
@@ -145,12 +211,45 @@ def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, backgrou
 @router.post("/tasks/{task_id}/lifecycle")
 def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
+        target = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
+        if target is None:
+            raise TaskConflictError("not_found", "task not found")
+        action = body.action.lower()
+        if target.current_handler_id != actor.user_id:
+            approval_type: TaskApprovalRequestType
+            changes: dict[str, object]
+            versions: dict[str, int]
+            if action == "delete":
+                approval_type = TaskApprovalRequestType.TASK_DELETE
+                changes = {}
+                versions = {"lifecycle_version": body.base_lifecycle_version}
+            elif action in {"complete", "completed", "reopen", "open"}:
+                approval_type = TaskApprovalRequestType.STATUS_UPDATE
+                changes = {"target_status": "DONE" if action in {"complete", "completed"} else "TODO"}
+                versions = {"status_version": target.status_version}
+            else:
+                raise TaskConflictError("invalid_request", "unsupported lifecycle action")
+            approval_service = TaskApprovalService(session)
+            approval = approval_service.create(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                target.id,
+                approval_type,
+                changes,
+                versions,
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+            return _pending_response(approval, approval_service)
         service = TaskService(session)
         task = service.lifecycle(actor.workspace_id, actor.user_id, task_id, body.request_id, body.action, body.base_lifecycle_version)
+        if action == "delete":
+            TaskApprovalService(session).cancel_stale_for_task(actor.workspace_id, task.id, "task was deleted")
         session.commit()
-    except TaskConflictError as error:
+    except (TaskConflictError, TaskApprovalError) as error:
         session.rollback()
-        raise _task_error(error) from error
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -158,15 +257,39 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
 @router.post("/tasks/{task_id}/transition")
 def transition_task(task_id: UUID, body: TransitionRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
+        target = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
+        if target is None:
+            raise TaskConflictError("not_found", "task not found")
+        if target.current_handler_id != actor.user_id:
+            changes: dict[str, object] = {"target_status": body.target_status}
+            if body.blocked_reason is not None:
+                changes["blocked_reason"] = body.blocked_reason
+            if body.resume_handler_id is not None:
+                changes["resume_handler_id"] = body.resume_handler_id
+            if body.waiting_for_user_id is not None:
+                changes["waiting_for_user_id"] = body.waiting_for_user_id
+            approval_service = TaskApprovalService(session)
+            approval = approval_service.create(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                target.id,
+                TaskApprovalRequestType.STATUS_UPDATE,
+                changes,
+                {"status_version": body.base_status_version},
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+            return _pending_response(approval, approval_service)
         service = TaskService(session)
         task = service.transition(actor.workspace_id, actor.user_id, task_id, body.request_id, body.target_status, body.base_status_version, body.blocked_reason, body.resume_handler_id, body.waiting_for_user_id)
         session.commit()
-    except TaskConflictError as error:
-        if error.code == "field_conflict":
+    except (TaskConflictError, TaskApprovalError) as error:
+        if error.code in {"field_conflict", "approval_conflicted"}:
             session.commit()
         else:
             session.rollback()
-        raise _task_error(error) from error
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -174,12 +297,29 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
 @router.post("/tasks/{task_id}/restore")
 def restore_task(task_id: UUID, body: LifecycleRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
+        target = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
+        if target is None:
+            raise TaskConflictError("not_found", "task not found")
+        if target.current_handler_id != actor.user_id:
+            approval_service = TaskApprovalService(session)
+            approval = approval_service.create(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                target.id,
+                TaskApprovalRequestType.TASK_RESTORE,
+                {},
+                {"lifecycle_version": body.base_lifecycle_version},
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+            return _pending_response(approval, approval_service)
         service = TaskService(session)
         task = service.restore(actor.workspace_id, actor.user_id, task_id, body.request_id, body.base_lifecycle_version)
         session.commit()
-    except TaskConflictError as error:
+    except (TaskConflictError, TaskApprovalError) as error:
         session.rollback()
-        raise _task_error(error) from error
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -220,7 +360,58 @@ def comment_task(task_id: UUID, body: CommentRequest, request: Request, backgrou
 def comments(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
     if session.scalar(select(Task.id).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)) is None:
         raise ApiError(404, "not_found", "task not found")
-    return [{"id": str(item.id), "body": item.body, "author_user_id": str(item.author_user_id), "created_at": item.created_at.isoformat()} for item in list_comments(session, actor.workspace_id, task_id)]
+    return [comment_json(item) for item in list_comments(session, actor.workspace_id, task_id)]
+
+
+@router.delete("/tasks/{task_id}/comments/{comment_id}")
+def delete_comment_task(
+    task_id: UUID,
+    comment_id: UUID,
+    body: CommentDeleteRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    actor: Actor = Depends(require_write_actor),
+    session: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
+        if task is None:
+            raise TaskConflictError("not_found", "task not found")
+        comment = session.scalar(
+            select(TaskComment).where(
+                TaskComment.id == comment_id,
+                TaskComment.task_id == task.id,
+                TaskComment.workspace_id == actor.workspace_id,
+            )
+        )
+        if comment is None:
+            raise TaskConflictError("not_found", "comment not found")
+        if comment.author_user_id != actor.user_id:
+            approval_service = TaskApprovalService(session)
+            approval = approval_service.create(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                task.id,
+                TaskApprovalRequestType.COMMENT_DELETE,
+                {},
+                {"version": body.base_version},
+                comment.id,
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+            return _pending_response(approval, approval_service)
+        service = TaskService(session)
+        deleted = service.delete_comment(actor.workspace_id, actor.user_id, comment.id, body.request_id, body.base_version)
+        session.commit()
+    except (TaskConflictError, TaskApprovalError) as error:
+        if error.code == "field_conflict":
+            session.commit()
+        else:
+            session.rollback()
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error) from error
+    _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
+    return comment_json(deleted) | {"cursor": service.last_cursor}
 
 
 @router.post("/tasks/{task_id}/delays", status_code=status.HTTP_201_CREATED)

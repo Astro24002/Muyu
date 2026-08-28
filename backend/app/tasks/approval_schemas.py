@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.enums import TaskApprovalRequestStatus, TaskApprovalRequestType
+from app.db.models import TaskApprovalRequest
 
 
 class ApprovalRequestCreate(BaseModel):
@@ -127,4 +128,27 @@ __all__ = [
     "TaskApprovalRequestSchema",
     "TaskApprovalRequestResponse",
     "TaskApprovalResponse",
+    "approval_request_json",
+    "comment_json",
 ]
+
+
+def approval_request_json(request: TaskApprovalRequest) -> dict[str, Any]:
+    """Serialize an ORM approval row using the public JSON contract."""
+
+    return ApprovalRequestRead.model_validate(request).model_dump(mode="json")
+
+
+def comment_json(comment: Any) -> dict[str, Any]:
+    """Serialize comments, including soft-delete tombstone metadata."""
+
+    return {
+        "id": str(comment.id),
+        "task_id": str(comment.task_id),
+        "author_user_id": str(comment.author_user_id),
+        "body": comment.body,
+        "version": comment.version,
+        "deleted_at": comment.deleted_at.isoformat() if comment.deleted_at else None,
+        "deleted_by": str(comment.deleted_by) if comment.deleted_by else None,
+        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+    }

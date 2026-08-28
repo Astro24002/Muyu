@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import ChallengeStatus, DeviceStatus, MembershipStatus, WebSessionStatus
-from app.db.models import AndroidDevice, User, WebLoginChallenge, WebSession, WorkspaceMembership
+from app.db.models import ActivityEvent, AndroidDevice, User, WebLoginChallenge, WebSession, WorkspaceMembership
 from app.devices.signatures import signed_action_payload, verify_device_signature
 
 
@@ -39,6 +39,129 @@ class WebSessionResult:
     session_id: UUID
     raw_cookie: str
     expires_at: datetime
+
+
+@dataclass(frozen=True)
+class WebSessionSummary:
+    id: UUID
+    status: WebSessionStatus
+    origin: str | None
+    created_at: datetime
+    expires_at: datetime
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "id": str(self.id),
+            "status": self.status.value,
+            "origin": self.origin,
+            "created_at": self.created_at.isoformat(),
+            "expires_at": self.expires_at.isoformat(),
+        }
+
+
+class WebSessionConflict(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+class WebSessionService:
+    """Manage temporary browser sessions from a verified Android device."""
+
+    def __init__(
+        self,
+        session: Session,
+        *,
+        now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ) -> None:
+        self.session = session
+        self.now = now
+
+    def list_active(self, workspace_id: UUID) -> list[WebSessionSummary]:
+        rows = self.session.scalars(
+            select(WebSession)
+            .where(
+                WebSession.workspace_id == workspace_id,
+                WebSession.status == WebSessionStatus.ACTIVE,
+                WebSession.expires_at > self.now(),
+            )
+            .order_by(WebSession.created_at.desc(), WebSession.id.desc())
+        ).all()
+        return [
+            WebSessionSummary(
+                id=row.id,
+                status=row.status,
+                origin=row.origin,
+                created_at=row.created_at,
+                expires_at=row.expires_at,
+            )
+            for row in rows
+        ]
+
+    def revoke(self, session_id: UUID, workspace_id: UUID, actor_device_id: UUID) -> None:
+        actor_user_id = self._authorize_actor(workspace_id, actor_device_id)
+        row = self.session.scalar(
+            select(WebSession)
+            .where(WebSession.id == session_id, WebSession.workspace_id == workspace_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise WebSessionConflict("approval_not_allowed", "session revocation is not authorized", 403)
+        if row.status == WebSessionStatus.REVOKED:
+            raise WebSessionConflict("web_session_already_revoked", "web session is already revoked", 409)
+        if row.status == WebSessionStatus.EXPIRED or row.expires_at <= self.now():
+            row.status = WebSessionStatus.EXPIRED
+            row.updated_at = self.now()
+            raise WebSessionConflict("web_session_expired", "web session is expired", 409)
+        row.status = WebSessionStatus.REVOKED
+        row.revoked_at = self.now()
+        row.updated_at = self.now()
+        self._audit(workspace_id, actor_user_id, "web_session_revoked", row.id)
+
+    def revoke_all(self, workspace_id: UUID, actor_device_id: UUID) -> int:
+        actor_user_id = self._authorize_actor(workspace_id, actor_device_id)
+        now = self.now()
+        rows = self.session.scalars(
+            select(WebSession)
+            .where(
+                WebSession.workspace_id == workspace_id,
+                WebSession.status == WebSessionStatus.ACTIVE,
+                WebSession.expires_at > now,
+            )
+            .with_for_update()
+        ).all()
+        for row in rows:
+            row.status = WebSessionStatus.REVOKED
+            row.revoked_at = now
+            row.updated_at = now
+            self._audit(workspace_id, actor_user_id, "web_session_revoked", row.id)
+        return len(rows)
+
+    def _authorize_actor(self, workspace_id: UUID, actor_device_id: UUID) -> UUID:
+        device = self.session.get(AndroidDevice, actor_device_id)
+        if device is None or device.status != DeviceStatus.ACTIVE:
+            raise WebSessionConflict("device_not_active", "device is not active", 403)
+        member = self.session.scalar(
+            select(WorkspaceMembership.id).where(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.user_id == device.user_id,
+                WorkspaceMembership.status == MembershipStatus.ACTIVE,
+            )
+        )
+        if member is None:
+            raise WebSessionConflict("workspace_access_denied", "active workspace membership required", 403)
+        return device.user_id
+
+    def _audit(self, workspace_id: UUID, actor_user_id: UUID, action: str, subject_id: UUID) -> None:
+        self.session.add(
+            ActivityEvent(
+                workspace_id=workspace_id,
+                actor_user_id=actor_user_id,
+                event_type=action,
+                payload={"subject_id": str(subject_id)},
+            )
+        )
 
 
 class WebLoginService:

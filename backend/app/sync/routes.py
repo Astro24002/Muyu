@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/v1/workspaces/current", tags=["sync"])
 @router.get("/snapshot")
 def snapshot(actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
-        return SyncService(session).snapshot(actor.workspace_id)
+        return SyncService(session).snapshot(actor.workspace_id, actor.user_id)
     except ValueError as error:
         raise ApiError(404, "workspace_access_denied", str(error)) from error
 

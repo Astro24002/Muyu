@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
-from app.db.models import Task, TaskConflict, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
+from app.db.models import Task, TaskApprovalRequest, TaskComment, TaskConflict, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
+from app.tasks.approval_schemas import approval_request_json, comment_json
 from app.tasks.service import TaskService
 
 
@@ -21,7 +22,7 @@ class SyncService:
         self.session = session
         self.retention_days = retention_days
 
-    def snapshot(self, workspace_id: UUID) -> dict[str, Any]:
+    def snapshot(self, workspace_id: UUID, viewer_user_id: UUID | None = None) -> dict[str, Any]:
         workspace = self.session.get(Workspace, workspace_id)
         if workspace is None:
             raise ValueError("workspace not found")
@@ -33,12 +34,25 @@ class SyncService:
         # Keep task-derived fields identical across sync and HTTP responses.
         service = TaskService(self.session)
         task_snapshots = [service.snapshot(task) for task in tasks]
+        comments = self.session.scalars(
+            select(TaskComment)
+            .where(TaskComment.workspace_id == workspace_id)
+            .order_by(TaskComment.created_at.asc(), TaskComment.id.asc())
+        ).all()
+        approvals = self.session.scalars(
+            select(TaskApprovalRequest)
+            .where(TaskApprovalRequest.workspace_id == workspace_id)
+            .order_by(TaskApprovalRequest.created_at.asc(), TaskApprovalRequest.id.asc())
+        ).all()
         return {
             "workspace_id": str(workspace_id),
+            "viewer_user_id": str(viewer_user_id) if viewer_user_id else None,
             "workspace": {"id": str(workspace.id), "name": workspace.name, "status": workspace.status.value},
             "members": [{"user_id": str(item.user_id), "member_slot": item.member_slot} for item in memberships],
             "tasks": task_snapshots,
             "conflicts": [{"id": str(item.id), "task_id": str(item.task_id), "field": item.target, "status": item.status.value} for item in conflicts],
+            "comments": [comment_json(item) for item in comments],
+            "approval_requests": [approval_request_json(item) for item in approvals],
             "cursor": head,
         }
 
@@ -54,6 +68,24 @@ class SyncService:
                 task = self.session.get(Task, item.resource_id)
                 if task is not None:
                     resource = TaskService(self.session).snapshot(task)
+            elif item.resource_type == "comment":
+                comment = self.session.scalar(
+                    select(TaskComment).where(
+                        TaskComment.id == item.resource_id,
+                        TaskComment.workspace_id == workspace_id,
+                    )
+                )
+                if comment is not None:
+                    resource = comment_json(comment)
+            elif item.resource_type == "approval_request":
+                approval = self.session.scalar(
+                    select(TaskApprovalRequest).where(
+                        TaskApprovalRequest.id == item.resource_id,
+                        TaskApprovalRequest.workspace_id == workspace_id,
+                    )
+                )
+                if approval is not None:
+                    resource = approval_request_json(approval)
             changes.append({"cursor": item.cursor, "resource_type": item.resource_type, "resource_id": str(item.resource_id), "action": item.action.value, "operation_id": str(item.operation_id) if item.operation_id else None, "resource": resource})
         return {
             "workspace_id": str(workspace_id),

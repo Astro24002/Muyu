@@ -498,7 +498,7 @@ class TaskService:
         comment = TaskComment(workspace_id=workspace_id, task_id=task_id, author_user_id=actor_user_id, body=body)
         self.session.add(comment)
         self.session.flush()
-        cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        cursor = self._resource_cursor(workspace_id, "comment", comment.id, ChangeAction.CREATED, request_id)
         self._operation(
             workspace_id,
             actor_user_id,
@@ -541,7 +541,7 @@ class TaskService:
         comment.deleted_at = self.now()
         comment.deleted_by = actor_user_id
         comment.version += 1
-        cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        cursor = self._resource_cursor(workspace_id, "comment", comment.id, ChangeAction.UPDATED, request_id)
         self._operation(
             workspace_id,
             actor_user_id,
@@ -633,8 +633,11 @@ class TaskService:
         return self.session.scalar(select(TaskOperation).where(TaskOperation.workspace_id == workspace_id, TaskOperation.request_id == request_id))
 
     def _cursor(self, workspace_id: UUID, task: Task, action: ChangeAction, request_id: UUID) -> int:
+        return self._resource_cursor(workspace_id, "task", task.id, action, request_id)
+
+    def _resource_cursor(self, workspace_id: UUID, resource_type: str, resource_id: UUID, action: ChangeAction, request_id: UUID) -> int:
         cursor = Repository(self.session).allocate_workspace_cursor(workspace_id)
-        self.session.add(WorkspaceChangeLog(workspace_id=workspace_id, cursor=cursor, resource_type="task", resource_id=task.id, action=action, operation_id=request_id))
+        self.session.add(WorkspaceChangeLog(workspace_id=workspace_id, cursor=cursor, resource_type=resource_type, resource_id=resource_id, action=action, operation_id=request_id))
         self.last_cursor = cursor
         return cursor
 

@@ -29,6 +29,7 @@ class Actor:
     workspace_id: UUID
     device_id: UUID | None = None
     web_session_id: UUID | None = None
+    can_write: bool = False
 
 
 router = APIRouter(prefix="/api/v1", tags=["tasks"])
@@ -53,19 +54,25 @@ def require_actor(request: Request, session: Session = Depends(get_db)) -> Actor
             if (
                 device is not None
                 and user is not None
-                and device.status.value == "ACTIVE"
+                and device.status.value in {"ACTIVE", "PENDING"}
                 and stored.expires_at > datetime.now(timezone.utc)
             ):
                 workspace_id = _workspace_id(session, user.id)
                 if workspace_id is not None:
-                    return Actor(user.id, workspace_id, device.id)
+                    return Actor(user.id, workspace_id, device.id, can_write=device.status.value == "ACTIVE")
     cookie = request.cookies.get("muyu_web_session")
     if cookie:
         digest = hashlib.sha256(cookie.encode()).hexdigest()
         stored_web = session.scalar(select(WebSession).where(WebSession.session_digest == digest, WebSession.status == WebSessionStatus.ACTIVE))
         if stored_web is not None and stored_web.expires_at > datetime.now(timezone.utc):
-            return Actor(stored_web.user_id, stored_web.workspace_id, web_session_id=stored_web.id)
+            return Actor(stored_web.user_id, stored_web.workspace_id, web_session_id=stored_web.id, can_write=True)
     raise ApiError(401, "authentication_required", "authentication required")
+
+
+def require_write_actor(actor: Actor = Depends(require_actor)) -> Actor:
+    if not actor.can_write:
+        raise ApiError(403, "device_not_verified", "device has not been verified")
+    return actor
 
 
 def _workspace_id(session: Session, user_id: UUID) -> UUID | None:
@@ -85,7 +92,7 @@ def _task_error(error: TaskConflictError) -> ApiError:
 
 
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
-def create_task(body: CreateTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def create_task(body: CreateTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         due_at = datetime.fromisoformat(body.due_at) if body.due_at else None
         service = TaskService(session)
@@ -123,7 +130,7 @@ def get_task(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
 
 
 @router.patch("/tasks/{task_id}")
-def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         service = TaskService(session)
         task = service.patch(actor.workspace_id, actor.user_id, task_id, body.request_id, body.changes, body.base_field_versions)
@@ -136,7 +143,7 @@ def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, backgrou
 
 
 @router.post("/tasks/{task_id}/lifecycle")
-def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         service = TaskService(session)
         task = service.lifecycle(actor.workspace_id, actor.user_id, task_id, body.request_id, body.action, body.base_lifecycle_version)
@@ -149,7 +156,7 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
 
 
 @router.post("/tasks/{task_id}/transition")
-def transition_task(task_id: UUID, body: TransitionRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def transition_task(task_id: UUID, body: TransitionRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         service = TaskService(session)
         task = service.transition(actor.workspace_id, actor.user_id, task_id, body.request_id, body.target_status, body.base_status_version, body.blocked_reason, body.resume_handler_id, body.waiting_for_user_id)
@@ -165,7 +172,7 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
 
 
 @router.post("/tasks/{task_id}/restore")
-def restore_task(task_id: UUID, body: LifecycleRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def restore_task(task_id: UUID, body: LifecycleRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         service = TaskService(session)
         task = service.restore(actor.workspace_id, actor.user_id, task_id, body.request_id, body.base_lifecycle_version)
@@ -184,7 +191,7 @@ def conflicts(task_id: UUID, actor: Actor = Depends(require_actor), session: Ses
 
 
 @router.post("/tasks/{task_id}/conflicts/{conflict_id}/resolve")
-def resolve_conflict(task_id: UUID, conflict_id: UUID, body: ResolveConflictRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def resolve_conflict(task_id: UUID, conflict_id: UUID, body: ResolveConflictRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         service = TaskService(session)
         task = service.resolve_conflict(actor.workspace_id, actor.user_id, task_id, conflict_id, body.request_id, body.resolution)
@@ -197,7 +204,7 @@ def resolve_conflict(task_id: UUID, conflict_id: UUID, body: ResolveConflictRequ
 
 
 @router.post("/tasks/{task_id}/comments", status_code=status.HTTP_201_CREATED)
-def comment_task(task_id: UUID, body: CommentRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def comment_task(task_id: UUID, body: CommentRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         comment = add_comment(session, actor.workspace_id, actor.user_id, task_id, body.body, body.request_id)
         cursor = session.scalar(select(WorkspaceChangeLog.cursor).where(WorkspaceChangeLog.operation_id == body.request_id))
@@ -217,7 +224,7 @@ def comments(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
 
 
 @router.post("/tasks/{task_id}/delays", status_code=status.HTTP_201_CREATED)
-def delay_task(task_id: UUID, body: DelayRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def delay_task(task_id: UUID, body: DelayRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         row = add_delay(session, actor.workspace_id, actor.user_id, task_id, datetime.fromisoformat(body.new_due_at), body.reason, body.note, body.request_id)
         cursor = session.scalar(select(WorkspaceChangeLog.cursor).where(WorkspaceChangeLog.operation_id == body.request_id))
@@ -263,7 +270,7 @@ def activity(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
 
 
 @router.post("/tasks/{task_id}/recurrence", status_code=status.HTTP_201_CREATED)
-def recurrence(task_id: UUID, body: dict[str, str], actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def recurrence(task_id: UUID, body: dict[str, str], actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         request_id = __import__("uuid").UUID(body["request_id"]) if body.get("request_id") else __import__("uuid").uuid4()
         row = create_rule(session, actor.workspace_id, actor.user_id, task_id, body.get("rule", ""), request_id)
@@ -275,7 +282,7 @@ def recurrence(task_id: UUID, body: dict[str, str], actor: Actor = Depends(requi
 
 
 @router.post("/tasks/{task_id}/important-date", status_code=status.HTTP_201_CREATED)
-def important_date(task_id: UUID, body: dict[str, str], actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def important_date(task_id: UUID, body: dict[str, str], actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
     try:
         request_id = UUID(body["request_id"])
         starts_at = datetime.fromisoformat(body["starts_at"])

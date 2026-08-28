@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
+from app.db.enums import PublicDeviceStatus
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -39,6 +41,8 @@ class MobileUserResponse(BaseModel):
     display_name: str | None = None
     workspace_id: UUID | None = None
     device_id: UUID
+    device_status: PublicDeviceStatus | None = None
+    can_write: bool = False
 
 
 class MobileAuthResponse(BaseModel):
@@ -47,3 +51,5 @@ class MobileAuthResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: Literal["bearer"] = "bearer"
+    device_status: PublicDeviceStatus
+    can_write: bool

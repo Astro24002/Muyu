@@ -114,7 +114,7 @@ def bind_partner(
 
 @router.get("/workspaces/current")
 def current_workspace(
-    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    principal: MobilePrincipal = Depends(require_mobile_principal),
     session: Session = Depends(get_db),
 ) -> dict[str, object] | None:
     membership = session.scalar(select(WorkspaceMembership).where(WorkspaceMembership.user_id == principal.user_id, WorkspaceMembership.status == MembershipStatus.ACTIVE))

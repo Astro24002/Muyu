@@ -29,6 +29,8 @@ class MobilePrincipal:
     device_id: UUID
     session_id: UUID
     workspace_id: UUID | None
+    device_status: DeviceStatus
+    can_write: bool
 
 
 _bearer = HTTPBearer(auto_error=False)
@@ -100,8 +102,10 @@ def require_active_mobile_principal(
         raise ApiError(401, "mobile_session_expired", "mobile session expired")
     device = session.get(AndroidDevice, stored.device_id)
     user = session.get(User, stored.user_id)
-    if device is None or device.status != DeviceStatus.ACTIVE:
+    if device is None or device.status == DeviceStatus.REVOKED:
         raise ApiError(403, "device_not_active", "device is not active")
+    if device.status != DeviceStatus.ACTIVE:
+        raise ApiError(403, "device_not_verified", "device has not been verified")
     if user is None or user.status != UserStatus.ACTIVE:
         raise ApiError(401, "authentication_required", "authentication required")
     membership = session.scalar(
@@ -115,6 +119,8 @@ def require_active_mobile_principal(
         device_id=device.id,
         session_id=stored.id,
         workspace_id=membership.workspace_id if membership else None,
+        device_status=device.status,
+        can_write=True,
     )
 
 
@@ -150,4 +156,6 @@ def require_mobile_principal(
         device_id=device.id,
         session_id=stored.id,
         workspace_id=membership.workspace_id if membership else None,
+        device_status=device.status,
+        can_write=device.status == DeviceStatus.ACTIVE,
     )

@@ -40,6 +40,8 @@ class MobileAuthResult:
     workspace_id: UUID | None
     access_token: str
     refresh_token: str
+    device_status: DeviceStatus
+    can_write: bool
 
 
 class SmsAuthService:
@@ -197,6 +199,8 @@ class SmsAuthService:
             workspace_id=self._workspace_id(user.id),
             access_token=token,
             refresh_token=token,
+            device_status=android_device.status,
+            can_write=android_device.status == DeviceStatus.ACTIVE,
         )
 
     def refresh(self, refresh_token: str) -> MobileAuthResult:
@@ -209,7 +213,7 @@ class SmsAuthService:
             raise SmsAuthError("mobile_session_expired", "mobile session expired", 401)
         device = self.session.get(AndroidDevice, stored.device_id)
         user = self.session.get(CloudUser, stored.user_id)
-        if device is None or device.status != DeviceStatus.ACTIVE:
+        if device is None or device.status == DeviceStatus.REVOKED:
             self.session.rollback()
             raise SmsAuthError("device_not_active", "device is not active", 403)
         if user is None or getattr(user, "status", UserStatus.ACTIVE) != UserStatus.ACTIVE:
@@ -232,6 +236,8 @@ class SmsAuthService:
             workspace_id=self._workspace_id(user.id),
             access_token=token,
             refresh_token=token,
+            device_status=device.status,
+            can_write=device.status == DeviceStatus.ACTIVE,
         )
 
     def logout(self, session_id: UUID) -> None:

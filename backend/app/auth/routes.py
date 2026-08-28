@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
-from app.auth.dependencies import MobilePrincipal, get_sms_auth_service, require_active_mobile_principal
+from app.auth.dependencies import MobilePrincipal, get_sms_auth_service, require_active_mobile_principal, require_mobile_principal
 from app.auth.service import SmsAuthError, SmsAuthService
+from app.workspaces.bootstrap_schemas import public_device_status
 from app.auth.schemas import (
     MobileAuthResponse,
     MobileRefreshRequest,
@@ -32,10 +33,14 @@ def _mobile_response(result) -> MobileAuthResponse:
             display_name=result.user.display_name,
             workspace_id=result.workspace_id,
             device_id=result.device_id,
+            device_status=public_device_status(result.device_status),
+            can_write=result.can_write,
         ),
         device_id=result.device_id,
         access_token=result.access_token,
         refresh_token=result.refresh_token,
+        device_status=public_device_status(result.device_status),
+        can_write=result.can_write,
     )
 
 
@@ -93,7 +98,7 @@ def logout_mobile_session(
 
 @mobile_router.get("/me", response_model=MobileUserResponse)
 def get_mobile_me(
-    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    principal: MobilePrincipal = Depends(require_mobile_principal),
     session: Session = Depends(get_db),
 ) -> MobileUserResponse:
     from app.db.enums import MembershipStatus
@@ -115,4 +120,6 @@ def get_mobile_me(
         display_name=user.display_name,
         workspace_id=membership.workspace_id if membership else None,
         device_id=principal.device_id,
+        device_status=public_device_status(principal.device_status),
+        can_write=principal.can_write,
     )

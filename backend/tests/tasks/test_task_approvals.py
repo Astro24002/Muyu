@@ -253,6 +253,10 @@ def test_approve_requires_derived_active_approver_and_applies_once(db_engine) ->
         assert replay.cursor == result.cursor
         assert session.scalar(select(Task).where(Task.id == task.id)).title == "Proposed"
 
+        with pytest.raises(TaskConflictError) as replay_by_other_actor:
+            service.approve(workspace.id, requester.id, approval.id, action_request_id)
+        assert replay_by_other_actor.value.code == "approval_not_allowed"
+
         with pytest.raises(TaskConflictError) as second_action:
             service.approve(workspace.id, owner.id, approval.id, uuid4())
         assert second_action.value.code == "approval_already_resolved"

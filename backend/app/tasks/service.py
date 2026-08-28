@@ -112,14 +112,14 @@ class TaskService:
 
     def patch(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, changes: dict[str, Any], base_field_versions: dict[str, int]) -> Task:
         task = self._task(workspace_id, task_id)
-        self._require_handler(task, actor_user_id)
-        existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}", {"changes": changes, "base_field_versions": base_field_versions})
+        existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
+        self._require_handler(task, actor_user_id)
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")
         unknown = set(changes) - MUTABLE_FIELDS
@@ -225,7 +225,6 @@ class TaskService:
         action = action.lower()
         if action == "delete":
             task = self._task(workspace_id, task_id)
-            self._require_handler(task, actor_user_id)
             fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}/lifecycle", {"action": action, "base_lifecycle_version": base_lifecycle_version})
             existing = self._existing_operation(workspace_id, actor_user_id, request_id)
             if existing is not None:
@@ -233,6 +232,7 @@ class TaskService:
                     raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
                 self.last_cursor = existing.cursor
                 return task
+            self._require_handler(task, actor_user_id)
             live_child = self.session.scalar(
                 select(Task.id).where(
                     Task.workspace_id == workspace_id,
@@ -257,7 +257,6 @@ class TaskService:
         if target is None:
             raise TaskConflictError("invalid_request", "unsupported lifecycle action")
         task = self._task(workspace_id, task_id)
-        self._require_handler(task, actor_user_id)
         fingerprint = request_fingerprint(
             f"/api/v1/tasks/{task_id}/lifecycle",
             {"action": action, "base_lifecycle_version": base_lifecycle_version},
@@ -268,13 +267,13 @@ class TaskService:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
+        self._require_handler(task, actor_user_id)
         if task.lifecycle_version != base_lifecycle_version:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
         return self.transition(workspace_id, actor_user_id, task_id, request_id, target, task.status_version, operation_fingerprint=fingerprint)
 
     def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None, operation_fingerprint: str | None = None) -> Task:
         task = self._task(workspace_id, task_id)
-        self._require_handler(task, actor_user_id)
         target_status = str(target_status)
         if target_status not in TRANSITIONS:
             raise TaskConflictError("invalid_request", "unsupported target status")
@@ -285,6 +284,7 @@ class TaskService:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
+        self._require_handler(task, actor_user_id)
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before status changes")
         before = self.snapshot(task)
@@ -352,7 +352,6 @@ class TaskService:
 
     def restore(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_lifecycle_version: int) -> Task:
         task = self._task(workspace_id, task_id)
-        self._require_handler(task, actor_user_id)
         fingerprint = request_fingerprint(
             f"/api/v1/tasks/{task_id}/restore",
             {"base_lifecycle_version": base_lifecycle_version},
@@ -363,6 +362,7 @@ class TaskService:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
+        self._require_handler(task, actor_user_id)
         if task.lifecycle_version != base_lifecycle_version:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
         if task.deleted_at is None:
@@ -516,13 +516,19 @@ class TaskService:
         comment = self.session.scalar(
             select(TaskComment)
             .where(TaskComment.id == comment_id, TaskComment.workspace_id == workspace_id)
+        )
+        if comment is None:
+            raise TaskConflictError("not_found", "comment not found")
+        task = self._task(workspace_id, comment.task_id)
+        comment = self.session.scalar(
+            select(TaskComment)
+            .where(TaskComment.id == comment_id, TaskComment.workspace_id == workspace_id, TaskComment.task_id == task.id)
             .with_for_update()
         )
         if comment is None:
             raise TaskConflictError("not_found", "comment not found")
         if comment.author_user_id != actor_user_id:
             raise TaskConflictError("approval_required", "comment author approval is required")
-        task = self._task(workspace_id, comment.task_id)
         fingerprint = request_fingerprint(
             f"/api/v1/tasks/{task.id}/comments/{comment.id}",
             {"base_version": base_version},
@@ -630,7 +636,10 @@ class TaskService:
         return normalized
 
     def _existing_operation(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID) -> TaskOperation | None:
-        return self.session.scalar(select(TaskOperation).where(TaskOperation.workspace_id == workspace_id, TaskOperation.request_id == request_id))
+        operation = self.session.scalar(select(TaskOperation).where(TaskOperation.workspace_id == workspace_id, TaskOperation.request_id == request_id))
+        if operation is not None and operation.actor_user_id != actor_user_id:
+            raise TaskConflictError("idempotency_key_reused", "request id belongs to another actor")
+        return operation
 
     def _cursor(self, workspace_id: UUID, task: Task, action: ChangeAction, request_id: UUID) -> int:
         return self._resource_cursor(workspace_id, "task", task.id, action, request_id)

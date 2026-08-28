@@ -255,14 +255,16 @@ class TaskApprovalService:
         approval_id = self._uuid(approval_id, "approval_id")
         action_request_id = self._uuid(action_request_id, "action_request_id")
         request = self._request(workspace_id, approval_id)
-        action = self._existing_action(workspace_id, action_request_id, approval_id, "approve")
-        if action is not None:
-            self.last_cursor = action.cursor
-            return self._result_from_request(request, action.cursor)
-        self._require_pending(request)
         self._require_active_principal(workspace_id, approver_id)
         if request.approver_id != approver_id or request.requester_id == approver_id:
             raise TaskApprovalError("approval_not_allowed", "only the derived approver may approve this request")
+        action = self._existing_action(workspace_id, action_request_id, approval_id, "approve")
+        if action is not None:
+            if action.actor_user_id != approver_id:
+                raise TaskApprovalError("approval_request_reused", "action request id belongs to another actor")
+            self.last_cursor = action.cursor
+            return self._result_from_request(request, action.cursor)
+        self._require_pending(request)
 
         task, comment = self._lock_target(request)
         self._check_freshness(request, task, comment, action_request_id)
@@ -311,14 +313,16 @@ class TaskApprovalService:
         approval_id = self._uuid(approval_id, "approval_id")
         action_request_id = self._uuid(action_request_id, "action_request_id")
         request = self._request(workspace_id, approval_id)
-        action = self._existing_action(workspace_id, action_request_id, approval_id, "reject")
-        if action is not None:
-            self.last_cursor = action.cursor
-            return request
-        self._require_pending(request)
         self._require_active_principal(workspace_id, approver_id)
         if request.approver_id != approver_id or request.requester_id == approver_id:
             raise TaskApprovalError("approval_not_allowed", "only the derived approver may reject this request")
+        action = self._existing_action(workspace_id, action_request_id, approval_id, "reject")
+        if action is not None:
+            if action.actor_user_id != approver_id:
+                raise TaskApprovalError("approval_request_reused", "action request id belongs to another actor")
+            self.last_cursor = action.cursor
+            return request
+        self._require_pending(request)
         task, comment = self._lock_target(request)
         request.status = TaskApprovalRequestStatus.REJECTED
         request.reviewed_at = self.now()
@@ -348,14 +352,16 @@ class TaskApprovalService:
         approval_id = self._uuid(approval_id, "approval_id")
         action_request_id = self._uuid(action_request_id, "action_request_id")
         request = self._request(workspace_id, approval_id)
-        action = self._existing_action(workspace_id, action_request_id, approval_id, "cancel")
-        if action is not None:
-            self.last_cursor = action.cursor
-            return request
-        self._require_pending(request)
         self._require_active_principal(workspace_id, requester_id)
         if request.requester_id != requester_id:
             raise TaskApprovalError("approval_not_allowed", "only the requester may cancel this request")
+        action = self._existing_action(workspace_id, action_request_id, approval_id, "cancel")
+        if action is not None:
+            if action.actor_user_id != requester_id:
+                raise TaskApprovalError("approval_request_reused", "action request id belongs to another actor")
+            self.last_cursor = action.cursor
+            return request
+        self._require_pending(request)
         task, comment = self._lock_target(request)
         request.status = TaskApprovalRequestStatus.CANCELLED
         request.reviewed_at = self.now()

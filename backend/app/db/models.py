@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import CHAR, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import Enum as SAEnum
@@ -21,6 +21,9 @@ from app.db.enums import (
     RecurrenceStatus,
     Resolution,
     TaskStatus,
+    TaskApprovalRequestStatus,
+    TaskApprovalRequestType,
+    TaskQuadrant,
     UserStatus,
     WebSessionStatus,
     WorkspaceStatus,
@@ -285,14 +288,19 @@ class Task(Base):
     __table_args__ = (
         CheckConstraint("version > 0", name="ck_tasks_version_positive"),
         CheckConstraint("lifecycle_version > 0", name="ck_tasks_lifecycle_version_positive"),
+        CheckConstraint("progress IS NULL OR progress IN (20, 40, 60, 80)", name="ck_tasks_progress_allowed"),
+        UniqueConstraint("task_number", name="uq_tasks_task_number"),
     )
 
     id = _id()
     workspace_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     parent_task_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"))
+    task_number: Mapped[str] = mapped_column(String(8), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     status: Mapped[TaskStatus] = mapped_column(_enum(TaskStatus), nullable=False, default=TaskStatus.TODO, server_default="TODO")
+    quadrant: Mapped[TaskQuadrant | None] = mapped_column(_enum(TaskQuadrant))
+    progress: Mapped[int | None] = mapped_column(Integer)
     current_handler_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"))
     blocked_reason: Mapped[str | None] = mapped_column(Text)
     blocked_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -375,7 +383,76 @@ class TaskComment(Base):
     task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False)
     author_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_comments_deleted_by", ondelete="RESTRICT"),
+    )
     created_at = _created()
+
+
+class TaskNumberSequence(Base):
+    __tablename__ = "task_number_sequences"
+
+    period: Mapped[str] = mapped_column(CHAR(4), primary_key=True)
+    next_value: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+
+class TaskApprovalRequest(Base):
+    __tablename__ = "task_approval_requests"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "request_id", name="uq_task_approval_workspace_request"),
+        CheckConstraint("requester_id <> approver_id", name="ck_task_approval_requester_approver_distinct"),
+        Index("ix_task_approval_requests_workspace_status_approver", "workspace_id", "status", "approver_id"),
+        Index("ix_task_approval_requests_workspace_status_requester", "workspace_id", "status", "requester_id"),
+        Index("ix_task_approval_requests_task_status", "task_id", "status"),
+        Index("ix_task_approval_requests_comment_status", "comment_id", "status"),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("workspaces.id", name="fk_task_approval_requests_workspace_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_task_approval_requests_task_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    comment_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("task_comments.id", name="fk_task_approval_requests_comment_id", ondelete="RESTRICT"),
+    )
+    requester_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_approval_requests_requester_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    approver_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_approval_requests_approver_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    request_type: Mapped[TaskApprovalRequestType] = mapped_column(_enum(TaskApprovalRequestType), nullable=False)
+    proposed_changes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    base_field_versions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    request_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    status: Mapped[TaskApprovalRequestStatus] = mapped_column(
+        _enum(TaskApprovalRequestStatus),
+        nullable=False,
+        default=TaskApprovalRequestStatus.PENDING,
+        server_default="PENDING",
+    )
+    created_at = _created()
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_approval_requests_reviewed_by", ondelete="RESTRICT"),
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    resolved_cursor: Mapped[int | None] = mapped_column(Integer)
 
 
 class DelayRecord(Base):

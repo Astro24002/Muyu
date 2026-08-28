@@ -70,6 +70,32 @@ class TaskStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class TaskQuadrant(StrEnum):
+    Q1 = "Q1"
+    Q2 = "Q2"
+    Q3 = "Q3"
+    Q4 = "Q4"
+
+
+class TaskApprovalRequestType(StrEnum):
+    TASK_UPDATE = "TASK_UPDATE"
+    QUADRANT_UPDATE = "QUADRANT_UPDATE"
+    STATUS_UPDATE = "STATUS_UPDATE"
+    TASK_DELETE = "TASK_DELETE"
+    TASK_RESTORE = "TASK_RESTORE"
+    COMMENT_DELETE = "COMMENT_DELETE"
+    ASSIGNEE_UPDATE = "ASSIGNEE_UPDATE"
+    HANDLER_TRANSFER = "HANDLER_TRANSFER"
+
+
+class TaskApprovalRequestStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    CONFLICTED = "CONFLICTED"
+    CANCELLED = "CANCELLED"
+
+
 # Public API keeps DONE while the persisted enum remains COMPLETED for compatibility.
 PUBLIC_TASK_STATUS = {
     TaskStatus.TODO: "TODO",

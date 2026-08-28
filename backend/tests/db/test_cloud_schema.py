@@ -62,6 +62,8 @@ def test_cloud_migration_exposes_authoritative_tables_and_indexes(db_engine) -> 
         "workspace_cursors",
         "workspace_change_log",
         "tasks",
+        "task_number_sequences",
+        "task_approval_requests",
         "task_operations",
         "task_conflicts",
         "task_comments",

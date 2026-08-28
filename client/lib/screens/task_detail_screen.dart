@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/task.dart';
+import '../models/task_approval_request.dart';
 import '../sync/workspace_sync_controller.dart';
 
 class TaskDetailScreen extends StatefulWidget {
@@ -27,8 +28,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _estimatedMinutes;
   final _comment = TextEditingController();
   late Set<String> _selectedAssignees;
+  String? _selectedQuadrant;
+  int? _selectedProgress;
   bool _saving = false;
   bool _commenting = false;
+  String? _pendingMessage;
 
   @override
   void initState() {
@@ -43,6 +47,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       text: widget.task.estimatedMinutes?.toString() ?? '',
     );
     _selectedAssignees = widget.task.assigneeIds.toSet();
+    _selectedQuadrant = widget.task.quadrant;
+    _selectedProgress = widget.task.progress;
   }
 
   @override
@@ -84,13 +90,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           current.plannedStartAt?.toIso8601String())
         'planned_start_at': _dateValue(_plannedStartAt.text),
       if (estimate != current.estimatedMinutes) 'estimated_minutes': estimate,
+      if (_selectedQuadrant != current.quadrant) 'quadrant': _selectedQuadrant,
+      if (current.status == 'IN_PROGRESS' &&
+          _selectedProgress != current.progress)
+        'progress': _selectedProgress,
       if (!_sameIds(_selectedAssignees, current.assigneeIds))
         'assignee_ids': _selectedAssignees.toList(),
     };
     if (fields.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await widget.sync.update(current.id, fields: fields);
+      final result = await widget.sync.update(current.id, fields: fields);
+      if (result is PendingApproval && mounted) {
+        setState(() => _pendingMessage = '等待负责人审批');
+      }
     } catch (_) {
       // The controller exposes the authoritative error in its state.
     } finally {
@@ -109,6 +122,22 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       // Keep the draft on failure.
     } finally {
       if (mounted) setState(() => _commenting = false);
+    }
+  }
+
+  Future<void> _deleteComment(TaskComment comment) async {
+    if (!widget.canWrite || comment.deletedAt != null) return;
+    try {
+      final result = await widget.sync.deleteComment(
+        _current.id,
+        comment.id,
+        baseVersion: comment.version,
+      );
+      if (result is PendingApproval && mounted) {
+        setState(() => _pendingMessage = '评论删除等待作者审批');
+      }
+    } catch (_) {
+      // Keep the error in the sync banner.
     }
   }
 
@@ -240,12 +269,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
     try {
       final task = _current;
-      await widget.sync.transition(
+      final result = await widget.sync.transition(
         task.id,
         status,
         blockedReason: blockedReason,
         resumeHandlerId: status == 'WAITING' ? task.currentHandlerId : null,
       );
+      if (result is PendingApproval && mounted) {
+        setState(() => _pendingMessage = '等待负责人审批');
+      }
     } catch (_) {
       // Keep the error in the sync banner.
     }
@@ -255,10 +287,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (!widget.canWrite) return;
     if (handlerId == null || handlerId == _current.currentHandlerId) return;
     try {
-      await widget.sync.update(
+      final result = await widget.sync.update(
         _current.id,
         fields: {'current_handler_id': handlerId},
       );
+      if (result is PendingApproval && mounted) {
+        setState(() => _pendingMessage = '等待负责人审批');
+      }
     } catch (_) {
       // Keep the error in the sync banner.
     }
@@ -289,6 +324,23 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           )
           .toList();
       final members = widget.sync.state.snapshot?.members ?? const [];
+      final viewerId = widget.sync.state.snapshot?.viewerUserId;
+      final isOwner = viewerId == task.currentHandlerId;
+      final pendingApproval = widget.sync.state.approvalRequests.any(
+        (request) => request.taskId == task.id && request.status == 'PENDING',
+      );
+      final quadrant = _selectedQuadrant;
+      final progress = _selectedProgress;
+      final comments =
+          widget.sync.state.comments
+              .where((comment) => comment.taskId == task.id)
+              .toList()
+            ..sort(
+              (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                  .compareTo(
+                    b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                  ),
+            );
       final handlerIds = members
           .map((member) => member['user_id'] as String?)
           .whereType<String>()
@@ -332,11 +384,42 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 widget.sync.state.errorMessage!,
                 key: const Key('task-error'),
               ),
+            Text(
+              task.taskNumber.isEmpty ? '任务' : '任务编号：${task.taskNumber}',
+              key: const Key('task-number'),
+            ),
+            Text(
+              isOwner ? '当前设备是任务负责人' : '协作成员，修改需负责人审批',
+              key: const Key('task-permission-hint'),
+            ),
+            if (task.parentTaskId != null)
+              Text('父任务：${task.parentTaskId}', key: const Key('task-parent')),
+            if (_pendingMessage != null || pendingApproval)
+              Card(
+                key: const Key('task-pending-approval'),
+                child: Text(_pendingMessage ?? '等待负责人审批'),
+              ),
             TextField(
               key: const Key('task-detail-title'),
               controller: _title,
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '标题'),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              key: const Key('task-quadrant-select'),
+              initialValue: quadrant,
+              decoration: const InputDecoration(labelText: '四象限'),
+              items: const [
+                DropdownMenuItem(value: null, child: Text('未设置')),
+                DropdownMenuItem(value: 'Q1', child: Text('Q1 重要且紧急')),
+                DropdownMenuItem(value: 'Q2', child: Text('Q2 重要不紧急')),
+                DropdownMenuItem(value: 'Q3', child: Text('Q3 紧急不重要')),
+                DropdownMenuItem(value: 'Q4', child: Text('Q4 不重要不紧急')),
+              ],
+              onChanged: !widget.canWrite || task.deletedAt != null
+                  ? null
+                  : (value) => setState(() => _selectedQuadrant = value),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -402,6 +485,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ],
             const SizedBox(height: 16),
             Text('状态：${task.status}'),
+            if (task.status == 'IN_PROGRESS')
+              DropdownButtonFormField<int>(
+                key: const Key('task-progress-select'),
+                initialValue: const [20, 40, 60, 80].contains(progress)
+                    ? progress
+                    : task.progress ?? 20,
+                decoration: const InputDecoration(labelText: '当前进度'),
+                items: const [20, 40, 60, 80]
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text('$value%'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: !widget.canWrite || task.deletedAt != null
+                    ? null
+                    : (value) => setState(() => _selectedProgress = value),
+              ),
             if (handlerIds.isNotEmpty)
               DropdownButtonFormField<String>(
                 key: const Key('task-handler-select'),
@@ -467,6 +569,34 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ),
               ),
             ),
+            if (comments.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('评论记录'),
+              for (final comment in comments)
+                Card(
+                  key: Key('task-comment-${comment.id}'),
+                  child: ListTile(
+                    title: Text(
+                      comment.deletedAt == null ? comment.body : '评论已删除',
+                    ),
+                    subtitle: Text(
+                      comment.deletedAt == null
+                          ? '作者：${comment.authorUserId}'
+                          : '已删除 · 作者：${comment.authorUserId}',
+                    ),
+                    trailing: comment.deletedAt != null
+                        ? null
+                        : IconButton(
+                            key: Key('task-comment-delete-${comment.id}'),
+                            tooltip: '删除评论',
+                            onPressed: !widget.canWrite
+                                ? null
+                                : () => _deleteComment(comment),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                  ),
+                ),
+            ],
             if (conflicts.isNotEmpty) ...[
               const SizedBox(height: 20),
               const Text('待解决冲突'),

@@ -12,6 +12,7 @@ import '../workspace/device_authorization_repository.dart';
 import '../workspace/device_repository.dart';
 import 'web_qr_scanner_screen.dart';
 import 'task_detail_screen.dart';
+import 'task_approval_screen.dart';
 import 'my_profile_screen.dart';
 
 class CloudWorkspaceScreen extends StatefulWidget {
@@ -95,6 +96,24 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                 ),
                 icon: const Icon(Icons.person_outline),
               ),
+            if (state.snapshot != null)
+              IconButton(
+                key: const Key('task-approval-button'),
+                tooltip: '任务审批',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => TaskApprovalScreen(
+                      sync: _sync,
+                      currentUserId:
+                          state.snapshot!.viewerUserId ??
+                          widget.session?.user.id ??
+                          '',
+                      canWrite: widget.canWrite,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.rule),
+              ),
             IconButton(
               tooltip: '刷新',
               onPressed: _sync.refresh,
@@ -139,8 +158,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                         state.snapshot == null ||
                                 state.snapshot!.members.isEmpty
                             ? ''
-                            : state.snapshot!.members.first['user_id']
-                                  as String,
+                            : state.snapshot!.viewerUserId ??
+                                  state.snapshot!.members.first['user_id']
+                                      as String,
                       ),
                       state,
                     ),
@@ -244,14 +264,12 @@ Widget _taskList(
         for (final task in tasks)
           Card(
             child: ListTile(
-              title: Text(task.title),
-              subtitle: Text(
-                task.status == 'WAITING'
-                    ? (task.blockedReason ?? '等待中')
-                    : task.description.isEmpty
-                    ? task.status
-                    : task.description,
+              title: Text(
+                task.taskNumber.isEmpty
+                    ? task.title
+                    : '${task.taskNumber} ${task.title}',
               ),
+              subtitle: Text(_taskSubtitle(task, state)),
               trailing: Text('v${task.version}'),
               onTap: screen == null
                   ? null
@@ -269,6 +287,18 @@ Widget _taskList(
       ],
     ),
   );
+}
+
+String _taskSubtitle(TaskItem task, WorkspaceSyncState state) {
+  final pending = state.approvalRequests.any(
+    (request) =>
+        request.taskId == task.id &&
+        request.status == 'PENDING' &&
+        request.isOutgoing(state.snapshot?.viewerUserId ?? ''),
+  );
+  if (pending) return '等待负责人审批';
+  if (task.status == 'WAITING') return task.blockedReason ?? '等待中';
+  return task.description.isEmpty ? task.status : task.description;
 }
 
 Widget _board(

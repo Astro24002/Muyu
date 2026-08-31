@@ -81,7 +81,8 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
             text(
                 "SELECT t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder) "
                 "FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid "
-                "WHERE t.typname IN "
+                "JOIN pg_namespace n ON n.oid = t.typnamespace "
+                "WHERE n.nspname = current_schema() AND t.typname IN "
                 "('task_status', 'task_quadrant', 'task_approval_request_type', 'task_approval_request_status') "
                 "GROUP BY t.typname"
             )

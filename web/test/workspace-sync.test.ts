@@ -71,6 +71,7 @@ describe('WorkspaceSyncController', () => {
   it('uses generated UUID request ids for online writes and stores the returned task', async () => {
     const api = apiStub();
     api.createTask.mockResolvedValue({ ...task, id: 'task-2', title: 'New task', cursor: 6 });
+    api.getWorkspaceChanges.mockResolvedValue(changesResponse(6, { ...task, id: 'task-2', title: 'New task' }));
     const requestIdFactory = vi.fn(() => '00000000-0000-4000-8000-000000000001');
     const controller = new WorkspaceSyncController(api as never, { requestIdFactory });
     await controller.loadSnapshot();
@@ -302,6 +303,146 @@ describe('WorkspaceSyncController', () => {
     expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Applied once');
   });
+
+  it('continues paginated pulls until a high cursor hint is reached', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockImplementation((afterCursor: number) => {
+      if (afterCursor === 5) return Promise.resolve(changesPage(6, 105, { ...task, title: 'Page one' }));
+      if (afterCursor === 105) return Promise.resolve(changesPage(106, 201, { ...task, title: 'Page two' }));
+      return Promise.resolve(emptyChanges(afterCursor));
+    });
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    await controller.pull(201);
+
+    expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(1, 5);
+    expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(2, 105);
+    expect(controller.state.cursor).toBe(201);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Page two 201');
+  });
+
+  it('does not trust an envelope cursor beyond the last returned change', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 201,
+      changes: changesPage(6, 6, { ...task, title: 'Should not apply' }).changes,
+    });
+    api.getWorkspaceSnapshot.mockResolvedValueOnce(snapshot()).mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered' }] });
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    await controller.pull(201);
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Recovered');
+  });
+
+  it('reconciles every change before applying a write ACK cursor leap', async () => {
+    const secondPage = deferred<ReturnType<typeof changesPage>>();
+    const api = apiStub();
+    const createdTask = { ...task, id: 'task-2', title: 'Created', cursor: 201 };
+    api.createTask.mockResolvedValue(createdTask);
+    api.getWorkspaceChanges.mockImplementation((afterCursor: number) => {
+      if (afterCursor === 5) return Promise.resolve(changesPage(6, 105, { ...task, title: 'Page one' }));
+      if (afterCursor === 105) return secondPage.promise;
+      return Promise.resolve(emptyChanges(afterCursor));
+    });
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    const write = controller.createTask('Created', '', 'Q2');
+    await vi.waitFor(() => {
+      expect(api.getWorkspaceChanges).toHaveBeenCalledTimes(2);
+    });
+    expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(1, 5);
+    expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(2, 105);
+    expect(controller.state.cursor).toBe(105);
+
+    secondPage.resolve(changesPage(106, 201, { ...createdTask, title: 'Final' }));
+    await write;
+
+    expect(controller.state.cursor).toBe(201);
+    expect(controller.state.snapshot?.tasks.find((item) => item.id === 'task-2')?.title).toBe('Final 201');
+  });
+
+  it('resolves an active pull on clear and starts a new-generation pull while the old request hangs', async () => {
+    const hanging = deferred<ReturnType<typeof changesResponse>>();
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(snapshot());
+    api.getWorkspaceChanges.mockImplementation((afterCursor: number) => {
+      if (afterCursor === 5 && api.getWorkspaceChanges.mock.calls.length === 1) return hanging.promise;
+      return Promise.resolve(changesResponse(6, { ...task, title: 'New generation' }));
+    });
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    const oldPull = controller.pull(6);
+    await vi.waitFor(() => expect(api.getWorkspaceChanges).toHaveBeenCalledOnce());
+    let oldPullSettled = false;
+    void oldPull.then(() => { oldPullSettled = true; });
+
+    controller.clear();
+    await vi.waitFor(() => expect(oldPullSettled).toBe(true));
+
+    await controller.loadSnapshot();
+    await controller.pull(6);
+
+    expect(api.getWorkspaceChanges).toHaveBeenCalledTimes(2);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('New generation');
+    hanging.resolve(changesResponse(6, { ...task, title: 'Old result' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('New generation');
+    controller.dispose();
+  });
+
+  it('resolves an active pull waiter when disposed', async () => {
+    const hanging = deferred<ReturnType<typeof changesResponse>>();
+    const api = apiStub();
+    api.getWorkspaceChanges.mockReturnValue(hanging.promise);
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    const pull = controller.pull(6);
+    await vi.waitFor(() => expect(api.getWorkspaceChanges).toHaveBeenCalledOnce());
+    let settled = false;
+    void pull.then(() => { settled = true; });
+
+    controller.dispose();
+    await vi.waitFor(() => expect(settled).toBe(true));
+  });
+
+  it('ignores stale overlapping refresh responses and keeps loading until all loads finish', async () => {
+    const older = deferred<ReturnType<typeof snapshot>>();
+    const newer = deferred<ReturnType<typeof snapshot>>();
+    const api = apiStub();
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot())
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    const oldRefresh = controller.refresh();
+    const newRefresh = controller.refresh();
+    expect(controller.state.loading).toBe(true);
+
+    newer.resolve({ ...snapshot(7), tasks: [{ ...task, title: 'New snapshot' }] });
+    await newRefresh;
+    expect(controller.state.cursor).toBe(7);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('New snapshot');
+    expect(controller.state.loading).toBe(true);
+
+    older.resolve({ ...snapshot(6), tasks: [{ ...task, title: 'Old snapshot' }] });
+    await oldRefresh;
+
+    expect(controller.state.cursor).toBe(7);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('New snapshot');
+    expect(controller.state.loading).toBe(false);
+  });
 });
 
 function changesResponse(cursor: number, nextTask = task) {
@@ -317,6 +458,28 @@ function changesResponse(cursor: number, nextTask = task) {
       resource: nextTask,
     }],
   };
+}
+
+function changesPage(firstCursor: number, lastCursor: number, nextTask = task) {
+  return {
+    workspace_id: 'workspace-1',
+    cursor: lastCursor,
+    changes: Array.from({ length: lastCursor - firstCursor + 1 }, (_, index) => {
+      const cursor = firstCursor + index;
+      return {
+        cursor,
+        resource_type: 'task' as const,
+        resource_id: nextTask.id,
+        action: 'UPDATED',
+        operation_id: null,
+        resource: { ...nextTask, title: `${nextTask.title} ${cursor}` },
+      };
+    }),
+  };
+}
+
+function emptyChanges(cursor: number) {
+  return { workspace_id: 'workspace-1', cursor, changes: [] };
 }
 
 function approval(id: string, workspaceId: string, status: TaskApprovalRequest['status'] = 'PENDING'): TaskApprovalRequest {

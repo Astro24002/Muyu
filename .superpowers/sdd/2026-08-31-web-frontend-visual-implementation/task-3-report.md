@@ -115,3 +115,35 @@ npm test -- --run test/app-shell.test.tsx test/app-session-isolation.test.ts tes
 ```
 
 The full suite remains at 15 files passed, 1 file failed, 104 tests passed, and 2 tests failed. Both failures are the same pre-existing `test/workspace-actions.test.ts` failures documented in Fix Round 1; no new failing file was introduced by Fix Round 2.
+
+## Fix Round 3
+
+Date: 2026-08-31
+
+### Review fixes
+
+- Treats a changes envelope as valid only when its cursor is a safe non-negative integer matching the last returned change, or matching `after_cursor` for an empty response. Contiguous pages advance only to the last returned change; malformed and non-contiguous envelopes recover through a snapshot without trusting a cursor leap.
+- Pull hints and write ACK cursors are reconciliation targets. The controller continues paginated requests from each newly applied cursor until the highest requested target is reached, while write ACK resources merge without advancing the applied cursor.
+- Pull waiters are tracked for both queued and active requests. `clear()` and `dispose()` resolve all waiters, detach the old generation's drain, and generation/identity guards prevent a hanging old request or its cleanup from blocking or mutating a new session.
+- Same-generation snapshot loads use a request sequence so stale refresh responses cannot overwrite newer state. Top-level loading uses a generation-scoped operation count and remains true until the current generation's active operations finish.
+- Realtime fallback ticks use one active request plus one coalesced pending request, and pending fallback work is canceled when the socket reconnects or the effect stops.
+
+### TDD and Verification
+
+The Fix Round 3 regressions were first run against `c760857` and failed as expected: 7 failures across the sync and lifecycle files covering paginated hints, envelope cursor trust, ACK cursor leaps, active pull teardown, refresh ordering/loading, and fallback coalescing. After implementation:
+
+```text
+npm test -- --run test/routes.test.ts test/use-external-state.test.tsx test/app-lifecycle.test.tsx test/workspace-sync.test.ts
+4 files passed, 37 tests passed
+
+npm test -- --run test/app-shell.test.tsx test/app-session-isolation.test.ts test/app.test.ts test/qr-login.test.ts
+4 files passed, 32 tests passed
+
+npm run typecheck
+passed (tsc --noEmit)
+
+npm run build
+passed (Vite 8.2.2, 61 modules transformed)
+```
+
+The full Web suite remains at 15 files passed, 1 file failed, 111 tests passed, and 2 tests failed. The failures are the same pre-existing `test/workspace-actions.test.ts` failures: the create-task mock observes zero calls, and the loading-rerender test observes an enabled create control. No new failing file was introduced by Fix Round 3.

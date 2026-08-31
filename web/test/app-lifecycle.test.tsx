@@ -157,6 +157,32 @@ describe('React app lifecycle', () => {
     unmount();
   });
 
+  it('coalesces repeated visible fallback ticks while a pull is in flight', async () => {
+    vi.useFakeTimers();
+    const login = new FakeLogin();
+    const fake = createFakeSync(workspaceState());
+    const pending = deferred<void>();
+    const pull = vi.fn(() => pending.promise);
+    (fake.sync as unknown as { pull: typeof pull }).pull = pull;
+    const sockets: FakeSocket[] = [];
+    const socketFactory: WebSocketFactory = vi.fn(() => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket;
+    });
+    const { unmount } = render(<App api={{} as ApiClient} login={login as never} sync={fake.sync} socketFactory={socketFactory} />);
+    await settle();
+
+    sockets[0].fail();
+    vi.advanceTimersByTime(30_000);
+    expect(pull).toHaveBeenCalledOnce();
+
+    pending.resolve();
+    await settle();
+    expect(pull).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
   it('cleans local workspace state before logging out and starts a new QR flow', async () => {
     const login = new FakeLogin();
     const fake = createFakeSync(workspaceState());

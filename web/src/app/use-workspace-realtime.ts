@@ -25,10 +25,40 @@ export function useWorkspaceRealtime(
     let socket: WorkspaceSocket | undefined;
     let stopped = false;
     let reconnecting = false;
+    let fallbackPullInFlight = false;
+    let fallbackPullPending = false;
 
     const stopFallback = (): void => {
       if (fallbackTimer !== undefined) globalThis.clearInterval(fallbackTimer);
       fallbackTimer = undefined;
+      fallbackPullPending = false;
+    };
+
+    const requestFallbackPull = (): void => {
+      if (!active || !sync.state.snapshot || typeof sync.pull !== 'function') return;
+      if (fallbackPullInFlight) {
+        fallbackPullPending = true;
+        return;
+      }
+
+      fallbackPullInFlight = true;
+      let request: Promise<void>;
+      try {
+        request = Promise.resolve(sync.pull());
+      } catch (error) {
+        request = Promise.reject(error);
+      }
+      void request.catch(() => undefined).finally(() => {
+        fallbackPullInFlight = false;
+        if (!active) {
+          fallbackPullPending = false;
+          return;
+        }
+        if (fallbackPullPending) {
+          fallbackPullPending = false;
+          requestFallbackPull();
+        }
+      });
     };
 
     const startFallback = (): void => {
@@ -36,7 +66,7 @@ export function useWorkspaceRealtime(
       fallbackTimer = globalThis.setInterval(() => {
         if (!active || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
         if (!sync.state.snapshot || typeof sync.pull !== 'function') return;
-        void sync.pull();
+        requestFallbackPull();
       }, fallbackIntervalMs);
     };
 

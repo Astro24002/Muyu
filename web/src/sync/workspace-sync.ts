@@ -1,5 +1,5 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
-import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceSnapshot } from '../api/types';
+import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 import { parseTaskItem, upsertTask } from '../tasks/task-model';
 
@@ -25,10 +25,16 @@ type Listener = (state: WorkspaceSyncState) => void;
 type IsCurrent = () => boolean;
 
 interface PendingPull {
+  generation: number;
   cursorHint?: number;
   afterCursor?: number;
   isCurrent?: IsCurrent;
-  resolve: () => void;
+  waiters: Array<() => void>;
+}
+
+interface PullResult {
+  cursor: number;
+  recovered: boolean;
 }
 
 export type WorkspaceSyncApi = Pick<ApiClient,
@@ -65,8 +71,12 @@ export class WorkspaceSyncController {
   private disposed = false;
   private generation = 0;
   private readonly requestIdFactory: () => string;
+  private snapshotRequestSequence = 0;
+  private activeTopLevelOperations = 0;
   private pendingPulls: PendingPull[] = [];
   private pullDrain: Promise<void> | undefined;
+  private readonly pullRequests = new Set<PendingPull>();
+  private unhintedPull: PendingPull | undefined;
 
   constructor(private readonly api: WorkspaceSyncApi, options: WorkspaceSyncOptions = {}) {
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
@@ -82,28 +92,33 @@ export class WorkspaceSyncController {
   dispose(): void {
     this.generation += 1;
     this.disposed = true;
-    this.resolvePendingPulls();
+    this.activeTopLevelOperations = 0;
+    this.resolvePulls();
     this.listeners.clear();
   }
 
   clear(): void {
     this.generation += 1;
-    this.resolvePendingPulls();
+    this.activeTopLevelOperations = 0;
+    this.resolvePulls();
     this.currentState = INITIAL_STATE;
     for (const listener of this.listeners) listener(this.currentState);
   }
 
   async loadSnapshot(parentIsCurrent?: IsCurrent): Promise<void> {
+    const sequence = ++this.snapshotRequestSequence;
+    const snapshotIsCurrent = (): boolean => sequence === this.snapshotRequestSequence && (!parentIsCurrent || parentIsCurrent());
     await this.run('无法加载工作区，请检查网络后重试。', async (isCurrent) => {
       const snapshot = await this.api.getWorkspaceSnapshot();
       if (!isCurrent()) return;
       const normalized = normalizeSnapshot(snapshot);
       this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), stale: false, error: null, authRequired: false });
-    }, false, parentIsCurrent);
+    }, false, snapshotIsCurrent);
   }
 
   async pull(cursorHint?: number): Promise<void> {
     if (this.disposed) return;
+    if (cursorHint !== undefined && !isValidCursor(cursorHint)) return;
     if (this.currentState.snapshot && cursorHint !== undefined && cursorHint <= this.currentState.cursor) return;
     await this.enqueuePull(cursorHint);
   }
@@ -157,7 +172,7 @@ export class WorkspaceSyncController {
       const cursor = result && typeof result.cursor === 'number' ? result.cursor : cursorBeforeWrite;
       if (cursor > cursorBeforeWrite) {
         if (!isCurrent()) return;
-        await this.pullFrom(cursorBeforeWrite, isCurrent);
+        await this.pullFrom(cursorBeforeWrite, isCurrent, cursor);
       }
     });
   }
@@ -165,9 +180,10 @@ export class WorkspaceSyncController {
   async addDelay(taskId: string, newDueAt: string, reason: string, note?: string): Promise<void> {
     const cursorBeforeWrite = this.currentState.cursor;
     await this.run('无法延期任务，请检查网络后重试。', async (isCurrent) => {
-      await this.api.addTaskDelay(taskId, { requestId: this.requestIdFactory(), newDueAt, reason, note });
+      const response = await this.api.addTaskDelay(taskId, { requestId: this.requestIdFactory(), newDueAt, reason, note });
       if (!isCurrent()) return;
-      await this.pullFrom(cursorBeforeWrite, isCurrent);
+      const cursor = cursorFrom(response as { cursor?: number | null });
+      await this.pullFrom(cursorBeforeWrite, isCurrent, cursor > cursorBeforeWrite ? cursor : undefined);
     });
   }
 
@@ -201,7 +217,7 @@ export class WorkspaceSyncController {
       const cursor = cursorFrom(approval);
       if (cursor > cursorBeforeWrite) {
         if (!isCurrent()) return;
-        await this.pullFrom(cursorBeforeWrite, isCurrent);
+        await this.pullFrom(cursorBeforeWrite, isCurrent, cursor);
       }
     });
     return created;
@@ -254,7 +270,7 @@ export class WorkspaceSyncController {
       const cursor = cursorFrom(response);
       if (cursor > cursorBeforeWrite) {
         if (!isCurrent()) return;
-        await this.pullFrom(cursorBeforeWrite, isCurrent);
+        await this.pullFrom(cursorBeforeWrite, isCurrent, cursor);
       }
     });
     return result;
@@ -275,12 +291,12 @@ export class WorkspaceSyncController {
       if (isPendingApproval(response)) {
         this.mergeApproval(response.approval_request);
       } else {
-        this.mergeTask(response, response.cursor);
+        this.mergeTask(response, response.cursor, false);
       }
       onSuccess?.();
       if (response.cursor > cursorBeforeWrite) {
         if (!isCurrent()) return;
-        await this.pullFrom(cursorBeforeWrite, isCurrent);
+        await this.pullFrom(cursorBeforeWrite, isCurrent, response.cursor);
       }
     });
     return result;
@@ -313,24 +329,29 @@ export class WorkspaceSyncController {
       this.mergeApprovalResult(response, cursor <= cursorBeforeAction);
       if (cursor > cursorBeforeAction) {
         if (!isCurrent()) return;
-        await this.pullFrom(cursorBeforeAction, isCurrent);
+        await this.pullFrom(cursorBeforeAction, isCurrent, cursor);
       }
     });
     return result;
   }
 
-  private async pullFrom(afterCursor: number, parentIsCurrent?: IsCurrent): Promise<void> {
+  private async pullFrom(afterCursor: number, parentIsCurrent?: IsCurrent, cursorHint?: number): Promise<void> {
     if (parentIsCurrent && !parentIsCurrent()) return;
-    await this.enqueuePull(undefined, afterCursor, parentIsCurrent);
+    await this.enqueuePull(cursorHint, afterCursor, parentIsCurrent);
   }
 
-  private async pullChanges(afterCursor: number, parentIsCurrent?: IsCurrent): Promise<void> {
+  private async pullChanges(afterCursor: number, parentIsCurrent?: IsCurrent): Promise<PullResult | undefined> {
+    const operationGeneration = this.generation;
+    let appliedCursor: number | undefined;
+    let recovered = false;
     await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
       const changes = await this.api.getWorkspaceChanges(afterCursor);
       if (!isCurrent()) return;
-      if (!areContiguous(changes.changes, afterCursor) || (changes.changes.length === 0 && changes.cursor !== afterCursor)) {
+      if (!isValidChangesEnvelope(changes, afterCursor)) {
         if (!isCurrent()) return;
+        recovered = true;
         await this.loadSnapshot(isCurrent);
+        if (isCurrent()) appliedCursor = this.currentState.cursor;
         return;
       }
       for (const change of changes.changes) {
@@ -338,10 +359,21 @@ export class WorkspaceSyncController {
         this.applyChange(change);
       }
       if (!isCurrent()) return;
-      const cursor = Math.max(this.currentState.cursor, changes.cursor);
+      const lastReturnedCursor = changes.changes.length === 0
+        ? afterCursor
+        : changes.changes[changes.changes.length - 1].cursor;
+      const cursor = Math.max(this.currentState.cursor, lastReturnedCursor);
       const snapshot = this.currentState.snapshot;
       this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, approvals: snapshot?.approval_requests, comments: snapshot?.comments, stale: false, error: null, authRequired: false });
+      appliedCursor = cursor;
     }, true, parentIsCurrent);
+    if (appliedCursor === undefined
+      && !this.disposed
+      && operationGeneration === this.generation
+      && (!parentIsCurrent || parentIsCurrent())) {
+      return { cursor: this.currentState.cursor, recovered };
+    }
+    return appliedCursor === undefined ? undefined : { cursor: appliedCursor, recovered };
   }
 
   private applyChange(change: WorkspaceChange): void {
@@ -358,8 +390,9 @@ export class WorkspaceSyncController {
   private mergeTask(task: TaskItem, cursor: number, updateCursor = true): void {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
-    const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, parseTaskItem(task)), cursor: updateCursor ? cursor : snapshot.cursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, parseTaskItem(task)), cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeApproval(approval: TaskApprovalRequest, cursor = this.currentState.cursor, updateCursor = false): void {
@@ -368,9 +401,9 @@ export class WorkspaceSyncController {
     const approvals = [...(snapshot.approval_requests ?? [])]
       .filter((item) => item.id !== approval.id);
     approvals.push(approval);
-    const nextCursor = updateCursor ? cursor : snapshot.cursor;
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, approval_requests: approvals, cursor: nextCursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, approvals, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeApprovals(approvals: TaskApprovalRequest[]): void {
@@ -391,9 +424,9 @@ export class WorkspaceSyncController {
     if (!snapshot) return;
     const comments = [...(snapshot.comments ?? [])].filter((item) => item.id !== comment.id);
     comments.push(comment);
-    const nextCursor = updateCursor ? cursor : snapshot.cursor;
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, comments, cursor: nextCursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, comments, approvals: nextSnapshot.approval_requests, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, comments, approvals: nextSnapshot.approval_requests, stale: false, error: null, authRequired: false });
   }
 
   private mergeApprovalResult(result: ApprovalActionResult, updateCursor = true): void {
@@ -414,7 +447,10 @@ export class WorkspaceSyncController {
     const generation = this.generation;
     const isCurrent = () => !this.disposed && generation === this.generation && (!parentIsCurrent || parentIsCurrent());
     if (!isCurrent()) return;
-    if (!nested) this.setState({ loading: true, error: null });
+    if (!nested) {
+      this.activeTopLevelOperations += 1;
+      this.setState({ loading: true, error: null });
+    }
     try {
       await operation(isCurrent);
     } catch (error) {
@@ -430,7 +466,10 @@ export class WorkspaceSyncController {
       }
       this.setState({ error: message, stale: this.currentState.snapshot !== null, authRequired: error instanceof ApiError && error.status === 401 });
     } finally {
-      if (!nested && isCurrent()) this.setState({ loading: false });
+      if (!nested && generation === this.generation) {
+        this.activeTopLevelOperations = Math.max(0, this.activeTopLevelOperations - 1);
+        if (this.activeTopLevelOperations === 0) this.setState({ loading: false });
+      }
     }
   }
 
@@ -443,61 +482,138 @@ export class WorkspaceSyncController {
   private async enqueuePull(cursorHint?: number, afterCursor?: number, isCurrent?: IsCurrent): Promise<void> {
     if (this.disposed || (isCurrent && !isCurrent())) return;
     await new Promise<void>((resolve) => {
-      this.pendingPulls.push({ cursorHint, afterCursor, isCurrent, resolve });
+      const canCoalesce = cursorHint === undefined && afterCursor === undefined && isCurrent === undefined;
+      const existing = canCoalesce && this.unhintedPull?.generation === this.generation
+        ? this.unhintedPull
+        : undefined;
+      if (existing) {
+        existing.waiters.push(resolve);
+        return;
+      }
+      const request: PendingPull = {
+        generation: this.generation,
+        cursorHint,
+        afterCursor,
+        isCurrent,
+        waiters: [resolve],
+      };
+      this.pullRequests.add(request);
+      if (canCoalesce) this.unhintedPull = request;
+      this.pendingPulls.push(request);
       this.startPullDrain();
     });
   }
 
   private startPullDrain(): void {
-    if (this.pullDrain) return;
-    this.pullDrain = this.drainPulls().finally(() => {
-      this.pullDrain = undefined;
-      if (this.pendingPulls.length > 0) this.startPullDrain();
+    if (this.disposed || this.pullDrain || this.pendingPulls.length === 0) return;
+    const generation = this.generation;
+    let resolveDrain!: () => void;
+    let rejectDrain!: (error: unknown) => void;
+    const drain = new Promise<void>((resolve, reject) => {
+      resolveDrain = resolve;
+      rejectDrain = reject;
     });
+    this.pullDrain = drain;
+    void this.drainPulls(generation).then(resolveDrain, rejectDrain);
+    void drain.then(
+      () => this.finishPullDrain(drain, generation),
+      () => this.finishPullDrain(drain, generation),
+    );
   }
 
-  private async drainPulls(): Promise<void> {
-    while (this.pendingPulls.length > 0) {
+  private finishPullDrain(drain: Promise<void>, generation: number): void {
+    if (this.pullDrain !== drain) return;
+    this.pullDrain = undefined;
+    if (!this.disposed && this.generation === generation && this.pendingPulls.length > 0) this.startPullDrain();
+  }
+
+  private async drainPulls(generation: number): Promise<void> {
+    while (!this.disposed && this.generation === generation && this.pendingPulls.length > 0) {
       const batch = this.pendingPulls.splice(0);
       try {
-        const active = batch.filter((request) => !request.isCurrent || request.isCurrent());
-        if (active.length === 0) continue;
-
-        const isCurrent = (): boolean => active.some((request) => !request.isCurrent || request.isCurrent());
-        if (!this.currentState.snapshot) {
-          await this.loadSnapshot(isCurrent);
-          continue;
-        }
-
-        const currentCursor = this.currentState.cursor;
-        const highestHint = active.reduce<number | undefined>((highest, request) => {
-          if (request.cursorHint === undefined) return highest;
-          return highest === undefined ? request.cursorHint : Math.max(highest, request.cursorHint);
-        }, undefined);
-        const writeRequests = active.filter((request) => request.afterCursor !== undefined);
-        const needsWritePull = writeRequests.length > 0;
-        const needsHintPull = active.some((request) => request.afterCursor === undefined
-          && (request.cursorHint === undefined || (highestHint !== undefined && highestHint > currentCursor)));
-        if (!needsWritePull && !needsHintPull) continue;
-
-        const afterCursor = needsWritePull
-          ? Math.min(currentCursor, Math.min(...writeRequests.map((request) => request.afterCursor!)))
-          : currentCursor;
-        await this.pullChanges(afterCursor, isCurrent);
+        await this.processPullBatch(batch, generation);
       } finally {
-        for (const request of batch) request.resolve();
+        for (const request of batch) this.resolvePull(request);
       }
     }
   }
 
-  private resolvePendingPulls(): void {
-    const pending = this.pendingPulls.splice(0);
-    for (const request of pending) request.resolve();
+  private async processPullBatch(batch: PendingPull[], generation: number): Promise<void> {
+    const active = batch.filter((request) => request.generation === generation && (!request.isCurrent || request.isCurrent()));
+    if (active.length === 0) return;
+
+    const isCurrent = (): boolean => !this.disposed
+      && this.generation === generation
+      && active.some((request) => !request.isCurrent || request.isCurrent());
+    const highestHint = active.reduce<number | undefined>((highest, request) => {
+      if (request.cursorHint === undefined) return highest;
+      return highest === undefined ? request.cursorHint : Math.max(highest, request.cursorHint);
+    }, undefined);
+
+    if (!this.currentState.snapshot) {
+      await this.loadSnapshot(isCurrent);
+      if (!isCurrent() || !this.currentState.snapshot) return;
+    }
+
+    const currentCursor = this.currentState.cursor;
+    const writeRequests = active.filter((request) => request.afterCursor !== undefined);
+    const needsWritePull = writeRequests.length > 0;
+    const needsHintPull = active.some((request) => request.afterCursor === undefined
+      && (request.cursorHint === undefined || (highestHint !== undefined && highestHint > currentCursor)));
+    if (!needsWritePull && !needsHintPull) return;
+
+    let afterCursor = needsWritePull
+      ? Math.min(currentCursor, Math.min(...writeRequests.map((request) => request.afterCursor!)))
+      : currentCursor;
+    while (isCurrent()) {
+      const beforeCursor = this.currentState.cursor;
+      const result = await this.pullChanges(afterCursor, isCurrent);
+      if (!isCurrent()) return;
+      if (!result || result.recovered) return;
+      if (highestHint === undefined || this.currentState.cursor >= highestHint) return;
+      if (this.currentState.cursor <= beforeCursor) return;
+      afterCursor = this.currentState.cursor;
+    }
+  }
+
+  private resolvePull(request: PendingPull): void {
+    if (!this.pullRequests.delete(request)) return;
+    if (this.unhintedPull === request) this.unhintedPull = undefined;
+    const waiters = request.waiters.splice(0);
+    for (const resolve of waiters) resolve();
+  }
+
+  private resolvePulls(): void {
+    this.pendingPulls = [];
+    this.pullDrain = undefined;
+    this.unhintedPull = undefined;
+    for (const request of Array.from(this.pullRequests)) this.resolvePull(request);
   }
 }
 
-function areContiguous(changes: WorkspaceChange[], afterCursor: number): boolean {
-  return changes.every((change, index) => change.cursor === afterCursor + index + 1);
+function isValidChangesEnvelope(value: unknown, afterCursor: number): value is WorkspaceChanges {
+  if (!value || typeof value !== 'object') return false;
+  const envelope = value as { cursor?: unknown; changes?: unknown };
+  if (!isValidCursor(envelope.cursor) || !Array.isArray(envelope.changes)) return false;
+  if (!areContiguous(envelope.changes, afterCursor)) return false;
+  const lastCursor = envelope.changes.length === 0
+    ? afterCursor
+    : envelope.changes[envelope.changes.length - 1].cursor;
+  return envelope.cursor === lastCursor;
+}
+
+function areContiguous(changes: unknown[], afterCursor: number): changes is WorkspaceChange[] {
+  return changes.every((value, index) => {
+    if (!value || typeof value !== 'object') return false;
+    const change = value as Partial<WorkspaceChange>;
+    return isValidCursor(change.cursor)
+      && change.cursor === afterCursor + index + 1
+      && (change.resource === null || (typeof change.resource === 'object' && change.resource !== null));
+  });
+}
+
+function isValidCursor(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function normalizeConflicts(value: Array<Record<string, unknown>>): TaskConflict[] {

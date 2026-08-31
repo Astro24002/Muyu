@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { ApiError, type ApiClient } from '../api/client';
 import type { QrLoginController, QrLoginState } from '../auth/qr-login';
+import { AppShell } from '../components/layout/AppShell';
+import { InlineError } from '../components/status/InlineError';
+import { SyncStatus } from '../components/status/SyncStatus';
+import { QrLoginPage } from '../pages/QrLoginPage';
 import type { WebSocketFactory } from '../realtime/workspace-socket';
 import type { WebSessionViewApi } from '../ui/web-session-view';
-import { QrLoginView } from '../ui/qr-login-view';
 import { WorkspaceView } from '../ui/workspace-view';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
-import { parseHash, type Route } from './routes';
+import { navigate, parseHash, type Route } from './routes';
+import type { PrimaryRoute } from '../components/layout/TopNav';
 import { useQrLoginState, useWorkspaceState } from './use-external-state';
 import { useWorkspaceRealtime } from './use-workspace-realtime';
 
@@ -230,29 +234,35 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
       };
     }
 
-    if (screen === 'login') {
-      root.replaceChildren();
-      const cleanup = QrLoginView.mount(root, login, () => undefined);
-      legacyViewCleanupRef.current = cleanup;
-      return () => {
-        if (legacyViewCleanupRef.current !== cleanup) return;
-        legacyViewCleanupRef.current = undefined;
-        cleanup();
-        root.replaceChildren();
-      };
-    }
-
     disposeLegacyView();
   }, [api, canUseLegacyViews, disposeLegacyView, login, logout, recoverAuthRequired, screen, sync, workspaceState.snapshot?.workspace_id]);
 
-  const showPlaceholder = !canUseLegacyViews || screen === 'loading' || screen === 'error';
   const routeKey = route.kind === 'task' ? `task:${route.id}` : route.kind;
+  const focusNewTask = useCallback((): void => {
+    legacyRootRef.current?.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.focus();
+  }, []);
+  const onNavigate = useCallback((nextRoute: PrimaryRoute): void => {
+    navigate(nextRoute);
+  }, []);
+  const workspaceReady = screen === 'workspace' && Boolean(workspaceState.snapshot) && !workspaceState.authRequired && canUseLegacyViews;
 
   return (
     <div data-testid="muyu-app" data-route={routeKey}>
       <div data-testid="react-route" data-route={routeKey} aria-live="polite" />
-      {showPlaceholder ? placeholder(screen, loadError ?? workspaceState.error, () => loadWorkspace()) : null}
-      <div ref={legacyRootRef} data-testid="legacy-app-root" />
+      {screen === 'login' ? <QrLoginPage controller={login} state={loginState} /> : null}
+      {workspaceReady ? (
+        <AppShell
+          route={route}
+          onNavigate={onNavigate}
+          onLogout={logout}
+          onCreateTask={focusNewTask}
+          pendingApprovalCount={pendingApprovalCount(workspaceState)}
+        >
+          <SyncStatus loading={workspaceState.loading} stale={workspaceState.stale} error={workspaceState.error} />
+          <div ref={legacyRootRef} data-testid="legacy-app-root" />
+        </AppShell>
+      ) : null}
+      {screen !== 'login' && !workspaceReady ? placeholder(screen, loadError ?? workspaceState.error, () => loadWorkspace()) : null}
     </div>
   );
 }
@@ -267,10 +277,7 @@ function placeholder(screen: AppScreen, error: string | null, onRetry: () => voi
     <main data-testid="react-page-placeholder" aria-busy={screen === 'loading' ? 'true' : undefined}>
       <h1>{title}</h1>
       {screen === 'error' ? (
-        <>
-          <p role="alert">{error ?? '无法加载工作区，请检查网络后重试。'}</p>
-          <button type="button" onClick={onRetry}>重试</button>
-        </>
+        <InlineError message={error ?? '无法加载工作区，请检查网络后重试。'} onRetry={onRetry} />
       ) : (
         <p>{screen === 'loading' ? '请稍候。' : '请生成二维码登录。'}</p>
       )}
@@ -292,6 +299,12 @@ function errorMessage(error: unknown): string {
 function isUnauthorized(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 401;
   return Boolean(error && typeof error === 'object' && 'status' in error && error.status === 401);
+}
+
+function pendingApprovalCount(state: WorkspaceSyncState): number {
+  const approvals = state.approvals ?? state.snapshot?.approval_requests ?? [];
+  const viewerId = state.snapshot?.viewer_user_id;
+  return approvals.filter((approval) => approval.status === 'PENDING' && (!viewerId || approval.approver_id === viewerId)).length;
 }
 
 interface LegacySyncBridge {

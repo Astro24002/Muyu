@@ -207,3 +207,400 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.muyu-react-root > [data-testid="muyu-app"] .app-shell {
+  min-height: 100vh;
+  background: var(--color-page);
+  color: var(--color-body);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav {
+  position: relative;
+  z-index: 2;
+  height: 58px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(128px, 1fr) auto minmax(128px, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  width: min(calc(100% - (var(--space-8) * 2)), var(--content-max-width));
+  height: 100%;
+  margin-inline: auto;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: fit-content;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-name {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-mark {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__links {
+  align-self: stretch;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 58px;
+  padding: 0 var(--space-3);
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link::after {
+  position: absolute;
+  right: var(--space-3);
+  bottom: -1px;
+  left: var(--space-3);
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link:hover,
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link--active {
+  color: var(--color-brand-interactive);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link--active::after {
+  background: var(--color-brand-interactive);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-coral-surface);
+  color: var(--color-coral);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 3;
+  width: min(360px, calc(100vw - 32px));
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(29, 45, 41, 0.1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search input {
+  min-width: 0;
+  flex: 1;
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search-query {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .user-menu {
+  position: relative;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 3;
+  min-width: 152px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(29, 45, 41, 0.1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__label {
+  margin: var(--space-1) var(--space-2) var(--space-2);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__item {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__item:hover {
+  background: var(--color-focus-surface);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .app-shell__body {
+  min-height: calc(100vh - 58px);
+  padding: var(--space-8) 0 var(--space-10);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 24px;
+  margin-bottom: var(--space-4);
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--normal {
+  color: var(--color-sync);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--stale {
+  color: var(--color-coral);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--error {
+  color: var(--color-error);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .sync-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-coral);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--normal .sync-status__dot {
+  background: var(--color-sync);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .inline-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-error);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .inline-error > span {
+  flex: 1;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-8) var(--space-4);
+  background: var(--color-page);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__panel {
+  width: min(100%, 420px);
+  padding: var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__brand {
+  margin-bottom: var(--space-4);
+  color: var(--color-brand);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page h1 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 34px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__intro {
+  margin: var(--space-2) 0 var(--space-6);
+  color: var(--color-muted);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-state {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-state--challenge {
+  justify-items: start;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__canvas {
+  width: 240px;
+  height: 240px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details code {
+  color: var(--color-brand);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-body);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-status--loading {
+  color: var(--color-muted);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-status--success {
+  color: var(--color-brand);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 1023px) {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__inner {
+    width: min(calc(100% - (var(--space-6) * 2)), var(--content-max-width));
+  }
+}
+
+@media (max-width: 760px) {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__inner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-2);
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-mark {
+    display: none;
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__links {
+    justify-content: center;
+    overflow-x: auto;
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__link {
+    padding-inline: var(--space-2);
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__link::after {
+    right: var(--space-2);
+    left: var(--space-2);
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__actions {
+    gap: 0;
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .app-shell__body {
+    padding-top: var(--space-6);
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .qr-login-page__panel {
+    padding: var(--space-6);
+  }
+}

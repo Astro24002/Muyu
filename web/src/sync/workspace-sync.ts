@@ -29,13 +29,19 @@ interface PendingPull {
   cursorHint?: number;
   afterCursor?: number;
   isCurrent?: IsCurrent;
+  retryAttempt: number;
   waiters: Array<() => void>;
 }
 
 interface PullResult {
   cursor: number;
   recovered: boolean;
+  failed: boolean;
 }
+
+type RunOutcome = 'completed' | 'recovered' | 'failed' | 'cancelled';
+
+const PULL_RETRY_DELAYS_MS = [1_000, 2_000, 5_000] as const;
 
 export type WorkspaceSyncApi = Pick<ApiClient,
   | 'getWorkspaceSnapshot'
@@ -78,6 +84,8 @@ export class WorkspaceSyncController {
   private pullDrain: Promise<void> | undefined;
   private readonly pullRequests = new Set<PendingPull>();
   private unhintedPull: PendingPull | undefined;
+  private pullRetryTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  private pullRetryRequests: PendingPull[] | undefined;
 
   constructor(private readonly api: WorkspaceSyncApi, options: WorkspaceSyncOptions = {}) {
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
@@ -348,7 +356,7 @@ export class WorkspaceSyncController {
     const operationGeneration = this.generation;
     let appliedCursor: number | undefined;
     let recovered = false;
-    await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
+    const outcome = await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
       const changes = await this.api.getWorkspaceChanges(afterCursor);
       if (!isCurrent()) return;
       const activeSnapshot = this.currentState.snapshot;
@@ -372,13 +380,14 @@ export class WorkspaceSyncController {
       this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, approvals: snapshot?.approval_requests, comments: snapshot?.comments, stale: false, error: null, authRequired: false });
       appliedCursor = cursor;
     }, true, parentIsCurrent);
+    if (outcome === 'cancelled') return undefined;
     if (appliedCursor === undefined
       && !this.disposed
       && operationGeneration === this.generation
       && (!parentIsCurrent || parentIsCurrent())) {
-      return { cursor: this.currentState.cursor, recovered };
+      return { cursor: this.currentState.cursor, recovered, failed: outcome === 'failed' };
     }
-    return appliedCursor === undefined ? undefined : { cursor: appliedCursor, recovered };
+    return appliedCursor === undefined ? undefined : { cursor: appliedCursor, recovered, failed: outcome === 'failed' };
   }
 
   private applyChange(change: WorkspaceChange): void {
@@ -448,28 +457,29 @@ export class WorkspaceSyncController {
     this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, stale: false, error: null, authRequired: false });
   }
 
-  private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false, parentIsCurrent?: IsCurrent): Promise<void> {
+  private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false, parentIsCurrent?: IsCurrent): Promise<RunOutcome> {
     const generation = this.generation;
     const isCurrent = () => !this.disposed && generation === this.generation && (!parentIsCurrent || parentIsCurrent());
-    if (!isCurrent()) return;
+    if (!isCurrent()) return 'cancelled';
     if (!nested) {
       this.activeTopLevelOperations += 1;
       this.setState({ loading: true, error: null });
     }
     try {
       await operation(isCurrent);
+      return 'completed';
     } catch (error) {
-      if (!isCurrent()) return;
+      if (!isCurrent()) return 'cancelled';
       if (error instanceof ApiError && error.status === 410 && error.code === 'sync_cursor_expired') {
-        if (!isCurrent()) return;
         await this.loadSnapshot(isCurrent);
-        return;
+        return isCurrent() ? 'recovered' : 'cancelled';
       }
       if (error instanceof ApiError && error.status === 409 && error.code === 'field_conflict') {
         this.setState({ conflicts: conflictsFromError(error), error: null, stale: false });
-        return;
+        return 'failed';
       }
       this.setState({ error: message, stale: this.currentState.snapshot !== null, authRequired: error instanceof ApiError && error.status === 401 });
+      return 'failed';
     } finally {
       if (!nested && generation === this.generation) {
         this.activeTopLevelOperations = Math.max(0, this.activeTopLevelOperations - 1);
@@ -500,6 +510,7 @@ export class WorkspaceSyncController {
         cursorHint,
         afterCursor,
         isCurrent,
+        retryAttempt: 0,
         waiters: [resolve],
       };
       this.pullRequests.add(request);
@@ -510,7 +521,7 @@ export class WorkspaceSyncController {
   }
 
   private startPullDrain(): void {
-    if (this.disposed || this.pullDrain || this.pendingPulls.length === 0) return;
+    if (this.disposed || this.pullDrain || this.pullRetryTimer !== undefined || this.pendingPulls.length === 0) return;
     const generation = this.generation;
     let resolveDrain!: () => void;
     let rejectDrain!: (error: unknown) => void;
@@ -529,23 +540,33 @@ export class WorkspaceSyncController {
   private finishPullDrain(drain: Promise<void>, generation: number): void {
     if (this.pullDrain !== drain) return;
     this.pullDrain = undefined;
-    if (!this.disposed && this.generation === generation && this.pendingPulls.length > 0) this.startPullDrain();
+    if (!this.disposed
+      && this.generation === generation
+      && this.pullRetryTimer === undefined
+      && this.pendingPulls.length > 0) this.startPullDrain();
   }
 
   private async drainPulls(generation: number): Promise<void> {
-    while (!this.disposed && this.generation === generation && this.pendingPulls.length > 0) {
+    while (!this.disposed
+      && this.generation === generation
+      && this.pullRetryTimer === undefined
+      && this.pendingPulls.length > 0) {
       const batch = this.pendingPulls.splice(0);
+      let retained: PendingPull[] = [];
       try {
-        await this.processPullBatch(batch, generation);
+        retained = await this.processPullBatch(batch, generation);
       } finally {
-        for (const request of batch) this.resolvePull(request);
+        const retainedRequests = new Set(retained);
+        for (const request of batch) {
+          if (!retainedRequests.has(request)) this.resolvePull(request);
+        }
       }
     }
   }
 
-  private async processPullBatch(batch: PendingPull[], generation: number): Promise<void> {
+  private async processPullBatch(batch: PendingPull[], generation: number): Promise<PendingPull[]> {
     const active = batch.filter((request) => request.generation === generation && (!request.isCurrent || request.isCurrent()));
-    if (active.length === 0) return;
+    if (active.length === 0) return [];
 
     const batchIsCurrent = (): boolean => !this.disposed
       && this.generation === generation
@@ -557,7 +578,7 @@ export class WorkspaceSyncController {
 
     if (!this.currentState.snapshot) {
       await this.loadSnapshot(batchIsCurrent);
-      if (!batchIsCurrent() || !this.currentState.snapshot) return;
+      if (!batchIsCurrent() || !this.currentState.snapshot) return [];
     }
 
     const pullSnapshotIdentity = this.snapshotIdentity;
@@ -567,7 +588,7 @@ export class WorkspaceSyncController {
     const needsWritePull = writeRequests.length > 0;
     const needsHintPull = active.some((request) => request.afterCursor === undefined
       && (request.cursorHint === undefined || (highestHint !== undefined && highestHint > currentCursor)));
-    if (!needsWritePull && !needsHintPull) return;
+    if (!needsWritePull && !needsHintPull) return [];
 
     let afterCursor = needsWritePull
       ? Math.min(currentCursor, Math.min(...writeRequests.map((request) => request.afterCursor!)))
@@ -575,12 +596,38 @@ export class WorkspaceSyncController {
     while (isCurrent()) {
       const beforeCursor = this.currentState.cursor;
       const result = await this.pullChanges(afterCursor, isCurrent);
-      if (!isCurrent()) return;
-      if (!result || result.recovered) return;
-      if (highestHint === undefined || this.currentState.cursor >= highestHint) return;
-      if (this.currentState.cursor <= beforeCursor) return;
+      if (!isCurrent()) return [];
+      if (!result || result.recovered) return [];
+      if (result.failed) return this.schedulePullRetry(active, generation);
+      if (highestHint === undefined || this.currentState.cursor >= highestHint) return [];
+      if (this.currentState.cursor <= beforeCursor) return [];
       afterCursor = this.currentState.cursor;
     }
+    return [];
+  }
+
+  private schedulePullRetry(requests: PendingPull[], generation: number): PendingPull[] {
+    const nextAttempt = Math.max(...requests.map((request) => request.retryAttempt)) + 1;
+    const delay = PULL_RETRY_DELAYS_MS[nextAttempt - 1];
+    if (delay === undefined) return [];
+
+    for (const request of requests) request.retryAttempt = nextAttempt;
+    this.pullRetryRequests = requests;
+    this.pullRetryTimer = globalThis.setTimeout(() => {
+      const retryRequests = this.pullRetryRequests;
+      this.pullRetryRequests = undefined;
+      this.pullRetryTimer = undefined;
+      if (!retryRequests) return;
+      if (this.disposed || this.generation !== generation) {
+        for (const request of retryRequests) this.resolvePull(request);
+        return;
+      }
+      for (const request of retryRequests) {
+        if (this.pullRequests.has(request)) this.pendingPulls.push(request);
+      }
+      this.startPullDrain();
+    }, delay);
+    return requests;
   }
 
   private resolvePull(request: PendingPull): void {
@@ -591,6 +638,9 @@ export class WorkspaceSyncController {
   }
 
   private resolvePulls(): void {
+    if (this.pullRetryTimer !== undefined) globalThis.clearTimeout(this.pullRetryTimer);
+    this.pullRetryTimer = undefined;
+    this.pullRetryRequests = undefined;
     this.pendingPulls = [];
     this.pullDrain = undefined;
     this.unhintedPull = undefined;

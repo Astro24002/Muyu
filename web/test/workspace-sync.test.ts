@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/client';
 import type { TaskApprovalRequest, TaskComment } from '../src/api/types';
+import { WorkspaceSocket, type SocketLike } from '../src/realtime/workspace-socket';
 import { WorkspaceSyncController } from '../src/sync/workspace-sync';
 
 const task = {
@@ -320,6 +321,202 @@ describe('WorkspaceSyncController', () => {
     expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(2, 105);
     expect(controller.state.cursor).toBe(201);
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Page two 201');
+  });
+
+  it('retains a high realtime target and retries a failed REST pull while the socket stays healthy', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = apiStub();
+      let attempts = 0;
+      api.getWorkspaceChanges.mockImplementation((afterCursor: number) => {
+        attempts += 1;
+        if (attempts === 1) return Promise.reject(new TypeError('temporary REST failure'));
+        if (afterCursor === 5) return Promise.resolve(changesPage(6, 105, { ...task, title: 'Page one' }));
+        if (afterCursor === 105) return Promise.resolve(changesPage(106, 201, { ...task, title: 'Page two' }));
+        return Promise.resolve(emptyChanges(afterCursor));
+      });
+      const controller = new WorkspaceSyncController(api as never);
+      await controller.loadSnapshot();
+
+      const socket: SocketLike = {
+        onopen: null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+        close: vi.fn(),
+      };
+      let pullPromise: Promise<void> | undefined;
+      const realtime = new WorkspaceSocket('workspace-1', {
+        factory: () => socket,
+        onHint: (cursor) => { pullPromise = controller.pull(cursor); },
+      });
+      realtime.connect();
+      socket.onopen?.(new Event('open'));
+      socket.onmessage?.({ data: JSON.stringify({ type: 'workspace.changed', workspace_id: 'workspace-1', cursor: 201 }) } as MessageEvent);
+      await flushMicrotasks();
+
+      expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
+      expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
+      expect(pullPromise).toBeDefined();
+      let settled = false;
+      void pullPromise!.then(() => { settled = true; });
+      expect(settled).toBe(false);
+      expect(socket.close).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(999);
+      await flushMicrotasks();
+      expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
+      expect(settled).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      await pullPromise;
+
+      expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(2, 5);
+      expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(3, 105);
+      expect(controller.state.cursor).toBe(201);
+      expect(controller.state.snapshot?.tasks[0]?.title).toBe('Page two 201');
+      expect(socket.close).not.toHaveBeenCalled();
+      realtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces a newer hint with a retained retry without overlapping REST pulls', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = apiStub();
+      let attempts = 0;
+      api.getWorkspaceChanges.mockImplementation((afterCursor: number) => {
+        attempts += 1;
+        if (attempts === 1) return Promise.reject(new TypeError('temporary REST failure'));
+        if (afterCursor === 5) return Promise.resolve(changesResponse(6, { ...task, title: 'First retry' }));
+        if (afterCursor === 6) return Promise.resolve(changesResponse(7, { ...task, title: 'Second retry' }));
+        return Promise.resolve(emptyChanges(afterCursor));
+      });
+      const controller = new WorkspaceSyncController(api as never);
+      await controller.loadSnapshot();
+
+      const firstPull = controller.pull(6);
+      await flushMicrotasks();
+      vi.advanceTimersByTime(999);
+      await flushMicrotasks();
+      expect(vi.getTimerCount()).toBe(1);
+      expect((controller as unknown as { pullDrain?: Promise<void> }).pullDrain).toBeUndefined();
+      const newerPull = controller.pull(7);
+      expect((controller as unknown as { pullDrain?: Promise<void> }).pullDrain).toBeUndefined();
+      await flushMicrotasks();
+      expect((controller as unknown as { pendingPulls: unknown[] }).pendingPulls).toHaveLength(1);
+
+      expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(1_000);
+      await Promise.all([firstPull, newerPull]);
+
+      expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(2, 5);
+      expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(3, 6);
+      expect(controller.state.cursor).toBe(7);
+      expect(controller.state.snapshot?.tasks[0]?.title).toBe('Second retry');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains a write ACK target through a failed reconciliation pull', async () => {
+    vi.useFakeTimers();
+    try {
+      const createdTask = { ...task, id: 'task-2', title: 'Created', cursor: 201 };
+      const api = apiStub();
+      api.createTask.mockResolvedValue(createdTask);
+      let attempts = 0;
+      api.getWorkspaceChanges.mockImplementation((afterCursor: number) => {
+        attempts += 1;
+        if (attempts === 1) return Promise.reject(new TypeError('temporary REST failure'));
+        if (afterCursor === 5) return Promise.resolve(changesPage(6, 105, { ...task, title: 'Middle changes' }));
+        if (afterCursor === 105) return Promise.resolve(changesPage(106, 201, { ...createdTask, title: 'Reconciled' }));
+        return Promise.resolve(emptyChanges(afterCursor));
+      });
+      const controller = new WorkspaceSyncController(api as never);
+      await controller.loadSnapshot();
+
+      const write = controller.createTask('Created', '', 'Q2');
+      await flushMicrotasks();
+      expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
+      let settled = false;
+      void write.then(() => { settled = true; });
+      expect(settled).toBe(false);
+
+      vi.advanceTimersByTime(1_000);
+      await write;
+
+      expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(2, 5);
+      expect(api.getWorkspaceChanges).toHaveBeenNthCalledWith(3, 105);
+      expect(controller.state.cursor).toBe(201);
+      expect(controller.state.snapshot?.tasks.find((item) => item.id === task.id)?.title).toBe('Middle changes 105');
+      expect(controller.state.snapshot?.tasks.find((item) => item.id === 'task-2')?.title).toBe('Reconciled 201');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a retained retry on clear and lets the new generation pull immediately', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = apiStub();
+      api.getWorkspaceChanges
+        .mockRejectedValueOnce(new TypeError('temporary REST failure'))
+        .mockResolvedValue(changesResponse(6, { ...task, title: 'New generation' }));
+      const controller = new WorkspaceSyncController(api as never);
+      await controller.loadSnapshot();
+
+      const oldPull = controller.pull(6);
+      await flushMicrotasks();
+      let settled = false;
+      void oldPull.then(() => { settled = true; });
+      expect(settled).toBe(false);
+
+      controller.clear();
+      await oldPull;
+      vi.advanceTimersByTime(10_000);
+      await flushMicrotasks();
+      expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
+
+      await controller.loadSnapshot();
+      await controller.pull(6);
+      expect(api.getWorkspaceChanges).toHaveBeenCalledTimes(2);
+      expect(controller.state.snapshot?.tasks[0]?.title).toBe('New generation');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops bounded pull retries and resolves the waiter after exhaustion', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = apiStub();
+      api.getWorkspaceChanges.mockRejectedValue(new TypeError('persistent REST failure'));
+      const controller = new WorkspaceSyncController(api as never);
+      await controller.loadSnapshot();
+
+      const pull = controller.pull(6);
+      await flushMicrotasks();
+      let settled = false;
+      void pull.then(() => { settled = true; });
+      expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
+      expect(settled).toBe(false);
+
+      for (const delay of [1_000, 2_000, 5_000]) {
+        vi.advanceTimersByTime(delay);
+        await flushMicrotasks();
+      }
+      await pull;
+
+      expect(api.getWorkspaceChanges).toHaveBeenCalledTimes(4);
+      expect(settled).toBe(true);
+      expect(controller.state).toMatchObject({ stale: true, loading: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not trust an envelope cursor beyond the last returned change', async () => {
@@ -765,4 +962,8 @@ function deferred<T>(): {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
 }

@@ -180,3 +180,43 @@ passed (Vite 8.2.2, 61 modules transformed)
 ```
 
 The full Web suite remains at 15 files passed, 1 file failed, 120 tests passed, and 2 tests failed. Both are the same pre-existing `test/workspace-actions.test.ts` failures documented in earlier rounds: the create-task mock observes zero calls, and the loading-rerender test observes an enabled create control. No new failing file was introduced by Fix Round 4. The backend sync pytest command was not available in the environment (`pytest: command not found`); no backend files changed.
+
+## Fix Round 5
+
+Date: 2026-08-31
+
+### Review fix
+
+- Transient REST pull failures now retain the affected realtime hint and write-ACK waiters instead of resolving them at the unchanged cursor. The controller retries with bounded delays of 1, 2, and 5 seconds, preserves the highest reconciliation target, coalesces newer pulls without overlapping requests, and resolves the waiter after exhaustion with the existing stale/error state.
+- Retry timers and retained requests are canceled and resolved by `clear()`/`dispose()` and are fenced by the current session generation, so an old session cannot restart work in a new login.
+- Added regressions for healthy-socket retry, high realtime targets, write-ACK reconciliation, newer-hint coalescing, generation cancellation, and bounded retry exhaustion.
+
+### TDD and Verification
+
+```text
+npm test -- --run test/workspace-sync.test.ts
+1 file passed, 34 tests passed
+
+npm run typecheck
+passed (tsc --noEmit)
+
+git diff --check
+passed
+```
+
+The full Web suite was not rerun for this final round. Earlier full-suite runs had two pre-existing failures in `test/workspace-actions.test.ts`; no backend files changed.
+
+## Fix Round 5
+
+Date: 2026-08-31
+
+### Review fixes
+
+- Added a bounded, generation-safe retry schedule for transient REST pull failures with 1-second, 2-second, and 5-second delays. Retries stop after exhaustion and resolve the retained pull waiters.
+- Retained the highest realtime hint and explicit write reconciliation target across a failed pull, keeping REST requests serialized and allowing the retry to continue pagination through the requested cursor.
+- `clear()` and `dispose()` cancel pending retry timers, release queued and retained waiters, and invalidate the old generation so canceled retry callbacks cannot re-enter a new session.
+- Added regression coverage for healthy realtime sockets during retries, newer hint coalescing, write ACK reconciliation, clear cancellation, and bounded retry exhaustion.
+
+### Verification
+
+Verification was attempted by the prior worker but timed out before completion; no completed verification result is available for Fix Round 5.

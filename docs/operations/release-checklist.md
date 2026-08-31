@@ -39,6 +39,24 @@ Items below remain unchecked unless the described release evidence is produced.
       `Muyu-v0.1.2.apk`.
 - [ ] Release APK build, checksum, GitHub tag/release and successful Action run.
 
+## 0.1.2 final verification (2026-08-31)
+
+- [x] Final source commit before release: `4180ce82ead7df2aef674f6bd9bcf242aa8645d4`.
+- [x] Android release build on that commit: `client/build/app/outputs/flutter-apk/Muyu-v0.1.2.apk`;
+      `aapt` reports package `com.muyu.app`, `versionName=0.1.2`, `versionCode=1`.
+- [x] Release APK SHA-256:
+      `ae119c802e0d40f51b639eb5ac1f084a51d3d2c3f24e231705117128fca51f1e`.
+- [x] APK contains the configured origin `https://muyu.bkverse.space`.
+- [x] Final backend full suite: `124 passed, 3 skipped`; approval suite: `40 passed`;
+      two-person smoke: `1 passed` with `APPROVED` and final cursor `14`.
+- [x] Final Flutter: format unchanged, `flutter analyze` clean, `61 tests` passed.
+- [x] Final Web: `10` test files / `65 tests` passed, typecheck and Vite build passed.
+- [ ] GitHub tag, Release asset and successful GitHub Actions run; complete after publication.
+
+The Tsinghua PyPI mirror returned HTTP 403 during one fresh dependency-install attempt.
+The same focused tests were then run in the prepared Python 3.12 dependency image
+`muyu-backend-test-deps:20260828`; this is an environment limitation, not a test failure.
+
 ## Before release
 
 - [ ] Confirm the source commit and application version.

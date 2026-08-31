@@ -39,6 +39,21 @@
 - 待发布：尚未创建 GitHub `v0.1.2` Release；需完成 release APK 构建、SHA-256 记录、推送 tag，
   并等待 GitHub Actions 成功后才可标记发布完成。真实 Android 扫码/安装验收仍取决于连接设备。
 
+### 2026-08-31 - 0.1.2 发布前最终验证
+
+- 类型：最终验证 / 发布门禁。
+- 源提交：`4180ce82ead7df2aef674f6bd9bcf242aa8645d4`。
+- Android：在该提交上生成正式发布资产 `Muyu-v0.1.2.apk`，`versionName=0.1.2`、
+  `versionCode=1`，SHA-256 为 `ae119c802e0d40f51b639eb5ac1f084a51d3d2c3f24e231705117128fca51f1e`；
+  APK 内确认包含 `https://muyu.bkverse.space`。
+- 验证：后端 `124 passed, 3 skipped`，审批专项 `40 passed`，两人 smoke `1 passed`；
+  Flutter `61 tests`、Web `65 tests`，Web typecheck/Vite build、边界、旧运行时、CI
+  触发器和 Compose 拓扑检查均通过。Web 会话测试已注入固定时钟，避免随系统日期过期。
+- 环境说明：清华 PyPI 镜像在一次全新依赖安装中返回 HTTP 403；审批专项随后使用已准备的
+  Python 3.12 依赖镜像复跑通过，不影响代码测试结果。
+- 待办：推送 `v0.1.2` tag、等待 CI/Release Actions 成功并确认 GitHub Release 仅包含
+  `Muyu-v0.1.2.apk`；真实 Android 扫码/安装验收仍取决于连接设备。
+
 ### 2026-08-27 - Task Domain Completion: PostgreSQL Acceptance
 
 - 类型：验收 / 文档 / 发布准备。

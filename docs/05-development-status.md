@@ -19,6 +19,25 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-08-31 - 线上后端与 PostgreSQL 迁移到当前版本
+
+- 类型：生产部署 / 数据库迁移 / 回归验证。
+- 源码与镜像：后端运行时对应 `24741f7`；在本地使用
+  `http://mirrors.aliyun.com/pypi/simple/` 构建，线上 `api` 与
+  `web-session-cleanup` 使用同一镜像 ID `sha256:e9f5836157da58c23a54a3371adc8bee5dccee6b08193204347db3de89f477e9`。
+- 数据库：生产 `muyu` 在迁移前为 `0002_device_session_indexes`；已完成
+  `0003_two_person_task_approval` 和 `0004_task_labels_quadrant`，当前 head 为
+  `0004_task_labels_quadrant`。`tasks` 已具备非空 `task_number`、`quadrant`、`labels` 约束，
+  `task_approval_requests` 与 `task_number_sequences` 已创建。
+- 数据保护：迁移前完整 custom-format 备份为
+  `/root/backups/muyu-pre-migration-20260831T085657Z.dump`，大小 `93731` 字节，
+  SHA-256 为 `3af2fd9ab3bb7552aa8034d648cec2d3d9df2538d314bdf617649a76718bb8fc`；服务器原工作树另有快照备份。
+- 遗留数据：异常任务 `8cb70e53-ebc2-470a-b2c5-80f6a86e0ff1` 保持软删除，迁移时为不可见历史行补齐 `Q4`，未删除活动审计记录；当前活动任务数为 `0`。
+- 服务验收：API 容器健康为 `healthy`，数据库 URL 解析到 `1Panel-postgresql-lJTO:5432/muyu`；
+  `https://muyu.bkverse.space/health/live` 和 `/health/ready` 均返回 HTTP `200`，近 5 分钟 API/Caddy 无错误日志。
+- 环境说明：外部数据库 Compose 需要 URL 编码密码（本次启动使用 `POSTGRES_PASSWORD=Conti%401234`
+  覆盖值）；不得把明文凭据写入仓库或日志，后续部署命令需继续使用同等编码方式。
+
 ### 2026-08-31 - Android 清单交互与同步刷新施工完成并发布 v0.1.3
 
 - 类型：工程实施 / 全量客户端验证 / 发布 `v0.1.3`。

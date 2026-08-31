@@ -1,7 +1,7 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
 import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
-import { parseTaskItem, upsertTask } from '../tasks/task-model';
+import { isTaskQuadrant, parseTaskItem, upsertTask } from '../tasks/task-model';
 
 export interface WorkspaceSyncState {
   snapshot: WorkspaceSnapshot | null;
@@ -72,6 +72,7 @@ export class WorkspaceSyncController {
   private generation = 0;
   private readonly requestIdFactory: () => string;
   private snapshotRequestSequence = 0;
+  private snapshotIdentity = 0;
   private activeTopLevelOperations = 0;
   private pendingPulls: PendingPull[] = [];
   private pullDrain: Promise<void> | undefined;
@@ -112,6 +113,11 @@ export class WorkspaceSyncController {
       const snapshot = await this.api.getWorkspaceSnapshot();
       if (!isCurrent()) return;
       const normalized = normalizeSnapshot(snapshot);
+      const activeSnapshot = this.currentState.snapshot;
+      if (activeSnapshot
+        && normalized.workspace_id === activeSnapshot.workspace_id
+        && normalized.cursor < this.currentState.cursor) return;
+      this.snapshotIdentity += 1;
       this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), stale: false, error: null, authRequired: false });
     }, false, snapshotIsCurrent);
   }
@@ -347,7 +353,8 @@ export class WorkspaceSyncController {
     await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
       const changes = await this.api.getWorkspaceChanges(afterCursor);
       if (!isCurrent()) return;
-      if (!isValidChangesEnvelope(changes, afterCursor)) {
+      const activeSnapshot = this.currentState.snapshot;
+      if (!activeSnapshot || !isValidChangesEnvelope(changes, afterCursor, activeSnapshot.workspace_id)) {
         if (!isCurrent()) return;
         recovered = true;
         await this.loadSnapshot(isCurrent);
@@ -542,7 +549,7 @@ export class WorkspaceSyncController {
     const active = batch.filter((request) => request.generation === generation && (!request.isCurrent || request.isCurrent()));
     if (active.length === 0) return;
 
-    const isCurrent = (): boolean => !this.disposed
+    const batchIsCurrent = (): boolean => !this.disposed
       && this.generation === generation
       && active.some((request) => !request.isCurrent || request.isCurrent());
     const highestHint = active.reduce<number | undefined>((highest, request) => {
@@ -551,10 +558,12 @@ export class WorkspaceSyncController {
     }, undefined);
 
     if (!this.currentState.snapshot) {
-      await this.loadSnapshot(isCurrent);
-      if (!isCurrent() || !this.currentState.snapshot) return;
+      await this.loadSnapshot(batchIsCurrent);
+      if (!batchIsCurrent() || !this.currentState.snapshot) return;
     }
 
+    const pullSnapshotIdentity = this.snapshotIdentity;
+    const isCurrent = (): boolean => batchIsCurrent() && this.snapshotIdentity === pullSnapshotIdentity;
     const currentCursor = this.currentState.cursor;
     const writeRequests = active.filter((request) => request.afterCursor !== undefined);
     const needsWritePull = writeRequests.length > 0;
@@ -591,24 +600,35 @@ export class WorkspaceSyncController {
   }
 }
 
-function isValidChangesEnvelope(value: unknown, afterCursor: number): value is WorkspaceChanges {
-  if (!value || typeof value !== 'object') return false;
-  const envelope = value as { cursor?: unknown; changes?: unknown };
-  if (!isValidCursor(envelope.cursor) || !Array.isArray(envelope.changes)) return false;
-  if (!areContiguous(envelope.changes, afterCursor)) return false;
+function isValidChangesEnvelope(value: unknown, afterCursor: number, workspaceId: string): value is WorkspaceChanges {
+  if (!isRecord(value)) return false;
+  const envelope = value as { workspace_id?: unknown; cursor?: unknown; changes?: unknown };
+  if (envelope.workspace_id !== workspaceId || !isValidCursor(envelope.cursor) || !Array.isArray(envelope.changes)) return false;
+  if (!areContiguous(envelope.changes, afterCursor, workspaceId)) return false;
   const lastCursor = envelope.changes.length === 0
     ? afterCursor
     : envelope.changes[envelope.changes.length - 1].cursor;
   return envelope.cursor === lastCursor;
 }
 
-function areContiguous(changes: unknown[], afterCursor: number): changes is WorkspaceChange[] {
+function areContiguous(changes: unknown[], afterCursor: number, workspaceId: string): changes is WorkspaceChange[] {
   return changes.every((value, index) => {
-    if (!value || typeof value !== 'object') return false;
+    if (!isRecord(value)) return false;
     const change = value as Partial<WorkspaceChange>;
-    return isValidCursor(change.cursor)
-      && change.cursor === afterCursor + index + 1
-      && (change.resource === null || (typeof change.resource === 'object' && change.resource !== null));
+    if (!isValidCursor(change.cursor)
+      || change.cursor !== afterCursor + index + 1
+      || typeof change.resource_type !== 'string'
+      || change.resource_type.length === 0
+      || typeof change.resource_id !== 'string'
+      || change.resource_id.length === 0
+      || typeof change.action !== 'string'
+      || change.action.length === 0
+      || (change.operation_id !== null && typeof change.operation_id !== 'string')) return false;
+    return isValidChangeResource(change.resource_type, change.resource, workspaceId)
+      && (change.resource === null
+        || !isRecord(change.resource)
+        || !('id' in change.resource)
+        || change.resource.id === change.resource_id);
   });
 }
 
@@ -650,16 +670,139 @@ function isPendingApproval(value: TaskWriteResult | TaskComment | PendingApprova
   return Boolean(value && typeof value === 'object' && 'pending' in value && value.pending === true && 'approval_request' in value);
 }
 
-function isTaskItem(value: TaskItem | TaskApprovalRequest | TaskComment): value is TaskItem {
-  return 'title' in value && 'workspace_id' in value && 'field_versions' in value;
+function isTaskItem(value: unknown): value is TaskItem {
+  if (!isRecord(value)
+    || typeof value.id !== 'string'
+    || value.id.length === 0
+    || typeof value.workspace_id !== 'string'
+    || value.workspace_id.length === 0
+    || typeof value.title !== 'string'
+    || typeof value.description !== 'string'
+    || !isNullableString(value.parent_task_id)
+    || !isNullableString(value.due_at)
+    || !isTaskStatus(value.status)
+    || typeof value.current_handler_id !== 'string'
+    || !isNullableString(value.blocked_reason)
+    || !isNullableString(value.blocked_since)
+    || !isNullableString(value.resume_handler_id)
+    || !isNullableString(value.waiting_for_user_id)
+    || !isNullableString(value.planned_start_at)
+    || !isNullableNumber(value.estimated_minutes)
+    || !isNullableString(value.completed_at)
+    || typeof value.created_by !== 'string'
+    || typeof value.created_at !== 'string'
+    || typeof value.updated_at !== 'string'
+    || !isStringArray(value.assignee_ids)
+    || !isSafeInteger(value.delay_count)
+    || !isSafeInteger(value.total_delay_minutes)
+    || !isSafeInteger(value.version)
+    || !isSafeInteger(value.status_version)
+    || !isNumberRecord(value.field_versions)
+    || !isSafeInteger(value.lifecycle_version)
+    || !isNullableString(value.deleted_at)
+    || !isTaskQuadrant(value.quadrant)
+    || (value.labels !== undefined && !Array.isArray(value.labels))
+    || (value.task_number !== undefined && value.task_number !== null && typeof value.task_number !== 'string')
+    || (value.progress !== undefined && !isNullableNumber(value.progress))) return false;
+  try {
+    parseTaskItem(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function isApprovalRequest(value: TaskItem | TaskApprovalRequest | TaskComment): value is TaskApprovalRequest {
-  return 'request_type' in value && 'proposed_changes' in value;
+function isApprovalRequest(value: unknown): value is TaskApprovalRequest {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
+    && typeof value.task_id === 'string'
+    && value.task_id.length > 0
+    && isNullableString(value.comment_id)
+    && typeof value.requester_id === 'string'
+    && value.requester_id.length > 0
+    && typeof value.approver_id === 'string'
+    && value.approver_id.length > 0
+    && isApprovalRequestType(value.request_type)
+    && isRecord(value.proposed_changes)
+    && isNumberRecord(value.base_field_versions)
+    && typeof value.request_id === 'string'
+    && value.request_id.length > 0
+    && isApprovalRequestStatus(value.status)
+    && typeof value.created_at === 'string'
+    && isNullableString(value.reviewed_at)
+    && isNullableString(value.reviewed_by)
+    && isNullableString(value.rejection_reason)
+    && (value.resolved_cursor === null || isValidCursor(value.resolved_cursor));
 }
 
-function isTaskComment(value: TaskItem | TaskApprovalRequest | TaskComment): value is TaskComment {
-  return 'author_user_id' in value && 'body' in value && 'deleted_at' in value;
+function isTaskComment(value: unknown): value is TaskComment {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.task_id === 'string'
+    && value.task_id.length > 0
+    && typeof value.author_user_id === 'string'
+    && value.author_user_id.length > 0
+    && typeof value.body === 'string'
+    && isSafeInteger(value.version)
+    && isNullableString(value.deleted_at)
+    && isNullableString(value.deleted_by)
+    && (value.created_at === null || typeof value.created_at === 'string');
+}
+
+function isValidChangeResource(resourceType: string, resource: unknown, workspaceId: string): boolean {
+  if (resource === null) return true;
+  if (!isRecord(resource)) return false;
+  if (resourceType === 'task') return isTaskItem(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'comment') return isTaskComment(resource);
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return isRecord(value) && Object.values(value).every((item) => isSafeInteger(item));
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function isTaskStatus(value: unknown): value is TaskItem['status'] {
+  return value === 'TODO' || value === 'IN_PROGRESS' || value === 'WAITING' || value === 'DONE' || value === 'CANCELLED';
+}
+
+function isApprovalRequestType(value: unknown): value is TaskApprovalRequest['request_type'] {
+  return value === 'TASK_UPDATE'
+    || value === 'QUADRANT_UPDATE'
+    || value === 'STATUS_UPDATE'
+    || value === 'TASK_DELETE'
+    || value === 'TASK_RESTORE'
+    || value === 'COMMENT_DELETE'
+    || value === 'ASSIGNEE_UPDATE'
+    || value === 'HANDLER_TRANSFER';
+}
+
+function isApprovalRequestStatus(value: unknown): value is TaskApprovalRequest['status'] {
+  return value === 'PENDING' || value === 'APPROVED' || value === 'REJECTED' || value === 'CONFLICTED' || value === 'CANCELLED';
 }
 
 function cursorFrom(value: { cursor?: number | null } | undefined): number {

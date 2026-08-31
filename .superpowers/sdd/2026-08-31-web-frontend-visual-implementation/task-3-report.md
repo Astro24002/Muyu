@@ -147,3 +147,36 @@ passed (Vite 8.2.2, 61 modules transformed)
 ```
 
 The full Web suite remains at 15 files passed, 1 file failed, 111 tests passed, and 2 tests failed. The failures are the same pre-existing `test/workspace-actions.test.ts` failures: the create-task mock observes zero calls, and the loading-rerender test observes an enabled create control. No new failing file was introduced by Fix Round 3.
+
+## Fix Round 4
+
+Date: 2026-08-31
+
+### Review fixes
+
+- Added a committed-snapshot identity fence to the pull drain. A pull captures the identity of the snapshot it starts against, and a same-generation refresh that commits a newer snapshot makes the old pull inert before it can validate, apply resources, or advance the cursor. Generation and intentional new-session guards remain unchanged.
+- Changes envelopes now require the active snapshot workspace ID, complete change metadata, contiguous cursors, and shape-valid known resources before any resource is applied. Task, approval-request, and comment resources are validated defensively; null resources remain valid tombstones for legitimate deletion changes. Invalid envelopes recover through the existing snapshot path.
+- Added deferred regression coverage for refresh-versus-pull ordering, lower-cursor snapshot rejection, foreign workspace envelopes, malformed task resources with atomic no-partial-apply behavior, and malformed change metadata.
+
+### TDD and Verification
+
+The four residual Fix Round 4 regressions were first run against `a540f35` and failed as expected: the old pull overwrote the newer snapshot task, and foreign/malformed envelopes did not trigger snapshot recovery. The lower-cursor regression was then added and failed against the partial round-4 patch before the snapshot guard was implemented. After implementation:
+
+```text
+npm test -- --run test/workspace-sync.test.ts
+1 file passed, 25 tests passed
+
+npm test -- --run test/routes.test.ts test/use-external-state.test.tsx test/app-lifecycle.test.tsx test/workspace-sync.test.ts
+4 files passed, 42 tests passed
+
+npm test -- --run test/app-shell.test.tsx test/app-session-isolation.test.ts test/app.test.ts test/qr-login.test.ts
+4 files passed, 32 tests passed
+
+npm run typecheck
+passed (tsc --noEmit)
+
+npm run build
+passed (Vite 8.2.2, 61 modules transformed)
+```
+
+The full Web suite remains at 15 files passed, 1 file failed, 116 tests passed, and 2 tests failed. Both are the same pre-existing `test/workspace-actions.test.ts` failures documented in earlier rounds: the create-task mock observes zero calls, and the loading-rerender test observes an enabled create control. No new failing file was introduced by Fix Round 4. The backend sync pytest command was not available in the environment (`pytest: command not found`); no backend files changed.

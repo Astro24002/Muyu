@@ -53,6 +53,8 @@ class WorkspaceSyncController extends ChangeNotifier {
   WorkspaceSyncState state = const WorkspaceSyncState();
   final List<Object> inFlightMutations = [];
   StreamSubscription? _hintsSubscription;
+  Future<void>? _refreshInFlight;
+  Future<void>? _pullInFlight;
 
   Future<bool> get canMutate async => _repository != null && !state.isStale;
 
@@ -66,7 +68,18 @@ class WorkspaceSyncController extends ChangeNotifier {
     });
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
+    final operation = _refreshSnapshot();
+    _refreshInFlight = operation;
+    operation.whenComplete(() {
+      if (identical(_refreshInFlight, operation)) _refreshInFlight = null;
+    });
+    return operation;
+  }
+
+  Future<void> _refreshSnapshot() async {
     if (_repository == null) return;
     _setLoading();
     try {
@@ -79,7 +92,18 @@ class WorkspaceSyncController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> pull() async {
+  Future<void> pull() {
+    final existing = _pullInFlight;
+    if (existing != null) return existing;
+    final operation = _pullChanges();
+    _pullInFlight = operation;
+    operation.whenComplete(() {
+      if (identical(_pullInFlight, operation)) _pullInFlight = null;
+    });
+    return operation;
+  }
+
+  Future<void> _pullChanges() async {
     final repository = _repository;
     final current = state.snapshot;
     if (repository == null || current == null) return;

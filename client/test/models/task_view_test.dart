@@ -11,9 +11,10 @@ TaskItem makeTask(
   String quadrant = 'Q1',
   List<String> labels = const [],
   DateTime? updatedAt,
+  String? parentTaskId,
 }) => TaskItem(
   id: id,
-  parentTaskId: null,
+  parentTaskId: parentTaskId,
   title: id,
   description: '',
   status: status,
@@ -137,4 +138,118 @@ void main() {
       expect(TaskView.filterByLabel(tasks, ''), tasks);
     },
   );
+
+  test('list categories count unfinished top-level tasks only', () {
+    final tasks = [
+      makeTask('work-active', 'IN_PROGRESS', null, labels: ['工作', '常规事项']),
+      makeTask('work-done', 'DONE', null, labels: ['工作']),
+      makeTask(
+        'child',
+        'TODO',
+        null,
+        labels: ['工作'],
+        parentTaskId: 'work-active',
+      ),
+      makeTask('cancelled', 'CANCELLED', null, labels: ['婚礼']),
+      makeTask('wedding-active', 'TODO', null, labels: ['婚礼']),
+    ];
+
+    final categories = TaskView.listCategories(tasks);
+
+    expect(categories.first.label, isNull);
+    expect(categories.first.unfinishedCount, 2);
+    expect(
+      categories.skip(1).map((item) => (item.label, item.unfinishedCount)),
+      [('婚礼', 1), ('工作', 1), ('常规事项', 1)],
+    );
+  });
+
+  test(
+    'list groups separate overdue, upcoming, unscheduled and terminal tasks',
+    () {
+      final now = DateTime(2026, 8, 31, 12);
+      final groups = TaskView.listGroups([
+        makeTask('past', 'TODO', DateTime(2026, 8, 30, 9)),
+        makeTask('today', 'IN_PROGRESS', DateTime(2026, 8, 31, 18)),
+        makeTask('future', 'WAITING', DateTime(2026, 9, 1, 9)),
+        makeTask('none', 'TODO', null),
+        makeTask('done', 'DONE', DateTime(2026, 8, 29)),
+        makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
+      ], now: now);
+
+      expect(groups.map((group) => group.key), [
+        'past',
+        'upcoming',
+        'unscheduled',
+        'terminal',
+      ]);
+      expect(groups[0].tasks.map((item) => item.id), ['past']);
+      expect(groups[1].tasks.map((item) => item.id), ['today', 'future']);
+      expect(groups[2].tasks.map((item) => item.id), ['none']);
+      expect(groups[3].tasks.map((item) => item.id), ['done', 'failed']);
+    },
+  );
+
+  test('list groups keep legacy COMPLETED tasks out of active sections', () {
+    final groups = TaskView.listGroups([
+      makeTask('legacy-completed', 'COMPLETED', null),
+    ]);
+
+    expect(groups[0].tasks, isEmpty);
+    expect(groups[1].tasks, isEmpty);
+    expect(groups[2].tasks, isEmpty);
+    expect(groups[3].tasks.map((item) => item.id), ['legacy-completed']);
+  });
+
+  test('list groups filter terminal visibility and apply selected label', () {
+    final groups = TaskView.listGroups(
+      [
+        makeTask('work', 'TODO', null, labels: ['工作']),
+        makeTask('work-done', 'DONE', null, labels: ['工作']),
+        makeTask('wedding-failed', 'CANCELLED', null, labels: ['婚礼']),
+      ],
+      label: ' 工作 ',
+      showCompleted: false,
+      showFailed: false,
+    );
+
+    expect(groups.expand((group) => group.tasks).map((item) => item.id), [
+      'work',
+    ]);
+    expect(groups.last.tasks, isEmpty);
+  });
+
+  test('list groups sort each group by the selected sort mode', () {
+    final tasks = [
+      makeTask(
+        'q4',
+        'TODO',
+        DateTime(2026, 9, 1, 9),
+        quadrant: 'Q4',
+        updatedAt: DateTime(2026, 8, 31, 2),
+      ),
+      makeTask(
+        'q1',
+        'TODO',
+        DateTime(2026, 9, 2, 9),
+        quadrant: 'Q1',
+        updatedAt: DateTime(2026, 8, 31, 1),
+      ),
+    ];
+
+    expect(
+      TaskView.listGroups(
+        tasks,
+        sort: TaskListSort.quadrant,
+      )[1].tasks.map((item) => item.id),
+      ['q1', 'q4'],
+    );
+    expect(
+      TaskView.listGroups(
+        tasks,
+        sort: TaskListSort.updatedAt,
+      )[1].tasks.map((item) => item.id),
+      ['q4', 'q1'],
+    );
+  });
 }

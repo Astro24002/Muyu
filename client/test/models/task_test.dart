@@ -44,6 +44,41 @@ void main() {
     expect(task.totalDelayMinutes, 8640);
   });
 
+  test('TaskItem normalizes the legacy COMPLETED status to DONE', () {
+    final task = TaskItem.fromJson({
+      'id': 'task-legacy-completed',
+      'parent_task_id': null,
+      'title': 'Legacy completed task',
+      'description': '',
+      'status': 'COMPLETED',
+      'current_handler_id': 'user-a',
+      'quadrant': 'Q1',
+      'labels': const <String>[],
+      'blocked_reason': null,
+      'blocked_since': null,
+      'resume_handler_id': null,
+      'waiting_for_user_id': null,
+      'planned_start_at': null,
+      'due_at': null,
+      'estimated_minutes': null,
+      'completed_at': '2026-08-28T01:00:00Z',
+      'created_by': 'user-a',
+      'version': 1,
+      'status_version': 1,
+      'created_at': '2026-08-28T00:00:00Z',
+      'updated_at': '2026-08-28T01:00:00Z',
+      'assignee_ids': ['user-a'],
+      'delay_count': 0,
+      'total_delay_minutes': 0,
+      'field_versions': const <String, int>{},
+      'lifecycle_version': 1,
+      'deleted_at': null,
+    });
+
+    expect(task.status, 'DONE');
+    expect(task.progress, 100);
+  });
+
   test('TaskItem rejects a missing quadrant as a protocol error', () {
     final json = <String, dynamic>{
       'id': 'task-1',

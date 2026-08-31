@@ -1,5 +1,30 @@
 import 'task.dart';
 
+enum TaskListSort { dueAt, quadrant, updatedAt, createdAt }
+
+class TaskListCategory {
+  const TaskListCategory({required this.label, required this.unfinishedCount});
+
+  final String? label;
+  final int unfinishedCount;
+
+  String get title => label ?? '全部任务';
+}
+
+class TaskListGroup {
+  const TaskListGroup({
+    required this.key,
+    required this.title,
+    required this.tasks,
+    this.actionLabel,
+  });
+
+  final String key;
+  final String title;
+  final List<TaskItem> tasks;
+  final String? actionLabel;
+}
+
 class TaskView {
   static const statuses = <String>[
     'TODO',
@@ -80,6 +105,139 @@ class TaskView {
       ),
     );
   }
+
+  static List<TaskListCategory> listCategories(Iterable<TaskItem> tasks) {
+    final topLevel = _visibleTopLevel(tasks);
+    final counts = <String, int>{};
+    final names = <String, String>{};
+    var unfinished = 0;
+    for (final task in topLevel) {
+      if (_isUnfinished(task.status)) unfinished++;
+      final labelsForTask = <String>{};
+      for (final label in task.labels) {
+        final trimmed = label.trim();
+        if (trimmed.isEmpty) continue;
+        final normalized = trimmed.toLowerCase();
+        if (!labelsForTask.add(normalized)) continue;
+        names.putIfAbsent(normalized, () => trimmed);
+        if (_isUnfinished(task.status)) {
+          counts[normalized] = (counts[normalized] ?? 0) + 1;
+        }
+      }
+    }
+    final labels = names.keys.toList()
+      ..sort((left, right) => names[left]!.compareTo(names[right]!));
+    return [
+      TaskListCategory(label: null, unfinishedCount: unfinished),
+      for (final normalized in labels)
+        TaskListCategory(
+          label: names[normalized],
+          unfinishedCount: counts[normalized] ?? 0,
+        ),
+    ];
+  }
+
+  static List<TaskListGroup> listGroups(
+    Iterable<TaskItem> tasks, {
+    String? label,
+    DateTime? now,
+    TaskListSort sort = TaskListSort.dueAt,
+    bool showCompleted = true,
+    bool showFailed = true,
+  }) {
+    final current = (now ?? DateTime.now()).toLocal();
+    final today = DateTime(current.year, current.month, current.day);
+    final filtered = filterByLabel(
+      tasks,
+      label,
+    ).where((task) => task.deletedAt == null && task.parentTaskId == null);
+    final active = filtered.where((task) => _isUnfinished(task.status));
+    final terminal = filtered.where((task) {
+      if (task.status == 'DONE') return showCompleted;
+      if (task.status == 'CANCELLED') return showFailed;
+      return false;
+    });
+    final past = active.where((task) {
+      final due = task.dueAt?.toLocal();
+      return due != null && _dateOnly(due).isBefore(today);
+    });
+    final upcoming = active.where((task) {
+      final due = task.dueAt?.toLocal();
+      return due != null && !_dateOnly(due).isBefore(today);
+    });
+    final unscheduled = active.where((task) => task.dueAt == null);
+    return [
+      TaskListGroup(
+        key: 'past',
+        title: '过去',
+        actionLabel: '顺延至今天',
+        tasks: _sortForList(past, sort),
+      ),
+      TaskListGroup(
+        key: 'upcoming',
+        title: '今天 / 即将到期',
+        tasks: _sortForList(upcoming, sort),
+      ),
+      TaskListGroup(
+        key: 'unscheduled',
+        title: '无时间',
+        tasks: _sortForList(unscheduled, sort),
+      ),
+      TaskListGroup(
+        key: 'terminal',
+        title: '已完成 / 已失败',
+        tasks: _sortForList(terminal, sort, terminal: true),
+      ),
+    ];
+  }
+
+  static List<TaskItem> visibleTopLevel(Iterable<TaskItem> tasks) =>
+      _visibleTopLevel(tasks);
+
+  static List<TaskItem> _visibleTopLevel(Iterable<TaskItem> tasks) =>
+      List.unmodifiable(
+        tasks.where(
+          (task) => task.deletedAt == null && task.parentTaskId == null,
+        ),
+      );
+
+  static List<TaskItem> _sortForList(
+    Iterable<TaskItem> tasks,
+    TaskListSort sort, {
+    bool terminal = false,
+  }) {
+    final sorted = tasks.toList();
+    sorted.sort((left, right) {
+      final comparison = switch (sort) {
+        TaskListSort.dueAt =>
+          terminal
+              ? right.updatedAt.compareTo(left.updatedAt)
+              : _compareNullableDates(left.dueAt, right.dueAt),
+        TaskListSort.quadrant => _quadrantIndex(
+          left.quadrant,
+        ).compareTo(_quadrantIndex(right.quadrant)),
+        TaskListSort.updatedAt => right.updatedAt.compareTo(left.updatedAt),
+        TaskListSort.createdAt => right.createdAt.compareTo(left.createdAt),
+      };
+      if (comparison != 0) return comparison;
+      if (!(terminal && sort == TaskListSort.dueAt)) {
+        final dueComparison = _compareNullableDates(left.dueAt, right.dueAt);
+        if (dueComparison != 0) return dueComparison;
+      }
+      final updatedComparison = right.updatedAt.compareTo(left.updatedAt);
+      if (updatedComparison != 0) return updatedComparison;
+      return left.id.compareTo(right.id);
+    });
+    return List.unmodifiable(sorted);
+  }
+
+  static bool _isUnfinished(String status) =>
+      status != 'DONE' && status != 'CANCELLED';
+
+  static DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static int _quadrantIndex(String value) => quadrants.indexOf(value);
 
   static Map<String, int> summary(Iterable<TaskItem> tasks, DateTime now) {
     final active = tasks.where(

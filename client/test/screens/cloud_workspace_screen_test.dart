@@ -16,16 +16,23 @@ import 'package:muyu_client/screens/my_profile_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
-TaskItem task(String id, String title) => TaskItem(
+TaskItem task(
+  String id,
+  String title, {
+  String status = 'TODO',
+  DateTime? dueAt,
+  List<String> labels = const [],
+  String? parentTaskId,
+}) => TaskItem(
   id: id,
-  parentTaskId: null,
+  parentTaskId: parentTaskId,
   title: title,
   description: '',
-  status: 'TODO',
+  status: status,
   currentHandlerId: 'user-1',
   quadrant: 'Q1',
   plannedStartAt: null,
-  dueAt: null,
+  dueAt: dueAt,
   estimatedMinutes: null,
   completedAt: null,
   createdBy: 'user-1',
@@ -34,7 +41,7 @@ TaskItem task(String id, String title) => TaskItem(
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
   assigneeIds: const ['user-1'],
-  labels: const [],
+  labels: labels,
 );
 
 class FakeTaskRepository implements WorkspaceSyncRepository {
@@ -198,6 +205,8 @@ void main() {
         home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
       ),
     );
+    await tester.tap(find.byKey(const Key('create-task-fab')));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('task-title-input')),
       'Buy milk',
@@ -222,6 +231,30 @@ void main() {
     expect(find.text('Buy milk'), findsOneWidget);
   });
 
+  testWidgets('create FAB opens after the initial stale sync is refreshed', (
+    tester,
+  ) async {
+    final sync = WorkspaceSyncController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<FloatingActionButton>(
+            find.byKey(const Key('create-task-fab')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.byKey(const Key('create-task-fab')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新建任务'), findsOneWidget);
+  });
+
   testWidgets(
     'submit is disabled while creation is pending and errors retain input',
     (tester) async {
@@ -236,6 +269,8 @@ void main() {
           home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
         ),
       );
+      await tester.tap(find.byKey(const Key('create-task-fab')));
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const Key('task-title-input')),
         'Keep me',
@@ -281,13 +316,9 @@ void main() {
     expect(find.byKey(const Key('read-only-device-banner')), findsOneWidget);
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('task-title-input')))
-          .enabled,
-      isFalse,
-    );
-    expect(
-      tester
-          .widget<IconButton>(find.byKey(const Key('create-task-button')))
+          .widget<FloatingActionButton>(
+            find.byKey(const Key('create-task-fab')),
+          )
           .onPressed,
       isNull,
     );
@@ -354,5 +385,141 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
     await tester.pumpAndSettle();
     expect(find.text('当前会话不可用'), findsOneWidget);
+  });
+
+  testWidgets('hamburger opens a left drawer instead of a bottom sheet', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('task-list-menu-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('task-list-drawer')), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+  });
+
+  testWidgets(
+    '清单 uses the top task category selector and counts unfinished work',
+    (tester) async {
+      final repo = FakeTaskRepository()
+        ..tasks.addAll([
+          task('work-1', 'Work', labels: const ['常规事项']),
+          task('work-2', 'Work done', status: 'DONE', labels: const ['常规事项']),
+          task('wedding', 'Wedding', labels: const ['婚礼']),
+        ]);
+      final sync = await readyController(repo);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+        ),
+      );
+
+      expect(find.byKey(const Key('task-category-selector')), findsOneWidget);
+      expect(find.text('全部任务'), findsOneWidget);
+      expect(find.byKey(const Key('task-list-label-filter')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('task-category-selector')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('常规事项'), findsOneWidget);
+      expect(find.text('婚礼'), findsOneWidget);
+      expect(find.byKey(const Key('task-category-count-常规事项')), findsOneWidget);
+      expect(find.text('1'), findsWidgets);
+    },
+  );
+
+  testWidgets('清单 more menu exposes sorting and display controls only', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('task-list-more-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('排序'), findsOneWidget);
+    expect(find.text('截止时间'), findsOneWidget);
+    expect(find.text('显示副标题'), findsOneWidget);
+    expect(find.text('显示已完成任务'), findsOneWidget);
+    expect(find.text('显示已失败任务'), findsOneWidget);
+    expect(find.text('批量编辑'), findsNothing);
+    expect(find.text('刷新'), findsNothing);
+    expect(find.text('扫码登录 Web'), findsNothing);
+  });
+
+  testWidgets(
+    'task views use edge pull-to-refresh with always-scrollable lists',
+    (tester) async {
+      final sync = await readyController(FakeTaskRepository());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+        ),
+      );
+
+      expect(
+        tester
+            .widget<ListView>(find.byKey(const Key('task-list-scroll')))
+            .physics,
+        isA<AlwaysScrollableScrollPhysics>(),
+      );
+      await tester.tap(find.byKey(const ValueKey('task-quadrant-destination')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ListView>(find.byKey(const Key('task-quadrant-scroll')))
+            .physics,
+        isA<AlwaysScrollableScrollPhysics>(),
+      );
+      await tester.tap(find.byKey(const ValueKey('task-schedule-destination')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ListView>(find.byKey(const Key('task-schedule-scroll')))
+            .physics,
+        isA<AlwaysScrollableScrollPhysics>(),
+      );
+    },
+  );
+
+  testWidgets('清单 renders four groups and a floating create action', (
+    tester,
+  ) async {
+    final repo = FakeTaskRepository()
+      ..tasks.addAll([
+        task('active', 'Active'),
+        task('done', 'Done', status: 'DONE'),
+      ]);
+    final sync = await readyController(repo);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    expect(find.byKey(const Key('task-section-header-past')), findsOneWidget);
+    expect(
+      find.byKey(const Key('task-section-header-upcoming')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('task-section-header-unscheduled')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('task-section-header-terminal')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
   });
 }

@@ -1,9 +1,13 @@
 # Build Artifacts
 
-Version-tag and published-release workflows produce reproducible artifacts after
-the backend, Android, and browser checks pass:
+Local development produces a commit-named Android debug APK:
 
-- `client/build/app/outputs/flutter-apk/app-debug.apk`
+- `client/build/app/outputs/flutter-apk/Muyu-<short-commit>.apk` (Android debug)
+
+Version-tag and published-release workflows produce version-named artifacts
+after the backend, Android, and browser checks pass:
+
+- `client/build/app/outputs/flutter-apk/Muyu-vX.Y.Z.apk` (Android debug release asset)
 - `web/dist`, packaged as `web-release.tar.gz`
 
 The protected tag workflow produces `app-release.aab` only after required CI
@@ -20,25 +24,23 @@ sha256sum app-debug.apk app-release.aab web-release.tar.gz > SHA256SUMS
 git rev-parse HEAD > SOURCE_COMMIT
 ```
 
-The debug APK used for a manual Android check carries the source commit in its
-filename. This avoids confusing a local verification build with a published
-versioned artifact:
+The local `client-build` target now carries the source commit in the debug APK
+filename automatically. Flutter's `app-debug.apk` remains only as an internal
+intermediate file:
 
 ```sh
-commit_id=$(git rev-parse --short HEAD)
-cp client/build/app/outputs/flutter-apk/app-debug.apk \
-  "client/build/app/outputs/flutter-apk/Muyu-${commit_id}.apk"
+API_BASE_URL=https://muyu.bkverse.space make client-build
+# client/build/app/outputs/flutter-apk/Muyu-$(git rev-parse --short HEAD).apk
 ```
 
 Release assets use the version tag instead, for example
-`Muyu-v0.1.0.apk`; do not attach commit-named debug APKs to a GitHub release.
+`Muyu-v0.1.0.apk`; CI does not generate or attach commit-named debug APKs.
 
 Install the debug APK only on an internal/test device. Supply the API origin at
 build time when it is not served from the same origin:
 
 ```sh
-flutter build apk --debug \
-  --dart-define=API_BASE_URL=https://muyu.bkverse.space
+API_BASE_URL=https://muyu.bkverse.space make client-build
 cd web
 npm ci
 VITE_API_BASE_URL=/ npm run build

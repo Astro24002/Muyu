@@ -67,17 +67,13 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: flutter build apk --debug --dart-define=API_BASE_URL=https://muyu.bkverse.space
-      - name: Name Android APK with source commit
+      - name: Name Android APK with version
         working-directory: client
         env:
-          SOURCE_COMMIT: ${{ github.sha }}
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          commit_id="${SOURCE_COMMIT:0:7}"
           version_name="${RELEASE_TAG}"
-          cp build/app/outputs/flutter-apk/app-debug.apk \
-            "build/app/outputs/flutter-apk/Muyu-${commit_id}.apk"
           cp build/app/outputs/flutter-apk/app-debug.apk \
             "build/app/outputs/flutter-apk/Muyu-${version_name}.apk"
       - name: Publish version APK to GitHub Release
@@ -96,7 +92,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-android-debug-apk-${{ github.ref_name }}
-          path: client/build/app/outputs/flutter-apk/Muyu-*.apk
+          path: client/build/app/outputs/flutter-apk/Muyu-v*.apk
 
   web:
     runs-on: ubuntu-latest

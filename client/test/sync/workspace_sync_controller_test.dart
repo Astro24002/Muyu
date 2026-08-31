@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/workspace_change.dart';
@@ -29,6 +31,7 @@ TaskItem task(String title) => TaskItem(
 class FakeSyncRepository implements WorkspaceSyncRepository {
   final hints = <WorkspaceChanged>[];
   int snapshotCalls = 0;
+  Completer<WorkspaceSnapshot>? snapshotCompleter;
   final requestedAfterCursors = <int>[];
   String? lastRequestId;
   String? createRequestId;
@@ -72,6 +75,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   @override
   Future<WorkspaceSnapshot> snapshot() async {
     snapshotCalls++;
+    final completer = snapshotCompleter;
+    if (completer != null) return completer.future;
     return WorkspaceSnapshot(
       workspaceId: 'w1',
       cursor: 11,
@@ -151,6 +156,23 @@ void main() {
     await controller.refresh();
 
     expect(repository.snapshotCalls, 1);
+    expect(controller.state.isStale, isFalse);
+  });
+
+  test('concurrent refresh requests share one snapshot call', () async {
+    final repository = FakeSyncRepository()
+      ..snapshotCompleter = Completer<WorkspaceSnapshot>();
+    final controller = WorkspaceSyncController(repository);
+
+    final first = controller.refresh();
+    final second = controller.refresh();
+    expect(identical(first, second), isTrue);
+    expect(repository.snapshotCalls, 1);
+
+    repository.snapshotCompleter!.complete(
+      WorkspaceSnapshot(workspaceId: 'w1', cursor: 11, tasks: [task('title')]),
+    );
+    await Future.wait([first, second]);
     expect(controller.state.isStale, isFalse);
   });
 

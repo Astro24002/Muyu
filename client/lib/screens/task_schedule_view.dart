@@ -35,6 +35,7 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
       onRefresh: widget.sync.refresh,
       child: ListView(
         key: const Key('task-schedule-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           TaskLabelFilter(

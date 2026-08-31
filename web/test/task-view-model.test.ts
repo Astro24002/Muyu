@@ -27,6 +27,12 @@ describe('task projections', () => {
     expect(() => parseTaskItem({ ...raw, labels: null })).toThrow();
   });
 
+  it('normalizes the legacy COMPLETED status at the wire boundary', () => {
+    const parsed = parseTaskItem({ ...task('legacy', 'DONE', null), status: 'COMPLETED' });
+
+    expect(parsed.status).toBe('DONE');
+  });
+
   it('enforces the task label count, length, and aggregate limits', () => {
     expect(() => parseTaskLabels([''])).toThrow();
     expect(() => parseTaskLabels(['a'.repeat(33)])).toThrow();

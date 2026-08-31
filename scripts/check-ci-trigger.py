@@ -4,6 +4,14 @@
 from pathlib import Path
 
 
+makefile = Path("Makefile").read_text(encoding="utf-8")
+debug_builder = Path("scripts/build-android-debug.sh")
+assert "scripts/build-android-debug.sh" in makefile, (
+    "client-build must use the shared Android debug artifact builder"
+)
+assert debug_builder.is_file(), "the shared Android debug artifact builder must exist"
+assert debug_builder.stat().st_mode & 0o111, "the Android debug artifact builder must be executable"
+
 expected = "on:\n  push:\n    tags:\n      - 'v*.*.*'\n  release:\n    types: [published]"
 for workflow in ("ci.yml", "release.yml"):
     text = Path(".github/workflows", workflow).read_text(encoding="utf-8")
@@ -42,13 +50,18 @@ for workflow_name, workflow_text in workflow_texts:
     assert "API_BASE_URL=https://example.invalid" not in workflow_text, (
         f"{workflow_name} must not publish Android artifacts with a placeholder API"
     )
-    assert 'commit_id="${SOURCE_COMMIT:0:7}"' in workflow_text, (
-        f"{workflow_name} Android artifacts must use a short source commit name"
-    )
-    assert 'Muyu-${commit_id}.apk' in workflow_text, (
-        f"{workflow_name} must publish a commit-named Android APK"
-    )
     assert 'Muyu-${version_name}.apk' in workflow_text, (
         f"{workflow_name} must publish a version-named Android APK"
     )
+    assert 'Muyu-${commit_id}.apk' not in workflow_text, (
+        f"{workflow_name} must not publish a local commit-named Android APK"
+    )
+    assert "Muyu-v*.apk" in workflow_text, (
+        f"{workflow_name} artifact uploads must select version-named APKs only"
+    )
+
+builder = Path("scripts/build-android-debug.sh").read_text(encoding="utf-8")
+assert 'commit_id="${commit_id:0:7}"' in builder
+assert 'commit_apk="$output_dir/Muyu-${commit_id}.apk"' in builder
+assert 'cp -- "$source_apk" "$commit_apk"' in builder
 print("CI and release trigger check passed")

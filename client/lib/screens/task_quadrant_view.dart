@@ -35,6 +35,7 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
       onRefresh: widget.sync.refresh,
       child: ListView(
         key: const Key('task-quadrant-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           TaskLabelFilter(

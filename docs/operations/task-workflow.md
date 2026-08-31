@@ -84,6 +84,34 @@ approve, reject, or cancel a request.
 3. A WebSocket message is only a newer-cursor hint. REST snapshot/change
    responses remain the correctness path.
 
+### Client refresh strategy
+
+The client exposes one refresh model for all task destinations (`清单`,
+`四象限`, and `日程`): pull down from the top edge of the list. The lists use
+`AlwaysScrollableScrollPhysics`, so the gesture is available even when the
+current result set is shorter than the viewport. Refresh is an explicit
+authoritative snapshot request; it is not a local cache merge.
+
+The sync controller is the single entry point for both manual refresh and
+background synchronization:
+
+- `start()` performs one snapshot, then listens for WebSocket cursor hints.
+- A newer hint calls `pull()`, which requests ordered changes after the local
+  cursor. A missing/duplicated cursor or an expired change window falls back to
+  `refresh()`.
+- Concurrent calls to `refresh()` share the same in-flight snapshot request;
+  concurrent hint pulls share one changes request. This prevents a swipe, a
+  hint, and a post-write reconciliation from racing each other.
+- A successful snapshot/change response replaces the local state and cache and
+  clears the stale marker. A failed request keeps the last snapshot visible,
+  marks it stale, and surfaces the error so the user can pull again.
+- Accepted writes still reconcile through `pull()` after the server response;
+  the response itself never becomes an alternative source of truth.
+
+There is no periodic timer and no task refresh action in the overflow menu.
+This keeps network traffic predictable while still allowing near-real-time
+updates from server hints and an immediate user-initiated refresh.
+
 The same contract is used by Android and Web. Web has no browser-local identity
 or password login; QR authorization is the only Web login path.
 

@@ -48,7 +48,7 @@ client-test:
 	cd client && $(FLUTTER) pub get && $(DART) format --output=none --set-exit-if-changed . && $(FLUTTER) analyze && $(FLUTTER) test
 
 client-build:
-	cd client && $(FLUTTER) pub get && $(FLUTTER) build apk --debug --dart-define=API_BASE_URL=$(API_BASE_URL)
+	API_BASE_URL="$(API_BASE_URL)" FLUTTER="$(FLUTTER)" ./scripts/build-android-debug.sh
 
 web-test:
 	cd web && npm ci && npm run typecheck && npm test -- --run

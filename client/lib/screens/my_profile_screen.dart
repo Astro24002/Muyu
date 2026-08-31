@@ -12,6 +12,7 @@ class MyProfileScreen extends StatefulWidget {
     this.managementRepository,
     this.canWrite = true,
     this.showAppBar = true,
+    this.onWebQrLogin,
   });
 
   final MobileSession session;
@@ -19,6 +20,7 @@ class MyProfileScreen extends StatefulWidget {
   final DeviceManagementRepository? managementRepository;
   final bool canWrite;
   final bool showAppBar;
+  final VoidCallback? onWebQrLogin;
 
   @override
   State<MyProfileScreen> createState() => _MyProfileScreenState();
@@ -64,6 +66,17 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             subtitle: Text(widget.session.user.phone),
           ),
         ),
+        if (widget.onWebQrLogin != null) ...[
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              key: const Key('profile-web-qr-login'),
+              leading: const Icon(Icons.qr_code_scanner),
+              title: const Text('扫码登录 Web'),
+              onTap: widget.onWebQrLogin,
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         Text('登录设备', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),

@@ -9,7 +9,7 @@ class TaskItem implements TaskMutationResult {
     this.taskNumber = '',
     required this.title,
     required this.description,
-    required this.status,
+    required String status,
     required this.currentHandlerId,
     required String quadrant,
     List<String> labels = const [],
@@ -35,7 +35,8 @@ class TaskItem implements TaskMutationResult {
     this.fieldVersions = const {},
     this.lifecycleVersion = 1,
     this.deletedAt,
-  }) : quadrant = _validateQuadrant(quadrant),
+  }) : status = _normalizeStatus(status),
+       quadrant = _validateQuadrant(quadrant),
        labels = List.unmodifiable(labels),
        _progress = progress;
 
@@ -210,6 +211,11 @@ class TaskItem implements TaskMutationResult {
   }
 
   static String _validateQuadrant(String value) => _parseQuadrant(value);
+
+  // The persisted API historically exposed COMPLETED; the public client
+  // contract uses DONE for the same terminal state.
+  static String _normalizeStatus(String value) =>
+      value == 'COMPLETED' ? 'DONE' : value;
 
   static List<String> _parseLabels(Map<String, dynamic> json) {
     // Omitted labels are accepted for cached pre-label snapshots. Values from

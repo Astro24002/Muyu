@@ -35,7 +35,8 @@ const MAX_TASK_LABEL_CHARS = 320;
 export function parseTaskItem(value: unknown): TaskItem {
   if (!isRecord(value)) throw new Error('任务数据格式无效。');
   if (!isTaskQuadrant(value.quadrant)) throw new Error('任务必须设置有效四象限。');
-  return { ...value, quadrant: value.quadrant, labels: value.labels === undefined ? [] : parseTaskLabels(value.labels) } as TaskItem;
+  const status = value.status === 'COMPLETED' ? 'DONE' : value.status;
+  return { ...value, status, quadrant: value.quadrant, labels: value.labels === undefined ? [] : parseTaskLabels(value.labels) } as TaskItem;
 }
 
 export function parseTaskLabels(value: unknown): string[] {

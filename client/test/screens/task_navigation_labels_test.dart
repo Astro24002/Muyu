@@ -144,6 +144,8 @@ void main() {
       ),
     );
 
+    await tester.tap(find.byKey(const Key('create-task-fab')));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('task-title-input')), 'Plan');
     await tester.pump();
     expect(

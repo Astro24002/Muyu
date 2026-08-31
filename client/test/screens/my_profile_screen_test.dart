@@ -56,4 +56,38 @@ void main() {
     expect(find.text('当前设备'), findsOneWidget);
     expect(find.textContaining('长期绑定'), findsOneWidget);
   });
+
+  testWidgets('shows Web QR authorization only when profile provides it', (
+    tester,
+  ) async {
+    const session = MobileSession(
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      deviceId: 'device-1',
+      user: User(
+        id: 'user-1',
+        phone: '+8613800138000',
+        nickname: 'Muyu',
+        avatarKey: '',
+        role: 'member',
+      ),
+      expiresAt: null,
+    );
+    var tapped = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyProfileScreen(
+          session: session,
+          repository: FakeDeviceRepository(),
+          onWebQrLogin: () => tapped = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile-web-qr-login')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('profile-web-qr-login')));
+    expect(tapped, isTrue);
+  });
 }

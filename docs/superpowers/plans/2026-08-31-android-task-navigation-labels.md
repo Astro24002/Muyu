@@ -387,7 +387,7 @@
 
 - [x] The schema task makes quadrant non-null without silently assigning old null rows.
 - [x] The label limits, normalization order and JSON field name are identical in spec, plan, API and clients.
-- [x] Android has exactly four destinations and no board code or test assertion remains.
+- [x] Android has exactly four destinations and no board UI/runtime code remains; tests explicitly assert its absence.
 - [x] Non-owner label and quadrant changes use the existing two-person approval path and are not optimistic.
 - [x] `MyProfileScreen` remains the fourth destination and current-device deletion remains impossible.
 - [x] Web receives the fields without expanding the current product scope.

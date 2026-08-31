@@ -1,6 +1,4 @@
 :root {
-  color-scheme: light;
-
   --color-page: #f8faf9;
   --color-surface: #ffffff;
   --color-text: #1d2d29;
@@ -9,7 +7,7 @@
   --color-brand: #225f50;
   --color-brand-interactive: #2e7663;
   --color-focus-surface: #e7f0ed;
-  --color-coral: #b2573b;
+  --color-coral: #91412f;
   --color-coral-surface: #f3dfd7;
   --color-border: #dce3e0;
   --color-error: #a33b2e;

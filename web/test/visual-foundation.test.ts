@@ -1,0 +1,58 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+const testDirectory = dirname(fileURLToPath(import.meta.url));
+const globalCss = readFileSync(resolve(testDirectory, '../src/styles/global.css'), 'utf8');
+const tokensCss = readFileSync(resolve(testDirectory, '../src/styles/tokens.css'), 'utf8');
+
+describe('visual foundation', () => {
+  it('scopes React defaults away from the legacy bridge subtree', () => {
+    expect(globalCss).toContain('.muyu-react-root');
+    expect(globalCss).toContain('[data-testid="legacy-app-root"]');
+    expect(globalCss).toMatch(/\.muyu-react-root\s*>\s*\[data-testid="muyu-app"\]\s*>\s*:not\(\[data-testid="legacy-app-root"\]\)/);
+
+    expect(globalCss).not.toMatch(/^body\s*\{/m);
+    expect(globalCss).not.toMatch(/^button\s*\{/m);
+    expect(globalCss).not.toMatch(/^a\s*\{/m);
+    expect(globalCss).not.toMatch(/^:where\(a,/m);
+  });
+
+  it('keeps coral status text at WCAG AA contrast on its light surface', () => {
+    const coral = readColorToken('--color-coral');
+    const coralSurface = readColorToken('--color-coral-surface');
+
+    expect(contrastRatio(coral, coralSurface)).toBeGreaterThanOrEqual(4.5);
+    for (const status of ['waiting', 'pending', 'blocked', 'warning', 'attention', 'approval']) {
+      expect(globalCss).toContain(`.ui-status-badge--${status}`);
+    }
+  });
+});
+
+function readColorToken(name: string): string {
+  const match = tokensCss.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'));
+  if (!match) throw new Error(`Missing color token ${name}`);
+  return match[1];
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(color: string): number {
+  const channels = color
+    .slice(1)
+    .match(/.{2}/g)
+    ?.map((channel) => Number.parseInt(channel, 16) / 255);
+  if (!channels) throw new Error(`Invalid color ${color}`);
+
+  const linearChannels = channels.map((channel) => (
+    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  ));
+  return linearChannels[0] * 0.2126 + linearChannels[1] * 0.7152 + linearChannels[2] * 0.0722;
+}

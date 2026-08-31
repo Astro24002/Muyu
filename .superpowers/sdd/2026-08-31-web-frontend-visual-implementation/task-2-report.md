@@ -52,4 +52,23 @@ Commands were run from `web/` unless stated otherwise.
 ## Concerns
 
 - The full Web suite has two unrelated pre-existing failures in `web/test/workspace-actions.test.ts`: task creation does not call the mocked `createTask`, and the create button does not become disabled during a loading rerender. The same failures were present before Task 2 changes and are outside this task's file boundary.
-- `lucide-react@0.468.0` has declarations that import `ReactSVG`, which is not exported by the installed React 19 types. Because `IconButton` intentionally accepts a `ReactNode`, the focused contract tests use a neutral icon stub and avoid changing Task 1 dependency metadata. Future tasks that directly import Lucide components will need the dependency/type mismatch addressed before those imports are typechecked.
+- The initial round exposed a `lucide-react@0.468.0` / React 19 type mismatch; Fix Round 1 resolves it by upgrading to `lucide-react@0.475.0` and adding a direct-import typecheck fixture.
+
+## Fix Round 1
+
+The reviewer-required fixes were implemented without migrating any business UI:
+
+- Updated `web/package.json` and `web/package-lock.json` from `lucide-react@^0.468.0` to `lucide-react@^0.475.0`, the first compatible release selected for the existing React 19 setup. Added `web/test/lucide-import.typecheck.tsx`, a direct `Menu` import fixture included by `tsconfig.json`, so `npm run typecheck` verifies real Lucide imports.
+- Added the `muyu-react-root` host marker in `web/src/main.tsx`. Removed document-wide body, control, link, focus, box-sizing, and motion selectors from `global.css`; React defaults now apply only below non-legacy direct children of `[data-testid="muyu-app"]`. The existing `[data-testid="legacy-app-root"]` subtree remains outside those defaults, and the legacy `styles.css` import and runtime bridge are preserved.
+- Darkened `--color-coral` to `#91412F`, added the `approval` status modifier to the coral status group, and added `web/test/visual-foundation.test.ts`. The test checks the React/legacy selector boundary and computes the coral foreground/surface contrast ratio using the WCAG relative-luminance formula; the resulting pair is 5.45:1.
+
+### Fix Round 1 Verification
+
+| Command | Result |
+| --- | --- |
+| `npm test -- --run test/visual-foundation.test.ts` | PASS: 1 file, 2 tests |
+| `npm test -- --run test/ui-primitives.test.tsx test/visual-foundation.test.ts test/app-shell.test.tsx` | PASS: 3 files, 12 tests |
+| `npm run typecheck` | PASS: direct Lucide import fixture and project TypeScript completed with exit code 0 |
+| `npm run build` | PASS: Vite transformed 59 modules and produced the production bundle |
+| `npm test -- --run` | 12 files and 81 tests passed; the same 2 pre-existing `workspace-actions` tests failed |
+| `git diff --check` | PASS: no whitespace errors |

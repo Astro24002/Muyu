@@ -1,29 +1,15 @@
-:root {
-  background: var(--color-page);
-  color: var(--color-text);
-  font-family: var(--font-family-sans);
-  letter-spacing: 0;
+/* Keep document defaults untouched while the legacy bridge is still mounted. */
+.muyu-react-root {
+  min-height: 100%;
 }
 
-html {
+.muyu-react-root > [data-testid="muyu-app"] {
+  min-height: 100%;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) {
   box-sizing: border-box;
   min-height: 100%;
-}
-
-*,
-*::before,
-*::after {
-  box-sizing: inherit;
-}
-
-html,
-body,
-#app {
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
   background: var(--color-page);
   color: var(--color-body);
   font-family: var(--font-family-sans);
@@ -32,39 +18,37 @@ body {
   letter-spacing: 0;
 }
 
-button,
-input,
-select,
-textarea {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *,
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::before,
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::after {
+  box-sizing: inherit;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(button, input, select, textarea),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(button, input, select, textarea) {
   font: inherit;
   letter-spacing: inherit;
 }
 
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-}
-
-a {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(a),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(a) {
   color: var(--color-brand);
 }
 
-img,
-svg,
-canvas {
-  display: block;
-  max-width: 100%;
-}
-
-:where(a, button, input, select, textarea):focus-visible {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(a, button, input, select, textarea):focus-visible,
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(a, button, input, select, textarea):focus-visible {
   outline: 2px solid var(--color-brand-interactive);
   outline-offset: 2px;
 }
 
-.app-content {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(img, svg, canvas),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(img, svg, canvas) {
+  display: block;
+  max-width: 100%;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content,
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content {
   width: min(calc(100% - (var(--space-8) * 2)), var(--content-max-width));
   margin-inline: auto;
 }
@@ -178,7 +162,8 @@ canvas {
 .ui-status-badge--pending,
 .ui-status-badge--blocked,
 .ui-status-badge--warning,
-.ui-status-badge--attention {
+.ui-status-badge--attention,
+.ui-status-badge--approval {
   background: var(--color-coral-surface);
   color: var(--color-coral);
 }
@@ -205,21 +190,23 @@ canvas {
 }
 
 @media (max-width: 1023px) {
-  .app-content {
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content,
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content {
     width: min(calc(100% - (var(--space-6) * 2)), var(--content-max-width));
   }
 }
 
 @media (max-width: 640px) {
-  .app-content {
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content,
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content {
     width: calc(100% - (var(--space-4) * 2));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *,
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::before,
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;

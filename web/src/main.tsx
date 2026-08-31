@@ -14,4 +14,5 @@ const root = document.querySelector('#app');
 
 if (!root) throw new Error('Muyu app root not found');
 
+root.classList.add('muyu-react-root');
 createRoot(root).render(<App api={api} login={login} sync={sync} />);

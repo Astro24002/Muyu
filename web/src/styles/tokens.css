@@ -1,0 +1,33 @@
+:root {
+  color-scheme: light;
+
+  --color-page: #f8faf9;
+  --color-surface: #ffffff;
+  --color-text: #1d2d29;
+  --color-body: #25312e;
+  --color-muted: #7c8783;
+  --color-brand: #225f50;
+  --color-brand-interactive: #2e7663;
+  --color-focus-surface: #e7f0ed;
+  --color-coral: #b2573b;
+  --color-coral-surface: #f3dfd7;
+  --color-border: #dce3e0;
+  --color-error: #a33b2e;
+  --color-error-surface: #fbeae7;
+  --color-on-brand: #ffffff;
+  --color-disabled: #a3afaa;
+  --font-family-sans: Inter, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --radius-pill: 999px;
+  --content-max-width: 960px;
+  --motion-fast: 150ms ease;
+  --opacity-disabled: 0.58;
+}

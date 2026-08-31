@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import './styles/tokens.css';
+import './styles/global.css';
 import { ApiClient } from './api/client';
 import { App } from './app/App';
 import { QrLoginController } from './auth/qr-login';

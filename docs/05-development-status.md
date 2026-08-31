@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，准备发布 `v0.1.3`；后续只剩真实 Android 设备验收。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；后续只剩真实 Android 设备验收和线上数据库迁移。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -19,12 +19,15 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
-### 2026-08-31 - Android 清单交互与同步刷新施工完成
+### 2026-08-31 - Android 清单交互与同步刷新施工完成并发布 v0.1.3
 
 - 类型：工程实施 / 全量客户端验证 / 发布 `v0.1.3`。
 - 变更：清单汉堡菜单改为左侧 Drawer；清单、四象限和日程统一使用顶部下拉刷新，短列表也可触发；任务页移除刷新和 Web 扫码入口，扫码授权仅保留在“我的”；同步控制器对快照刷新和游标增量拉取增加单飞保护，避免手动刷新、WebSocket 提示和写入后同步重复请求。
 - 版本：Android 客户端更新为 `0.1.3+1`，正式发布资产命名为 `Muyu-v0.1.3.apk`；本地调试资产继续使用 `Muyu-<short-commit>.apk`。
-- 验证：Flutter 全量 `88 tests`、`flutter analyze` 均通过；发布前还需完成 tag 触发的后端、Web、部署检查及 Android 版本包上传。
+- 验证：本地 Flutter 全量 `88 tests`、`flutter analyze`、Web typecheck/Vitest `72 tests`、Vite build、客户端边界和旧运行时检查均通过；tag 触发的 CI（run `33373152135`）和 Release（run `33373152112`）均成功。
+- 发布：GitHub Release [木鱼协作 v0.1.3](https://github.com/Astro24002/Muyu/releases/tag/v0.1.3) 仅包含 `Muyu-v0.1.3.apk`，大小 `180841850` 字节，SHA-256 为 `6a79ffef56dd1d6340f42fcb8cb9ba145c4e04345dcb1b533e9f1fa807cc78cc`。
+- 线上数据清理：异常旧任务 `111`（ID `8cb70e53-ebc2-470a-b2c5-80f6a86e0ff1`）已执行单条软删除，活动任务数降为 `0`，相关历史记录保留。
+- 线上阻塞：只读检查显示生产数据库 Alembic 版本仍为 `0002_device_session_indexes`，且旧 `tasks` 表没有 `quadrant`、`task_number`、`labels` 列；客户端报错的根因是客户端契约已升级而线上 schema/服务尚未迁移。后续必须先按部署流程升级到当前 migration head，再进行新任务创建验收。
 
 ### 2026-08-31 - Android 任务导航与多标签施工完成
 

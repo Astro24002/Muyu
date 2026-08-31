@@ -6,7 +6,7 @@ import type { WorkspaceSyncController, WorkspaceSyncState } from '../src/sync/wo
 import { cleanup, render } from './react-test-helpers';
 
 describe('React app shell', () => {
-  it('renders the React shell and leaves the legacy app root empty after cleanup', () => {
+  it('renders the React shell and leaves the legacy app root empty after cleanup', async () => {
     const legacyRoot = document.createElement('div');
     legacyRoot.id = 'app';
     document.body.append(legacyRoot);
@@ -23,7 +23,13 @@ describe('React app shell', () => {
       { container: legacyRoot },
     );
 
-    expect(legacyRoot.querySelector('[data-testid="muyu-app"]')).toBeInTheDocument();
+    const shell = legacyRoot.querySelector('[data-testid="muyu-app"]');
+    expect(shell).toBeInTheDocument();
+    expect(shell?.tagName).toBe('DIV');
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(shell?.querySelectorAll('main')).toHaveLength(1);
 
     cleanup();
 

@@ -27,8 +27,8 @@ export function App({ api, login, sync }: AppProps): JSX.Element {
   }, [api, login, sync]);
 
   return (
-    <main data-testid="muyu-app">
+    <div data-testid="muyu-app">
       <div ref={legacyRootRef} data-testid="legacy-app-root" />
-    </main>
+    </div>
   );
 }

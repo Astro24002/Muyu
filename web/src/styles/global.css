@@ -107,7 +107,7 @@
   color: var(--color-brand);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .ui-button--quiet:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+.muyu-react-root > [data-testid="muyu-app"] .ui-button--quiet:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *):hover:not(:disabled) {
   background: var(--color-focus-surface);
 }
 

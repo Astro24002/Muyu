@@ -53,6 +53,15 @@ describe('visual foundation', () => {
     }
   });
 
+  it('guards the quiet button focus surface behind hover and enabled state', () => {
+    const quietSurfaceRules = cssRules().filter(({ selector, body }) => (
+      selector.includes('.ui-button--quiet') && body.includes('background: var(--color-focus-surface);')
+    ));
+
+    expect(quietSurfaceRules).toHaveLength(1);
+    expect(quietSurfaceRules[0].selector).toContain(':hover:not(:disabled)');
+  });
+
   it('keeps coral status text at WCAG AA contrast on its light surface', () => {
     const coral = readColorToken('--color-coral');
     const coralSurface = readColorToken('--color-coral-surface');

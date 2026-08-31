@@ -92,3 +92,21 @@ The second reviewer round was addressed without migrating business UI:
 | `npm run build` | PASS: Vite transformed 59 modules and produced the production bundle |
 | `npm test -- --run` | 12 files and 83 tests passed; the same 2 pre-existing `workspace-actions` tests failed |
 | `git diff --check` | PASS: no whitespace errors |
+
+## Fix Round 3
+
+The quiet button hover regression was fixed without changing the established visual boundary:
+
+- Restored `:hover:not(:disabled)` to the scoped quiet-button focus-surface rule in `web/src/styles/global.css`, so quiet buttons remain transparent at rest and while disabled.
+- Added a focused assertion in `web/test/visual-foundation.test.ts` that identifies the quiet focus-surface rule and requires the enabled-hover guard.
+- Preserved the React-shell isolation, legacy bridge compatibility, WCAG contrast adjustment, cursor states, and direct Lucide typecheck fixture.
+
+### Fix Round 3 Verification
+
+| Command | Result |
+| --- | --- |
+| `npm test -- --run test/visual-foundation.test.ts` | PASS: 1 file, 5 tests |
+| `npm test -- --run test/ui-primitives.test.tsx test/visual-foundation.test.ts test/app-shell.test.tsx` | PASS: 3 files, 15 tests |
+| `npm run typecheck` | PASS: direct Lucide import fixture and project TypeScript completed with exit code 0 |
+| `npm run build` | PASS: Vite transformed 59 modules and produced the production bundle |
+| `git diff --check` | PASS: no whitespace errors |

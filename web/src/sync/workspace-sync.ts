@@ -114,9 +114,7 @@ export class WorkspaceSyncController {
       if (!isCurrent()) return;
       const normalized = normalizeSnapshot(snapshot);
       const activeSnapshot = this.currentState.snapshot;
-      if (activeSnapshot
-        && normalized.workspace_id === activeSnapshot.workspace_id
-        && normalized.cursor < this.currentState.cursor) return;
+      if (activeSnapshot && normalized.cursor < this.currentState.cursor) return;
       this.snapshotIdentity += 1;
       this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), stale: false, error: null, authRequired: false });
     }, false, snapshotIsCurrent);
@@ -621,8 +619,7 @@ function areContiguous(changes: unknown[], afterCursor: number, workspaceId: str
       || change.resource_type.length === 0
       || typeof change.resource_id !== 'string'
       || change.resource_id.length === 0
-      || typeof change.action !== 'string'
-      || change.action.length === 0
+      || !isChangeAction(change.action)
       || (change.operation_id !== null && typeof change.operation_id !== 'string')) return false;
     return isValidChangeResource(change.resource_type, change.resource, workspaceId)
       && (change.resource === null
@@ -693,12 +690,12 @@ function isTaskItem(value: unknown): value is TaskItem {
     || typeof value.created_at !== 'string'
     || typeof value.updated_at !== 'string'
     || !isStringArray(value.assignee_ids)
-    || !isSafeInteger(value.delay_count)
-    || !isSafeInteger(value.total_delay_minutes)
-    || !isSafeInteger(value.version)
-    || !isSafeInteger(value.status_version)
+    || !isNonNegativeSafeInteger(value.delay_count)
+    || !isNonNegativeSafeInteger(value.total_delay_minutes)
+    || !isPositiveSafeInteger(value.version)
+    || !isPositiveSafeInteger(value.status_version)
     || !isNumberRecord(value.field_versions)
-    || !isSafeInteger(value.lifecycle_version)
+    || !isPositiveSafeInteger(value.lifecycle_version)
     || !isNullableString(value.deleted_at)
     || !isTaskQuadrant(value.quadrant)
     || (value.labels !== undefined && !Array.isArray(value.labels))
@@ -747,7 +744,7 @@ function isTaskComment(value: unknown): value is TaskComment {
     && typeof value.author_user_id === 'string'
     && value.author_user_id.length > 0
     && typeof value.body === 'string'
-    && isSafeInteger(value.version)
+    && isPositiveSafeInteger(value.version)
     && isNullableString(value.deleted_at)
     && isNullableString(value.deleted_by)
     && (value.created_at === null || typeof value.created_at === 'string');
@@ -771,7 +768,7 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {
-  return isRecord(value) && Object.values(value).every((item) => isSafeInteger(item));
+  return isRecord(value) && Object.values(value).every((item) => isPositiveSafeInteger(item));
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -784,6 +781,18 @@ function isNullableNumber(value: unknown): value is number | null {
 
 function isSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return isSafeInteger(value) && value > 0;
+}
+
+function isChangeAction(value: unknown): value is 'CREATED' | 'UPDATED' | 'DELETED' | 'RESTORED' {
+  return value === 'CREATED' || value === 'UPDATED' || value === 'DELETED' || value === 'RESTORED';
 }
 
 function isTaskStatus(value: unknown): value is TaskItem['status'] {

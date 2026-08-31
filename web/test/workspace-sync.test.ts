@@ -486,6 +486,27 @@ describe('WorkspaceSyncController', () => {
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Original');
   });
 
+  it('keeps the applied cursor when a lower-cursor snapshot switches workspace without a new generation', async () => {
+    const foreignTask = { ...task, workspace_id: 'workspace-foreign', title: 'Foreign snapshot' };
+    const api = apiStub();
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(7))
+      .mockResolvedValueOnce({
+        ...snapshot(6),
+        workspace_id: 'workspace-foreign',
+        workspace: { id: 'workspace-foreign', name: 'Foreign workspace', status: 'ACTIVE' },
+        tasks: [foreignTask],
+      });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.refresh();
+
+    expect(controller.state.cursor).toBe(7);
+    expect(controller.state.snapshot?.workspace_id).toBe('workspace-1');
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Original');
+  });
+
   it('recovers through a snapshot when a changes envelope belongs to another workspace', async () => {
     const api = apiStub();
     api.getWorkspaceChanges.mockResolvedValue({
@@ -536,6 +557,89 @@ describe('WorkspaceSyncController', () => {
           resource: { ...task, labels: { invalid: true } },
         },
       ],
+    });
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered snapshot' }] });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull(6);
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Recovered snapshot');
+  });
+
+  it('recovers without applying a malformed approval resource', async () => {
+    const malformedApproval = { ...approval('approval-malformed', 'workspace-1'), base_field_versions: { title: -1 } };
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'approval_request',
+        resource_id: malformedApproval.id,
+        action: 'UPDATED',
+        operation_id: null,
+        resource: malformedApproval,
+      }],
+    });
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered snapshot' }] });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull(6);
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.approval_requests).toEqual([]);
+  });
+
+  it('recovers without applying a malformed comment resource', async () => {
+    const malformedComment = { ...comment('comment-malformed', task.id), version: -1 };
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'comment',
+        resource_id: malformedComment.id,
+        action: 'UPDATED',
+        operation_id: null,
+        resource: malformedComment,
+      }],
+    });
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered snapshot' }] });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull(6);
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.comments).toEqual([]);
+  });
+
+  it('recovers when a known change uses an invalid action value', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'task',
+        resource_id: task.id,
+        action: 'NOT_A_CHANGE',
+        operation_id: null,
+        resource: { ...task, title: 'Should not apply' },
+      }],
     });
     api.getWorkspaceSnapshot
       .mockResolvedValueOnce(snapshot(5))

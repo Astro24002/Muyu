@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,10 +12,12 @@ import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/user.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
+import 'package:muyu_client/platform/device_signing_key.dart';
 import 'package:muyu_client/screens/cloud_workspace_screen.dart';
 import 'package:muyu_client/screens/my_profile_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
+import 'package:muyu_client/workspace/device_authorization_repository.dart';
 
 TaskItem task(
   String id,
@@ -148,6 +151,61 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class CountingAuthorizationRepository implements DeviceAuthorizationRepository {
+  int createCalls = 0;
+
+  @override
+  Future<DeviceAuthorizationRequest> createDeviceRequest(
+    String publicKey,
+  ) async {
+    createCalls++;
+    return DeviceAuthorizationRequest(
+      id: 'request-1',
+      expiresAt: DateTime.utc(2099),
+      status: 'PENDING',
+      safetyCode: '123456',
+    );
+  }
+
+  @override
+  Future<List<DeviceAuthorizationRequest>> listRequests() async => const [];
+
+  @override
+  Future<DeviceAuthorizationRequest> beginApproval(String requestId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> approve(
+    String requestId, {
+    required DeviceSigningKey signingKey,
+    required String signaturePayload,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> reject(String requestId) => throw UnimplementedError();
+
+  @override
+  Future<DeviceAuthorizationRequest> scanWebQr(String qrPayload) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> approveWebLogin(
+    DeviceAuthorizationRequest request, {
+    required DeviceSigningKey signingKey,
+  }) => throw UnimplementedError();
+}
+
+class FakeCloudSigningKey implements DeviceSigningKey {
+  @override
+  Future<String> getOrCreatePublicKey() async => 'cHVibGlj';
+
+  @override
+  Future<Uint8List> sign(Uint8List payload) async => Uint8List.fromList([1]);
+
+  @override
+  Future<void> deleteKey() async {}
+}
+
 ApiClient testApi() => ApiClient(
   baseUrl: 'https://api.example',
   httpClient: MockClient((_) async => http.Response(jsonEncode({}), 200)),
@@ -193,6 +251,28 @@ void main() {
 
     expect(find.byType(MyProfileScreen), findsOneWidget);
     expect(find.text('我的'), findsWidgets);
+  });
+
+  testWidgets('unverified device creates one authorization request on entry', (
+    tester,
+  ) async {
+    final authorization = CountingAuthorizationRepository();
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(
+          api: testApi(),
+          syncController: sync,
+          session: loggedInSession,
+          canWrite: false,
+          signingKey: FakeCloudSigningKey(),
+          authorizationRepository: authorization,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(authorization.createCalls, 1);
   });
 
   testWidgets('creation requires a quadrant and successful task appears', (

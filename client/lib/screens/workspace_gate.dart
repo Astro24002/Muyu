@@ -57,6 +57,7 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             signingKey: widget.signingKey,
             session: widget.session,
             canWrite: _controller.state.canWrite,
+            workspaceBootstrapRepository: widget.repository,
           );
         case WorkspaceBootstrapStatus.waitingForPartner:
           return CloudWorkspaceScreen(
@@ -66,6 +67,7 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             session: widget.session,
             canWrite: _controller.state.canWrite,
             waitingForPartner: true,
+            workspaceBootstrapRepository: widget.repository,
           );
         case WorkspaceBootstrapStatus.loading:
           return const Scaffold(

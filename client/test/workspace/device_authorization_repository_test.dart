@@ -65,25 +65,28 @@ void main() {
     expect(result.single.candidatePhoneMasked, '+86******0169');
   });
 
-  test('rejects an authorization request through the device endpoint', () async {
-    late http.Request request;
-    final repository = HttpDeviceAuthorizationRepository(
-      ApiClient(
-        baseUrl: 'https://api.example',
-        httpClient: MockClient((incoming) async {
-          request = incoming;
-          return http.Response('{"id":"request-1","status":"REJECTED"}', 200);
-        }),
-        tokenStore: StaticTokenStore(),
-      ),
-    );
+  test(
+    'rejects an authorization request through the device endpoint',
+    () async {
+      late http.Request request;
+      final repository = HttpDeviceAuthorizationRepository(
+        ApiClient(
+          baseUrl: 'https://api.example',
+          httpClient: MockClient((incoming) async {
+            request = incoming;
+            return http.Response('{"id":"request-1","status":"REJECTED"}', 200);
+          }),
+          tokenStore: StaticTokenStore(),
+        ),
+      );
 
-    await repository.reject('request-1');
+      await repository.reject('request-1');
 
-    expect(request.method, 'POST');
-    expect(
-      request.url.path,
-      '/api/v1/devices/authorization-requests/request-1/reject',
-    );
-  });
+      expect(request.method, 'POST');
+      expect(
+        request.url.path,
+        '/api/v1/devices/authorization-requests/request-1/reject',
+      );
+    },
+  );
 }

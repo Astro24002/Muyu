@@ -10,6 +10,7 @@ import '../sync/workspace_sync_controller.dart';
 import '../sync/workspace_sync_repository.dart';
 import '../workspace/device_authorization_repository.dart';
 import '../workspace/device_repository.dart';
+import '../workspace/workspace_bootstrap_repository.dart';
 import 'web_qr_scanner_screen.dart';
 import 'task_detail_screen.dart';
 import 'task_approval_screen.dart';
@@ -38,6 +39,8 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.session,
     this.canWrite = true,
     this.waitingForPartner = false,
+    this.workspaceBootstrapRepository,
+    this.authorizationRepository,
   });
 
   final ApiClient api;
@@ -46,6 +49,8 @@ class CloudWorkspaceScreen extends StatefulWidget {
   final MobileSession? session;
   final bool canWrite;
   final bool waitingForPartner;
+  final WorkspaceBootstrapRepository? workspaceBootstrapRepository;
+  final DeviceAuthorizationRepository? authorizationRepository;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -62,6 +67,8 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   bool _showTaskSubtitle = true;
   bool _showCompleted = true;
   bool _showFailed = true;
+  bool _enrollmentRequested = false;
+  Future<void>? _enrollmentFuture;
 
   @override
   void initState() {
@@ -70,6 +77,11 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         widget.syncController ??
         WorkspaceSyncController(HttpWorkspaceSyncRepository(widget.api));
     if (widget.syncController == null) _sync.start();
+    if (widget.session != null &&
+        !widget.canWrite &&
+        widget.signingKey != null) {
+      _enrollmentFuture = _requestDeviceEnrollment();
+    }
   }
 
   @override
@@ -326,6 +338,22 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     );
   }
 
+  Future<void> _requestDeviceEnrollment() async {
+    if (_enrollmentRequested) return;
+    _enrollmentRequested = true;
+    final signingKey = widget.signingKey;
+    final repository =
+        widget.authorizationRepository ??
+        HttpDeviceAuthorizationRepository(widget.api);
+    if (signingKey == null) return;
+    try {
+      final publicKey = await signingKey.getOrCreatePublicKey();
+      await repository.createDeviceRequest(publicKey);
+    } catch (_) {
+      // A request failure must not block the read-only workspace surface.
+    }
+  }
+
   Future<void> _openCreateTask() async {
     if (!widget.canWrite) return;
     if (_sync.state.isStale) {
@@ -382,6 +410,12 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             session: widget.session!,
             repository: HttpDeviceRepository(widget.api),
             managementRepository: HttpDeviceManagementRepository(widget.api),
+            workspaceRepository: widget.workspaceBootstrapRepository,
+            authorizationRepository:
+                widget.authorizationRepository ??
+                HttpDeviceAuthorizationRepository(widget.api),
+            signingKey: widget.signingKey,
+            enrollmentReady: _enrollmentFuture,
             canWrite: widget.canWrite,
             showAppBar: false,
             onWebQrLogin: widget.signingKey != null && widget.canWrite

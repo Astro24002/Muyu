@@ -1,6 +1,6 @@
 # “我的”页双人匹配与设备授权实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Completed steps are marked with a checked box.
 
 **Goal:** 将共享空间双人匹配关系、设备验证请求和审批入口接入 Android “我的”页，并让未验证设备在不阻塞读取的前提下自动发起幂等验证请求。
 
@@ -36,7 +36,7 @@
 - Extends `BootstrapWorkspace` with `match_status` (`waiting_partner`, `matched`, `error`) and `members`。
 - Keeps `WorkspaceBootstrapService.get_state()` and all HTTP paths unchanged。
 
-- [ ] **Step 1: Write the failing API test**
+- [x] **Step 1: Write the failing API test**
 
 在 `test_workspace_bootstrap_flow.py` 增加测试，创建一位 owner 和一位 partner，分别请求 bootstrap，断言：
 
@@ -51,7 +51,7 @@ assert body["workspace"]["members"][1]["phone_masked"].endswith("0169")
 
 在一位成员的 bootstrap 测试中断言 `match_status == "waiting_partner"`、`len(members) == 1`。
 
-- [ ] **Step 2: Run tests and verify the expected failure**
+- [x] **Step 2: Run tests and verify the expected failure**
 
 Run:
 
@@ -61,7 +61,7 @@ cd backend && pytest -q tests/httpapi/test_workspace_bootstrap_flow.py tests/htt
 
 Expected: FAIL because `BootstrapWorkspace` does not yet expose `match_status` or `members`。
 
-- [ ] **Step 3: Implement the projection**
+- [x] **Step 3: Implement the projection**
 
 在 `bootstrap_schemas.py` 新增 `BootstrapMember`，并为 `BootstrapWorkspace` 增加：
 
@@ -72,11 +72,11 @@ members: list[BootstrapMember]
 
 在 `WorkspaceBootstrapService._workspace_payload(workspace, viewer_user_id)` 中按 `member_slot` 查询 active memberships，再查询对应 `User`，使用已有 `_mask_phone` 构造成员投影。成员数小于 2 时返回 `waiting_partner`，等于 2 时返回 `matched`，超过 2 时返回 `error`。更新 `_state_for_user()` 的所有调用点传入当前用户 ID。
 
-- [ ] **Step 4: Run the focused tests**
+- [x] **Step 4: Run the focused tests**
 
 Run the command from Step 2. Expected: PASS，包括旧 bootstrap 测试和新成员投影测试。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/workspaces/bootstrap_schemas.py backend/app/workspaces/bootstrap_service.py backend/tests/httpapi/test_workspace_bootstrap_flow.py backend/tests/httpapi/test_workspace_bootstrap.py
@@ -98,7 +98,7 @@ git commit -m "feat: expose workspace member matching state"
 - `POST /api/v1/devices/authorization-requests` returns the existing pending request for the same pending device instead of inserting a duplicate。
 - Adds `POST /api/v1/devices/authorization-requests/{request_id}/reject` for the other active workspace member。
 
-- [ ] **Step 1: Write failing backend tests**
+- [x] **Step 1: Write failing backend tests**
 
 在 `test_device_management.py` 增加：
 
@@ -120,7 +120,7 @@ def test_authorization_request_is_idempotent_and_visible_to_both_members(db_engi
 
 增加测试验证 active 设备可以拒绝另一位用户的 pending request，拒绝后请求状态为 `REJECTED`，候选设备仍为 `PENDING`；pending 设备不能读取他人的 incoming 请求。
 
-- [ ] **Step 2: Run the tests and verify they fail for missing behavior**
+- [x] **Step 2: Run the tests and verify they fail for missing behavior**
 
 ```bash
 cd backend && pytest -q tests/httpapi/test_device_management.py tests/httpapi/test_device_readonly_permissions.py
@@ -128,7 +128,7 @@ cd backend && pytest -q tests/httpapi/test_device_management.py tests/httpapi/te
 
 Expected: FAIL because duplicate requests are inserted, request metadata is absent, and the reject route does not exist。
 
-- [ ] **Step 3: Implement request projection and idempotency**
+- [x] **Step 3: Implement request projection and idempotency**
 
 新增 Pydantic response schema或等价的明确构造函数，统一生成请求字典。列表接口改用 `require_mobile_principal`：
 
@@ -139,11 +139,11 @@ Expected: FAIL because duplicate requests are inserted, request metadata is abse
 
 创建接口在生成新 request 前锁定并查询同一 candidate device 的有效 pending request；找到时复用它并返回原 ID。首次创建继续返回 6 位安全码，服务端只持久化摘要。
 
-- [ ] **Step 4: Implement reject authorization**
+- [x] **Step 4: Implement reject authorization**
 
 在 `WorkspaceService` 新增 `reject(request_id, approving_device_id)`：复用 pending request 校验，要求审批设备为 active、候选设备用户与审批用户不同且双方均为该 workspace active member；将 request 状态设为 `REJECTED`。在 routes 增加 reject 路由和错误映射，候选设备保持 `PENDING`、membership 保持当前状态。
 
-- [ ] **Step 5: Run focused and regression tests**
+- [x] **Step 5: Run focused and regression tests**
 
 ```bash
 cd backend && pytest -q tests/httpapi/test_device_management.py tests/httpapi/test_device_readonly_permissions.py tests/httpapi/test_workspace_bootstrap_flow.py tests/workspaces/test_onboarding.py
@@ -151,7 +151,7 @@ cd backend && pytest -q tests/httpapi/test_device_management.py tests/httpapi/te
 
 Expected: PASS，既有设备撤销、自审批拒绝、邀请审批和只读权限测试全部通过。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/devices/routes.py backend/app/devices/schemas.py backend/app/workspaces/service.py backend/tests/httpapi/test_device_management.py backend/tests/httpapi/test_device_readonly_permissions.py
@@ -172,11 +172,11 @@ git commit -m "feat: expose and control device authorization requests"
 - `DeviceAuthorizationRepository` gains `Future<List<DeviceAuthorizationRequest>> listRequests()` and `Future<void> reject(String requestId)`。
 - Existing `createDeviceRequest`, `beginApproval`, `approve`, `scanWebQr`, `approveWebLogin` signatures remain valid。
 
-- [ ] **Step 1: Write failing parsing/repository tests**
+- [x] **Step 1: Write failing parsing/repository tests**
 
 在 bootstrap repository 测试中解析包含 `match_status`、`members` 的 JSON，并断言当前成员和对方脱敏手机号。在设备授权测试中用 `MockClient` 断言 GET 请求解析 `is_incoming` 和候选设备字段，并断言 reject 使用 POST 路径。
 
-- [ ] **Step 2: Run focused Dart tests and verify failure**
+- [x] **Step 2: Run focused Dart tests and verify failure**
 
 ```bash
 cd client && flutter test test/workspace/workspace_bootstrap_repository_test.dart test/screens/web_qr_scanner_screen_test.dart
@@ -184,19 +184,19 @@ cd client && flutter test test/workspace/workspace_bootstrap_repository_test.dar
 
 Expected: FAIL because the new fields and repository methods do not exist。
 
-- [ ] **Step 3: Implement model parsing**
+- [x] **Step 3: Implement model parsing**
 
 为新增字段提供默认值以兼容旧缓存和现有测试 fixture；未知匹配状态解析为 `error`，未知请求元数据保持 null。保持 `DeviceAuthorizationRequest.fromJson` 对 Web QR response 的兼容。
 
-- [ ] **Step 4: Implement HTTP repository methods**
+- [x] **Step 4: Implement HTTP repository methods**
 
 `listRequests()` 请求 `/api/v1/devices/authorization-requests`，校验数组并映射请求；`reject()` 请求 `/api/v1/devices/authorization-requests/{id}/reject`，将 `ApiException` 转成 `DeviceAuthorizationFailure`。
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run the command from Step 2. Expected: PASS。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add client/lib/workspace/workspace_bootstrap_repository.dart client/lib/workspace/device_authorization_repository.dart client/test/workspace/workspace_bootstrap_repository_test.dart client/test/screens/web_qr_scanner_screen_test.dart
@@ -219,7 +219,7 @@ git commit -m "feat: model workspace matching and authorization requests"
 - `CloudWorkspaceScreen` accepts an optional workspace bootstrap repository and passes it to the profile page。
 - An unverified cloud workspace screen invokes `createDeviceRequest(publicKey)` once per screen initialization; failures are retained as request state and do not block task reading。
 
-- [ ] **Step 1: Write failing widget tests**
+- [x] **Step 1: Write failing widget tests**
 
 新增 widget test 注入 fake bootstrap、device、authorization repository，断言：
 
@@ -234,7 +234,7 @@ expect(find.byKey(const Key('profile-approve-device-request')), findsOneWidget);
 
 点击批准后断言 fake repository 收到 `beginApproval` 与 `approve`；点击拒绝后断言收到 `reject`。增加未验证 CloudWorkspaceScreen 测试，断言进入页面会调用一次 `createDeviceRequest`。
 
-- [ ] **Step 2: Run widget tests and verify failure**
+- [x] **Step 2: Run widget tests and verify failure**
 
 ```bash
 cd client && flutter test test/screens/my_profile_screen_test.dart test/screens/cloud_workspace_screen_test.dart test/screens/my_profile_workspace_match_test.dart
@@ -242,23 +242,23 @@ cd client && flutter test test/screens/my_profile_screen_test.dart test/screens/
 
 Expected: FAIL because the profile has no workspace/request sections or approval actions。
 
-- [ ] **Step 3: Implement profile data loading and refresh**
+- [x] **Step 3: Implement profile data loading and refresh**
 
 将页面加载状态从单独的 `_devices` Future 改为 profile aggregate Future：并行加载设备、bootstrap 和 request list；可选依赖不存在时保持旧设备页行为。使用 `RefreshIndicator` 包裹列表，进入页面、AppBar refresh 和下拉刷新都重新加载。网络失败保留稳定错误文案，不清空账号或已有匹配展示。
 
-- [ ] **Step 4: Implement matching and request UI**
+- [x] **Step 4: Implement matching and request UI**
 
 在账号信息下方增加共享空间匹配卡片：显示 `waiting_partner`、`matched` 或 `error`，列出“我”和“对方”的成员投影。设备卡片展示“已验证 · 可读写”“未验证 · 只读”“已撤销”，当前设备继续只显示不可操作的 Chip。新增“我发起的设备验证”和“待处理的设备验证”卡片。
 
-- [ ] **Step 5: Implement approve/reject actions**
+- [x] **Step 5: Implement approve/reject actions**
 
 批准动作调用 `beginApproval`，使用注入的 `DeviceSigningKey` 对返回的 `signaturePayload` 调用现有 `approve`；完成后刷新页面。拒绝动作调用新 `reject` 方法并刷新。未提供 signing key 时禁用批准按钮并显示明确提示，不崩溃。
 
-- [ ] **Step 6: Wire dependencies and automatic request creation**
+- [x] **Step 6: Wire dependencies and automatic request creation**
 
 `WorkspaceGate` 将 `workspaceBootstrapRepository` 传给 `CloudWorkspaceScreen`。Cloud screen 构造 profile 时传入 `HttpDeviceAuthorizationRepository`、bootstrap repository 和 signing key。`initState` 在 `session != null && !canWrite` 时获取公钥并调用 `createDeviceRequest`；捕获 409/网络错误，不影响共享空间和只读任务页面。
 
-- [ ] **Step 7: Run widget tests and static checks**
+- [x] **Step 7: Run widget tests and static checks**
 
 ```bash
 cd client && dart format lib/screens/my_profile_screen.dart lib/screens/cloud_workspace_screen.dart lib/screens/workspace_gate.dart lib/screens/device_approval_screen.dart test/screens/my_profile_screen_test.dart test/screens/cloud_workspace_screen_test.dart test/screens/my_profile_workspace_match_test.dart
@@ -268,7 +268,7 @@ flutter test test/screens/my_profile_screen_test.dart test/screens/cloud_workspa
 
 Expected: format clean, analyzer 0 errors, focused widget tests PASS。
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add client/lib/screens/my_profile_screen.dart client/lib/screens/cloud_workspace_screen.dart client/lib/screens/workspace_gate.dart client/lib/screens/device_approval_screen.dart client/test/screens/my_profile_screen_test.dart client/test/screens/cloud_workspace_screen_test.dart client/test/screens/my_profile_workspace_match_test.dart
@@ -281,7 +281,7 @@ git commit -m "feat: show workspace matching in Android profile"
 - Modify: `docs/superpowers/specs/2026-08-31-my-tab-workspace-match-device-authorization-design.md` only if implementation deviations are discovered and approved by the code behavior。
 - Modify: `docs/superpowers/plans/2026-08-31-my-tab-workspace-match-device-authorization.md` to mark completed steps。
 
-- [ ] **Step 1: Run backend regression suite**
+- [x] **Step 1: Run backend regression suite**
 
 ```bash
 cd backend && pytest -q
@@ -289,7 +289,7 @@ cd backend && pytest -q
 
 Expected: exit code 0 and no failures。
 
-- [ ] **Step 2: Run Flutter regression suite**
+- [x] **Step 2: Run Flutter regression suite**
 
 ```bash
 cd client && flutter test
@@ -297,11 +297,11 @@ cd client && flutter test
 
 Expected: exit code 0 and no failures。
 
-- [ ] **Step 3: Run integration checks for the two-person flow**
+- [x] **Step 3: Run integration checks for the two-person flow**
 
 Run the existing Android/backend flow tests that cover first login, invite acceptance, pending device read-only access, request approval and post-approval write access. Verify the new bootstrap member fields and request list metadata in the same flow.
 
-- [ ] **Step 4: Build the local commit-named debug APK**
+- [x] **Step 4: Build the local commit-named debug APK**
 
 ```bash
 cd client
@@ -312,7 +312,7 @@ cp build/app/outputs/flutter-apk/app-debug.apk "build/app/outputs/flutter-apk/Mu
 
 Verify the copied artifact exists and is non-empty. CI release naming remains separate and is not changed by this task.
 
-- [ ] **Step 5: Update the plan and commit the implementation record**
+- [x] **Step 5: Update the plan and commit the implementation record**
 
 Mark every completed checkbox in this plan, record test commands and APK path in the final response, then commit only the documentation update:
 

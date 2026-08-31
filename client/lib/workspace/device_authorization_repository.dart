@@ -19,6 +19,15 @@ class DeviceAuthorizationRequest {
     required this.status,
     this.origin,
     this.signaturePayload,
+    this.candidateDeviceId,
+    this.candidateDeviceLabel,
+    this.candidatePlatform,
+    this.candidateUserId,
+    this.candidatePhoneMasked,
+    this.requesterUserId,
+    this.requesterPhoneMasked,
+    this.isIncoming = false,
+    this.createdAt,
   });
 
   final String id;
@@ -27,6 +36,15 @@ class DeviceAuthorizationRequest {
   final String status;
   final String? origin;
   final String? signaturePayload;
+  final String? candidateDeviceId;
+  final String? candidateDeviceLabel;
+  final String? candidatePlatform;
+  final String? candidateUserId;
+  final String? candidatePhoneMasked;
+  final String? requesterUserId;
+  final String? requesterPhoneMasked;
+  final bool isIncoming;
+  final DateTime? createdAt;
 
   factory DeviceAuthorizationRequest.fromJson(Map<String, dynamic> json) =>
       DeviceAuthorizationRequest(
@@ -36,11 +54,26 @@ class DeviceAuthorizationRequest {
         status: json['status'] as String,
         origin: json['origin'] as String?,
         signaturePayload: json['signature_payload'] as String?,
+        candidateDeviceId: json['candidate_device_id'] as String?,
+        candidateDeviceLabel: json['candidate_device_label'] as String?,
+        candidatePlatform: json['candidate_platform'] as String?,
+        candidateUserId: json['candidate_user_id'] as String?,
+        candidatePhoneMasked: json['candidate_phone_masked'] as String?,
+        requesterUserId: json['requester_user_id'] as String?,
+        requesterPhoneMasked: json['requester_phone_masked'] as String?,
+        isIncoming: json['is_incoming'] as bool? ?? false,
+        createdAt: json['created_at'] == null
+            ? null
+            : DateTime.parse(json['created_at'] as String),
       );
 }
 
 abstract interface class DeviceAuthorizationRepository {
   Future<DeviceAuthorizationRequest> createDeviceRequest(String publicKey);
+
+  Future<List<DeviceAuthorizationRequest>> listRequests();
+
+  Future<void> reject(String requestId);
 
   Future<DeviceAuthorizationRequest> beginApproval(String requestId);
 
@@ -69,6 +102,41 @@ class HttpDeviceAuthorizationRepository
       _post('/api/v1/devices/authorization-requests', {
         'public_key': publicKey,
       });
+
+  @override
+  Future<List<DeviceAuthorizationRequest>> listRequests() async {
+    try {
+      final value = await _api.request(
+        'GET',
+        '/api/v1/devices/authorization-requests',
+        authenticated: true,
+      );
+      if (value is! List<dynamic>) {
+        throw const FormatException('authorization request list is not an array');
+      }
+      return value
+          .whereType<Map<String, dynamic>>()
+          .map(DeviceAuthorizationRequest.fromJson)
+          .toList(growable: false);
+    } on ApiException catch (error) {
+      throw DeviceAuthorizationFailure(error.message, code: error.code);
+    } on FormatException {
+      throw const DeviceAuthorizationFailure('设备验证请求格式无效');
+    }
+  }
+
+  @override
+  Future<void> reject(String requestId) async {
+    try {
+      await _api.request(
+        'POST',
+        '/api/v1/devices/authorization-requests/$requestId/reject',
+        authenticated: true,
+      );
+    } on ApiException catch (error) {
+      throw DeviceAuthorizationFailure(error.message, code: error.code);
+    }
+  }
 
   @override
   Future<DeviceAuthorizationRequest> beginApproval(String requestId) => _post(

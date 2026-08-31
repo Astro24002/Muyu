@@ -54,6 +54,12 @@ void main() {
 class FakeDeviceAuthorizationRepository
     implements DeviceAuthorizationRepository {
   @override
+  Future<List<DeviceAuthorizationRequest>> listRequests() async => const [];
+
+  @override
+  Future<void> reject(String requestId) async {}
+
+  @override
   Future<DeviceAuthorizationRequest> scanWebQr(String qrPayload) async =>
       DeviceAuthorizationRequest(
         id: 'challenge-1',

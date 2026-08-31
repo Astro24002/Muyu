@@ -97,6 +97,43 @@ void main() {
     expect(jsonDecode(requests[2].body), {'request_id': 'request-2'});
   });
 
+  test('bootstrap parses the two-person matching projection', () {
+    final payload = WorkspaceBootstrapPayload.fromJson({
+      'state': 'READY',
+      'workspace': {
+        'id': 'workspace-1',
+        'name': '共同空间',
+        'member_count': 2,
+        'match_status': 'matched',
+        'members': [
+          {
+            'user_id': 'user-a',
+            'display_name': '我',
+            'phone_masked': '+86******8726',
+            'member_slot': 1,
+            'membership_status': 'ACTIVE',
+            'is_current': true,
+          },
+          {
+            'user_id': 'user-b',
+            'display_name': '对方',
+            'phone_masked': '+86******0169',
+            'member_slot': 2,
+            'membership_status': 'ACTIVE',
+            'is_current': false,
+          },
+        ],
+      },
+      'invite': null,
+      'device': {'status': 'VERIFIED', 'can_write': true},
+    });
+
+    expect(payload.workspace!.matchStatus, WorkspaceMatchStatus.matched);
+    expect(payload.workspace!.members, hasLength(2));
+    expect(payload.workspace!.members[1].phoneMasked, '+86******0169');
+    expect(payload.workspace!.members[0].isCurrent, isTrue);
+  });
+
   test('current workspace returns null for a new authenticated user', () async {
     late http.Request request;
     final repository = HttpWorkspaceBootstrapRepository(

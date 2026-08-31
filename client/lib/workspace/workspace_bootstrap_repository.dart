@@ -5,6 +5,8 @@ enum WorkspaceBootstrapPhase { needsPartner, waitingForPartner, invited, ready }
 
 enum WorkspaceDeviceStatus { unverified, verified, revoked }
 
+enum WorkspaceMatchStatus { waitingPartner, matched, error }
+
 WorkspaceBootstrapPhase _phaseFromJson(Object? value) => switch (value) {
   'NEEDS_PARTNER' => WorkspaceBootstrapPhase.needsPartner,
   'WAITING_FOR_PARTNER' => WorkspaceBootstrapPhase.waitingForPartner,
@@ -41,25 +43,76 @@ class WorkspaceSummary {
     required this.name,
     required this.status,
     this.memberCount = 0,
+    this.matchStatus = WorkspaceMatchStatus.waitingPartner,
+    this.members = const [],
   });
 
   final String id;
   final String? name;
   final String status;
   final int memberCount;
+  final WorkspaceMatchStatus matchStatus;
+  final List<WorkspaceMemberSummary> members;
 
   factory WorkspaceSummary.fromJson(Map<String, dynamic> json) {
     final members = json['members'];
+    final memberCount =
+        json['member_count'] as int? ??
+        (members is List<dynamic> ? members.length : 0);
+    final parsedMembers = members is List<dynamic>
+        ? members
+              .whereType<Map<String, dynamic>>()
+              .map(WorkspaceMemberSummary.fromJson)
+              .toList(growable: false)
+        : const <WorkspaceMemberSummary>[];
     return WorkspaceSummary(
       id: json['id'] as String,
       name: json['name'] as String?,
       status: json['status'] as String? ?? 'ACTIVE',
-      memberCount:
-          json['member_count'] as int? ??
-          (members is List<dynamic> ? members.length : 0),
+      memberCount: memberCount,
+      matchStatus: _matchStatusFromJson(json['match_status'], memberCount),
+      members: parsedMembers,
     );
   }
 }
+
+class WorkspaceMemberSummary {
+  const WorkspaceMemberSummary({
+    required this.userId,
+    required this.displayName,
+    required this.phoneMasked,
+    required this.memberSlot,
+    required this.membershipStatus,
+    required this.isCurrent,
+  });
+
+  final String userId;
+  final String? displayName;
+  final String phoneMasked;
+  final int memberSlot;
+  final String membershipStatus;
+  final bool isCurrent;
+
+  factory WorkspaceMemberSummary.fromJson(Map<String, dynamic> json) =>
+      WorkspaceMemberSummary(
+        userId: json['user_id'] as String,
+        displayName: json['display_name'] as String?,
+        phoneMasked: json['phone_masked'] as String? ?? '',
+        memberSlot: json['member_slot'] as int? ?? 0,
+        membershipStatus: json['membership_status'] as String? ?? 'ACTIVE',
+        isCurrent: json['is_current'] as bool? ?? false,
+      );
+}
+
+WorkspaceMatchStatus _matchStatusFromJson(Object? value, int memberCount) =>
+    switch (value) {
+      'matched' => WorkspaceMatchStatus.matched,
+      'error' => WorkspaceMatchStatus.error,
+      'waiting_partner' => WorkspaceMatchStatus.waitingPartner,
+      _ => memberCount == 2
+          ? WorkspaceMatchStatus.matched
+          : WorkspaceMatchStatus.waitingPartner,
+    };
 
 class WorkspaceInviteSummary {
   const WorkspaceInviteSummary({

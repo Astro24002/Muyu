@@ -42,7 +42,7 @@
 ### 2026-08-31 - 0.1.2 发布前最终验证
 
 - 类型：最终验证 / 发布门禁。
-- 源提交：`4180ce82ead7df2aef674f6bd9bcf242aa8645d4`。
+- 运行时源提交：`89bd456ce655b995af5a8a484950580667c6e761`。
 - Android：在该提交上生成正式发布资产 `Muyu-v0.1.2.apk`，`versionName=0.1.2`、
   `versionCode=1`，SHA-256 为 `ae119c802e0d40f51b639eb5ac1f084a51d3d2c3f24e231705117128fca51f1e`；
   APK 内确认包含 `https://muyu.bkverse.space`。
@@ -51,7 +51,9 @@
   触发器和 Compose 拓扑检查均通过。Web 会话测试已注入固定时钟，避免随系统日期过期。
 - 环境说明：清华 PyPI 镜像在一次全新依赖安装中返回 HTTP 403；审批专项随后使用已准备的
   Python 3.12 依赖镜像复跑通过，不影响代码测试结果。
-- 待办：推送 `v0.1.2` tag、等待 CI/Release Actions 成功并确认 GitHub Release 仅包含
+- 首次 tag 验证发现 schema 测试在公共 schema 与隔离 schema 同时存在时重复聚合枚举值；已在
+  `89bd456` 中限定当前 schema，并在全新数据库复跑通过。待办：更新 `v0.1.2` tag、等待
+  CI/Release Actions 成功并确认 GitHub Release 仅包含
   `Muyu-v0.1.2.apk`；真实 Android 扫码/安装验收仍取决于连接设备。
 
 ### 2026-08-27 - Task Domain Completion: PostgreSQL Acceptance

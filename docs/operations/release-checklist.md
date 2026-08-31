@@ -41,8 +41,8 @@ Items below remain unchecked unless the described release evidence is produced.
 
 ## 0.1.2 final verification (2026-08-31)
 
-- [x] Final source commit before release: `4180ce82ead7df2aef674f6bd9bcf242aa8645d4`.
-- [x] Android release build on that commit: `client/build/app/outputs/flutter-apk/Muyu-v0.1.2.apk`;
+- [x] Final runtime source commit before release: `89bd456ce655b995af5a8a484950580667c6e761`.
+- [x] Android release build from the final runtime source: `client/build/app/outputs/flutter-apk/Muyu-v0.1.2.apk`;
       `aapt` reports package `com.muyu.app`, `versionName=0.1.2`, `versionCode=1`.
 - [x] Release APK SHA-256:
       `ae119c802e0d40f51b639eb5ac1f084a51d3d2c3f24e231705117128fca51f1e`.

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -41,12 +42,18 @@ def _authenticated(client: TestClient) -> str:
 def test_create_contract_exposes_versions_and_cursor(db_engine) -> None:
     client = _client(db_engine)
     headers = {"Authorization": f"Bearer {_authenticated(client)}"}
-    response = client.post("/api/v1/tasks", headers=headers, json={"request_id": str(uuid4()), "title": "  Contract task  "})
+    response = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "  Contract task  ", "quadrant": "Q1", "labels": ["工作"]},
+    )
 
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["title"] == "Contract task"
     assert body["status"] == "TODO"
+    assert body["quadrant"] == "Q1"
+    assert body["labels"] == ["工作"]
     assert isinstance(body["assignee_ids"], list) and len(body["assignee_ids"]) == 1
     assert body["current_handler_id"] == body["assignee_ids"][0]
     assert body["version"] == 1
@@ -57,10 +64,75 @@ def test_create_contract_exposes_versions_and_cursor(db_engine) -> None:
 def test_create_rejects_empty_or_whitespace_title(db_engine) -> None:
     client = _client(db_engine)
     headers = {"Authorization": f"Bearer {_authenticated(client)}"}
-    response = client.post("/api/v1/tasks", headers=headers, json={"request_id": str(uuid4()), "title": "   "})
+    response = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "   ", "quadrant": "Q1"},
+    )
 
     assert response.status_code == 422, response.text
     assert response.json()["code"] == "invalid_request"
+
+
+@pytest.mark.parametrize("payload", [{"title": "Missing quadrant"}, {"title": "Null quadrant", "quadrant": None}])
+def test_create_requires_quadrant_over_http(db_engine, payload: dict[str, object]) -> None:
+    client = _client(db_engine)
+    headers = {"Authorization": f"Bearer {_authenticated(client)}"}
+    response = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), **payload},
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "invalid_request"
+    assert client.get("/api/v1/tasks", headers=headers).json() == []
+
+
+def test_create_normalizes_multiple_labels_over_http(db_engine) -> None:
+    client = _client(db_engine)
+    headers = {"Authorization": f"Bearer {_authenticated(client)}"}
+    response = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "Label contract",
+            "quadrant": "Q2",
+            "labels": [" 工作 ", "婚礼", "婚礼", "党员"],
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["quadrant"] == "Q2"
+    assert response.json()["labels"] == ["工作", "婚礼", "党员"]
+
+
+@pytest.mark.parametrize(
+    ("case", "labels"),
+    [
+        ("empty label", [""]),
+        ("too many labels", [f"label-{index}" for index in range(11)]),
+        ("label too long", ["a" * 33]),
+    ],
+)
+def test_create_rejects_invalid_labels_before_commit_over_http(db_engine, case: str, labels: list[str]) -> None:
+    client = _client(db_engine)
+    headers = {"Authorization": f"Bearer {_authenticated(client)}"}
+    response = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": f"Invalid {case}",
+            "quadrant": "Q4",
+            "labels": labels,
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "invalid_request"
+    assert client.get("/api/v1/tasks", headers=headers).json() == []
 
 
 def test_get_task_is_scoped_to_authenticated_workspace(db_engine) -> None:
@@ -82,7 +154,7 @@ def test_get_task_is_scoped_to_authenticated_workspace(db_engine) -> None:
         )
         session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
         session.flush()
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "Private task")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "Private task", quadrant="Q1")
         session.commit()
         task_id = task.id
 

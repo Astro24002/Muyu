@@ -227,6 +227,22 @@ class WorkspaceService:
         self.session.flush()
         return request
 
+    def reject(self, request_id: UUID, approving_device_id: UUID) -> DeviceAuthorizationRequest:
+        request = self._pending_request(request_id)
+        approving = self.session.get(AndroidDevice, approving_device_id)
+        candidate = self.session.get(AndroidDevice, request.candidate_device_id)
+        if approving is None or candidate is None or approving.status != DeviceStatus.ACTIVE:
+            raise WorkspaceConflict("approval_not_allowed", "device is not eligible")
+        if approving.user_id == candidate.user_id:
+            raise WorkspaceConflict("approval_not_allowed", "self approval is not allowed")
+        if not self._is_workspace_member(request.workspace_id, approving.user_id):
+            raise WorkspaceConflict("workspace_access_denied", "approving device is outside the workspace")
+        if not self._is_workspace_member(request.workspace_id, candidate.user_id):
+            raise WorkspaceConflict("approval_not_allowed", "candidate is outside the workspace")
+        request.status = ApprovalStatus.REJECTED
+        self.session.flush()
+        return request
+
     def _pending_request(self, request_id: UUID) -> DeviceAuthorizationRequest:
         request = self.session.scalar(
             select(DeviceAuthorizationRequest).where(DeviceAuthorizationRequest.id == request_id).with_for_update()

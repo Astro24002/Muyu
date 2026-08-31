@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import MobilePrincipal, require_active_mobile_principal, require_mobile_principal
-from app.db.enums import ApprovalStatus, DeviceStatus
-from app.db.models import AndroidDevice, DeviceAuthorizationRequest
+from app.db.enums import ApprovalStatus, DeviceStatus, MembershipStatus
+from app.db.models import AndroidDevice, DeviceAuthorizationRequest, User, WorkspaceMembership
+from app.devices.schemas import DeviceAuthorizationRequestSummary
 from app.devices.service import DeviceConflict, DeviceService, DeviceSummary
 from app.devices.signatures import b64url, signed_action_payload
 from app.httpapi.dependencies import get_db
@@ -119,34 +120,72 @@ def create_authorization_request(
     if workspace_id is None:
         raise ApiError(409, "workspace_access_denied", "workspace membership required")
     # A pending request is visible to the other member; approval chooses the device.
-    from app.db.models import DeviceAuthorizationRequest
     import secrets
+
+    now = datetime.now(timezone.utc)
+    existing_request = session.scalar(
+        select(DeviceAuthorizationRequest)
+        .where(
+            DeviceAuthorizationRequest.workspace_id == workspace_id,
+            DeviceAuthorizationRequest.candidate_device_id == device.id,
+            DeviceAuthorizationRequest.status == ApprovalStatus.PENDING,
+            DeviceAuthorizationRequest.expires_at > now,
+        )
+        .order_by(DeviceAuthorizationRequest.created_at.desc(), DeviceAuthorizationRequest.id.desc())
+        .with_for_update()
+    )
+    if existing_request is not None:
+        session.commit()
+        return _authorization_request_created_payload(existing_request)
+
     safety_code = f"{secrets.randbelow(1_000_000):06d}"
     request = DeviceAuthorizationRequest(
         workspace_id=workspace_id,
         candidate_device_id=device.id,
         status=ApprovalStatus.PENDING,
         safety_code_digest=hashlib.sha256(safety_code.encode()).hexdigest(),
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        expires_at=now + timedelta(minutes=10),
     )
     session.add(request)
     session.commit()
-    return {"id": str(request.id), "status": request.status.value, "safety_code": safety_code, "expires_at": request.expires_at.isoformat()}
+    return _authorization_request_created_payload(request, safety_code=safety_code)
 
 
-@router.get("/authorization-requests")
+@router.get("/authorization-requests", response_model=list[DeviceAuthorizationRequestSummary])
 def list_authorization_requests(
-    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    principal: MobilePrincipal = Depends(require_mobile_principal),
     session: Session = Depends(get_db),
-) -> list[dict[str, object]]:
-    from app.db.enums import MembershipStatus
-    from app.db.models import WorkspaceMembership
+) -> list[DeviceAuthorizationRequestSummary]:
 
     workspace_id = session.scalar(select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == principal.user_id, WorkspaceMembership.status == MembershipStatus.ACTIVE))
     if workspace_id is None:
         return []
-    requests = session.scalars(select(DeviceAuthorizationRequest).where(DeviceAuthorizationRequest.workspace_id == workspace_id).order_by(DeviceAuthorizationRequest.created_at.desc())).all()
-    return [{"id": str(item.id), "status": item.status.value, "expires_at": item.expires_at.isoformat()} for item in requests]
+    query = (
+        select(DeviceAuthorizationRequest, AndroidDevice, User)
+        .join(AndroidDevice, AndroidDevice.id == DeviceAuthorizationRequest.candidate_device_id)
+        .join(User, User.id == AndroidDevice.user_id)
+        .where(DeviceAuthorizationRequest.workspace_id == workspace_id)
+        .order_by(DeviceAuthorizationRequest.created_at.desc(), DeviceAuthorizationRequest.id.desc())
+    )
+    if principal.device_status == DeviceStatus.PENDING:
+        query = query.where(DeviceAuthorizationRequest.candidate_device_id == principal.device_id)
+    rows = session.execute(query).all()
+    return [_authorization_request_summary(item, device, user, principal.user_id) for item, device, user in rows]
+
+
+@router.post("/authorization-requests/{request_id}/reject", status_code=status.HTTP_200_OK)
+def reject_request(
+    request_id: UUID,
+    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    session: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        request = WorkspaceService(session).reject(request_id, principal.device_id)
+        session.commit()
+    except WorkspaceConflict as error:
+        session.rollback()
+        raise _error(error) from error
+    return {"id": str(request.id), "status": request.status.value}
 
 
 @router.post("/authorization-requests/{request_id}/begin-approval")
@@ -218,3 +257,51 @@ def revoke_device(
 compat_router.add_api_route("", list_authorization_requests, methods=["GET"])
 compat_router.add_api_route("/{request_id}/begin-approval", begin_approval, methods=["POST"])
 compat_router.add_api_route("/{request_id}/approve", approve_request, methods=["POST"])
+compat_router.add_api_route("/{request_id}/reject", reject_request, methods=["POST"])
+
+
+def _authorization_request_created_payload(
+    request: DeviceAuthorizationRequest,
+    *,
+    safety_code: str | None = None,
+) -> dict[str, object]:
+    return {
+        "id": str(request.id),
+        "status": request.status.value,
+        "safety_code": safety_code,
+        "expires_at": request.expires_at.isoformat(),
+    }
+
+
+def _authorization_request_summary(
+    request: DeviceAuthorizationRequest,
+    candidate_device: AndroidDevice,
+    candidate_user: User,
+    viewer_user_id: UUID,
+) -> DeviceAuthorizationRequestSummary:
+    status_value = request.status.value
+    if request.status == ApprovalStatus.PENDING and request.expires_at <= datetime.now(timezone.utc):
+        status_value = ApprovalStatus.EXPIRED.value
+    return DeviceAuthorizationRequestSummary(
+        id=request.id,
+        candidate_device_id=candidate_device.id,
+        candidate_device_label=candidate_device.label,
+        candidate_platform=candidate_device.platform,
+        candidate_user_id=candidate_user.id,
+        candidate_phone_masked=_mask_phone(candidate_user.phone),
+        requester_user_id=candidate_user.id,
+        requester_phone_masked=_mask_phone(candidate_user.phone),
+        is_incoming=candidate_user.id != viewer_user_id,
+        status=status_value,
+        created_at=request.created_at,
+        expires_at=request.expires_at,
+    )
+
+
+def _mask_phone(phone: str) -> str:
+    if len(phone) <= 5:
+        return phone
+    prefix_length = 3 if phone.startswith("+86") else 2
+    prefix = phone[:prefix_length]
+    mask_length = 6 if phone.startswith("+86") else max(4, len(phone) - prefix_length - 4)
+    return f"{prefix}{'*' * mask_length}{phone[-4:]}"

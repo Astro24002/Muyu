@@ -98,6 +98,92 @@ def test_pending_device_can_list_only_android_devices(db_engine) -> None:
     assert {item["can_write"] for item in devices} == {False, True}
 
 
+def test_authorization_request_is_idempotent_and_visible_to_both_members(db_engine) -> None:
+    client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    pending = _login(client, "+8615028180169", "BwgJ")
+
+    first = client.post(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(pending),
+        json={"public_key": "BwgJ", "label": "Pixel 9"},
+    )
+    second = client.post(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(pending),
+        json={"public_key": "BwgJ", "label": "Pixel 9"},
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json()["id"] == second.json()["id"]
+
+    incoming = client.get(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(owner),
+    )
+    outgoing = client.get(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(pending),
+    )
+    assert incoming.status_code == 200, incoming.text
+    assert outgoing.status_code == 200, outgoing.text
+    assert incoming.json()[0]["is_incoming"] is True
+    assert outgoing.json()[0]["is_incoming"] is False
+    assert incoming.json()[0]["candidate_device_label"] == "Pixel 9"
+    assert outgoing.json()[0]["candidate_user_id"] == pending["user"]["id"]
+
+    with Session(db_engine) as session:
+        assert len(session.scalars(select(DeviceAuthorizationRequest)).all()) == 1
+
+
+def test_active_partner_can_reject_pending_device_request(db_engine) -> None:
+    client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    pending = _login(client, "+8615028180169", "Bwga")
+    created = client.post(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(pending),
+        json={"public_key": "Bwga", "label": "Reject me"},
+    )
+    assert created.status_code == 201, created.text
+
+    request_id = created.json()["id"]
+    rejected = client.post(
+        f"/api/v1/devices/authorization-requests/{request_id}/reject",
+        headers=_headers(owner),
+    )
+
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json() == {"id": request_id, "status": "REJECTED"}
+    with Session(db_engine) as session:
+        device = session.get(AndroidDevice, UUID(str(pending["device_id"])))
+        request = session.get(DeviceAuthorizationRequest, UUID(request_id))
+        assert device is not None and device.status == DeviceStatus.PENDING
+        assert request is not None and request.status == ApprovalStatus.REJECTED
+
+
+def test_pending_device_only_sees_its_own_authorization_requests(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_pending = _login(client, "+8613800138000", "Bwgb")
+    created = client.post(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(owner_pending),
+        json={"public_key": "Bwgb", "label": "Owner pending"},
+    )
+    assert created.status_code == 201, created.text
+
+    partner_pending = _login(client, "+8615028180169", "Bwg c".replace(" ", ""))
+    response = client.get(
+        "/api/v1/devices/authorization-requests",
+        headers=_headers(partner_pending),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == []
+
+
 def test_current_device_cannot_revoke_itself_even_with_another_active_device(db_engine) -> None:
     client = _client(db_engine)
     owner, _partner = _ready_workspace(client)

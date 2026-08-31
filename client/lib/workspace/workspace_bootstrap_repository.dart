@@ -109,9 +109,10 @@ WorkspaceMatchStatus _matchStatusFromJson(Object? value, int memberCount) =>
       'matched' => WorkspaceMatchStatus.matched,
       'error' => WorkspaceMatchStatus.error,
       'waiting_partner' => WorkspaceMatchStatus.waitingPartner,
-      _ => memberCount == 2
-          ? WorkspaceMatchStatus.matched
-          : WorkspaceMatchStatus.waitingPartner,
+      _ =>
+        memberCount == 2
+            ? WorkspaceMatchStatus.matched
+            : WorkspaceMatchStatus.waitingPartner,
     };
 
 class WorkspaceInviteSummary {

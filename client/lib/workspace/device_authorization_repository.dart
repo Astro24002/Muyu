@@ -112,7 +112,9 @@ class HttpDeviceAuthorizationRepository
         authenticated: true,
       );
       if (value is! List<dynamic>) {
-        throw const FormatException('authorization request list is not an array');
+        throw const FormatException(
+          'authorization request list is not an array',
+        );
       }
       return value
           .whereType<Map<String, dynamic>>()

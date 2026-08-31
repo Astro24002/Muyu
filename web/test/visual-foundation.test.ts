@@ -6,6 +6,10 @@ import { describe, expect, it } from 'vitest';
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const globalCss = readFileSync(resolve(testDirectory, '../src/styles/global.css'), 'utf8');
 const tokensCss = readFileSync(resolve(testDirectory, '../src/styles/tokens.css'), 'utf8');
+const legacyRootSelector = ':not([data-testid="legacy-app-root"])';
+const legacyDescendantSelector = ':not([data-testid="legacy-app-root"] *)';
+const primitiveScopeSelector = '.muyu-react-root > [data-testid="muyu-app"]';
+const nonLegacyReactRootSelector = '.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"])';
 
 describe('visual foundation', () => {
   it('scopes React defaults away from the legacy bridge subtree', () => {
@@ -17,6 +21,36 @@ describe('visual foundation', () => {
     expect(globalCss).not.toMatch(/^button\s*\{/m);
     expect(globalCss).not.toMatch(/^a\s*\{/m);
     expect(globalCss).not.toMatch(/^:where\(a,/m);
+  });
+
+  it('scopes every primitive selector away from the legacy bridge subtree', () => {
+    const primitiveRules = cssRules().filter(({ selector }) => /\.ui-(button|icon-button|status-badge|section-heading)/.test(selector));
+
+    expect(primitiveRules.length).toBeGreaterThan(0);
+    for (const { selector } of primitiveRules) {
+      expect(selector).toContain(primitiveScopeSelector);
+      expect(selector).toContain(legacyRootSelector);
+      expect(selector).toContain(legacyDescendantSelector);
+    }
+  });
+
+  it('keeps light color scheme and cursor states inside the non-legacy React root', () => {
+    const colorSchemeRules = cssRules().filter(({ body }) => body.includes('color-scheme: light;'));
+    expect(colorSchemeRules).toHaveLength(1);
+    expect(colorSchemeRules[0].selector).toContain(nonLegacyReactRootSelector);
+    expect(colorSchemeRules[0].selector).not.toBe('.muyu-react-root');
+    expect(tokensCss).not.toContain('color-scheme:');
+
+    const cursorRules = cssRules().filter(({ body }) => body.includes('cursor:'));
+    expect(cursorRules.map(({ body }) => body)).toEqual(expect.arrayContaining([
+      expect.stringContaining('cursor: pointer;'),
+      expect.stringContaining('cursor: not-allowed;'),
+    ]));
+    for (const { selector } of cursorRules) {
+      expect(selector).toContain(primitiveScopeSelector);
+      expect(selector).toContain(legacyRootSelector);
+      expect(selector).toContain(legacyDescendantSelector);
+    }
   });
 
   it('keeps coral status text at WCAG AA contrast on its light surface', () => {
@@ -34,6 +68,13 @@ function readColorToken(name: string): string {
   const match = tokensCss.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'));
   if (!match) throw new Error(`Missing color token ${name}`);
   return match[1];
+}
+
+function cssRules(): Array<{ selector: string; body: string }> {
+  return [...globalCss.matchAll(/([^{}]+)\{([^{}]*)\}/gs)].map((match) => ({
+    selector: match[1].trim(),
+    body: match[2],
+  }));
 }
 
 function contrastRatio(foreground: string, background: string): number {

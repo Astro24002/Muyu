@@ -72,3 +72,23 @@ The reviewer-required fixes were implemented without migrating any business UI:
 | `npm run build` | PASS: Vite transformed 59 modules and produced the production bundle |
 | `npm test -- --run` | 12 files and 81 tests passed; the same 2 pre-existing `workspace-actions` tests failed |
 | `git diff --check` | PASS: no whitespace errors |
+
+## Fix Round 2
+
+The second reviewer round was addressed without migrating business UI:
+
+- Prefixed every primitive selector in `web/src/styles/global.css` with `.muyu-react-root` and both `:not([data-testid="legacy-app-root"])` and `:not([data-testid="legacy-app-root"] *)` exclusions. This covers primitive bases, modifiers, hover and disabled states, status variants, section headings, and the icon child/SVG rules while allowing future React primitives anywhere in the React host outside the legacy subtree.
+- Added `color-scheme: light` only to the non-legacy direct React visual root selector. It is absent from `:root`, `.muyu-react-root`, and the legacy subtree.
+- Added scoped `cursor: pointer` to the primitive base rule and scoped `cursor: not-allowed` to the disabled primitive rule. Legacy cursor behavior remains supplied by the existing legacy stylesheet.
+- Strengthened `web/test/visual-foundation.test.ts` to inspect every primitive rule for both legacy exclusions and to verify the color-scheme and cursor declarations are scoped correctly.
+
+### Fix Round 2 Verification
+
+| Command | Result |
+| --- | --- |
+| `npm test -- --run test/visual-foundation.test.ts` | PASS: 1 file, 4 tests |
+| `npm test -- --run test/ui-primitives.test.tsx test/visual-foundation.test.ts test/app-shell.test.tsx` | PASS: 3 files, 14 tests |
+| `npm run typecheck` | PASS: direct Lucide import fixture and project TypeScript completed with exit code 0 |
+| `npm run build` | PASS: Vite transformed 59 modules and produced the production bundle |
+| `npm test -- --run` | 12 files and 83 tests passed; the same 2 pre-existing `workspace-actions` tests failed |
+| `git diff --check` | PASS: no whitespace errors |

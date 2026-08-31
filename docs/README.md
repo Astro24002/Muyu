@@ -30,6 +30,10 @@
 2. [任务领域完整实施计划](./superpowers/plans/2026-08-27-task-domain-completion.md)
    - 完成任务创建、编辑、状态、评论、延期和冲突处理；
    - 统一 Android 与 Web 的云端任务同步和验收流程。
+3. [Web 前端视觉重构实施计划](./superpowers/plans/2026-08-31-web-frontend-visual-implementation.md)
+   - React + Vite 渐进迁移；
+   - 今天、所有任务、审批、动态和任务详情页面；
+   - 设计令牌、响应式、无障碍和 Playwright 视觉验收。
 
 ## 关联资料
 

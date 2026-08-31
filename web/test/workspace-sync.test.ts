@@ -8,7 +8,7 @@ const task = {
   waiting_for_user_id: null, planned_start_at: null, due_at: null, estimated_minutes: null, completed_at: null,
   created_by: 'user-1', version: 3, status_version: 1, created_at: '2026-08-25T00:00:00.000Z', updated_at: '2026-08-25T00:00:00.000Z',
   assignee_ids: ['user-1'], delay_count: 0, total_delay_minutes: 0, field_versions: { title: 3, description: 1 },
-  lifecycle_version: 1, deleted_at: null,
+  lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: [],
 };
 
 function snapshot(cursor = 5) {
@@ -74,10 +74,10 @@ describe('WorkspaceSyncController', () => {
     const controller = new WorkspaceSyncController(api as never, { requestIdFactory });
     await controller.loadSnapshot();
 
-    await controller.createTask('New task', 'New description');
+    await controller.createTask('New task', 'New description', 'Q2', ['工作']);
 
     expect(requestIdFactory).toHaveBeenCalledOnce();
-    expect(api.createTask).toHaveBeenCalledWith({ requestId: '00000000-0000-4000-8000-000000000001', title: 'New task', description: 'New description' });
+    expect(api.createTask).toHaveBeenCalledWith({ requestId: '00000000-0000-4000-8000-000000000001', title: 'New task', description: 'New description', quadrant: 'Q2', labels: ['工作'] });
     expect(controller.state.snapshot?.tasks).toContainEqual(expect.objectContaining({ id: 'task-2', title: 'New task' }));
     expect(controller.state.cursor).toBe(6);
   });
@@ -141,7 +141,7 @@ describe('WorkspaceSyncController', () => {
     const controller = new WorkspaceSyncController(api as never);
     await controller.loadSnapshot();
 
-    await controller.createTask('Offline', '');
+    await controller.createTask('Offline', '', 'Q1');
 
     expect(controller.state).toMatchObject({ stale: true, loading: false });
     expect(controller.state.snapshot?.tasks).toHaveLength(1);

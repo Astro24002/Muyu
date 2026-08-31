@@ -1,5 +1,5 @@
 import type { TaskItem } from '../api/types';
-import type { TaskConflict } from '../tasks/task-model';
+import { parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type TaskConflict } from '../tasks/task-model';
 import { deriveTaskSummary, filterMyTasks, groupTasksByStatus, TASK_STATUSES } from '../tasks/task-view-model';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
 import { ApprovalView } from './approval-view';
@@ -25,6 +25,8 @@ export class WorkspaceView {
     let activeTaskId: string | null = null;
     let draftTitle = '';
     let draftDescription = '';
+    let draftQuadrant: TaskItem['quadrant'] | '' = '';
+    let draftLabels = '';
     let showApprovals = false;
 
     const render = (state: WorkspaceSyncState) => {
@@ -52,13 +54,17 @@ export class WorkspaceView {
         myOnly,
         draftTitle,
         draftDescription,
+        draftQuadrant,
+        draftLabels,
         creating,
         showSessions,
         showApprovals,
         Boolean(sessionApi),
         (value) => { draftTitle = value; },
         (value) => { draftDescription = value; },
-        () => { draftTitle = ''; draftDescription = ''; },
+        (value) => { draftQuadrant = value; },
+        (value) => { draftLabels = value; },
+        () => { draftTitle = ''; draftDescription = ''; draftQuadrant = ''; draftLabels = ''; },
         (value) => { creating = value; render(sync.state); },
         (nextMode) => { mode = nextMode; render(sync.state); },
         (nextMy) => { myOnly = nextMy; render(sync.state); },
@@ -123,12 +129,16 @@ function buildWorkspace(
   myOnly: boolean,
   draftTitle: string,
   draftDescription: string,
+  draftQuadrant: TaskItem['quadrant'] | '',
+  draftLabels: string,
   creating: boolean,
   showSessions: boolean,
   showApprovals: boolean,
   hasSessionApi: boolean,
   setDraftTitle: (value: string) => void,
   setDraftDescription: (value: string) => void,
+  setDraftQuadrant: (value: TaskItem['quadrant'] | '') => void,
+  setDraftLabels: (value: string) => void,
   clearDraft: () => void,
   setCreating: (value: boolean) => void,
   setMode: (mode: 'list' | 'board') => void,
@@ -165,22 +175,47 @@ function buildWorkspace(
   form.className = 'new-task-form';
   const title = input('新任务标题', draftTitle);
   const description = input('任务描述', draftDescription);
+  const quadrant = document.createElement('select');
+  quadrant.setAttribute('aria-label', '新任务四象限');
+  quadrant.required = true;
+  const unsetQuadrant = document.createElement('option');
+  unsetQuadrant.value = '';
+  unsetQuadrant.textContent = '请选择四象限';
+  quadrant.append(unsetQuadrant);
+  for (const value of TASK_QUADRANTS) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    quadrant.append(option);
+  }
+  quadrant.value = draftQuadrant;
+  const labels = input('任务标签（逗号分隔）', draftLabels);
   title.addEventListener('input', () => setDraftTitle(title.value));
   description.addEventListener('input', () => setDraftDescription(description.value));
+  quadrant.addEventListener('change', () => setDraftQuadrant(quadrant.value as TaskItem['quadrant'] | ''));
+  labels.addEventListener('input', () => setDraftLabels(labels.value));
   const create = button('创建任务');
   create.type = 'submit';
   create.disabled = creating;
   const formError = element('p', 'sync-error');
-  form.append(title, description, create, formError);
+  form.append(title, description, quadrant, labels, create, formError);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    if (creating || !title.value.trim()) {
+    if (creating || !title.value.trim() || !quadrant.value) {
       if (!title.value.trim()) formError.textContent = '请输入任务标题。';
+      else if (!quadrant.value) formError.textContent = '请选择四象限。';
+      return;
+    }
+    let normalizedLabels: string[];
+    try {
+      normalizedLabels = parseTaskLabelsInput(labels.value);
+    } catch (error) {
+      formError.textContent = error instanceof Error ? error.message : '任务标签格式无效。';
       return;
     }
     setCreating(true);
     formError.textContent = '';
-    void sync.createTask(title.value.trim(), description.value).then(() => {
+    void sync.createTask(title.value.trim(), description.value, quadrant.value as TaskItem['quadrant'], normalizedLabels).then(() => {
       if (!sync.state.error) clearDraft();
     }).catch((error: unknown) => {
       formError.textContent = error instanceof Error ? error.message : '无法创建任务，请检查网络后重试。';
@@ -224,8 +259,9 @@ function taskCard(task: TaskItem, sync: WorkspaceSyncController, loading: boolea
   const progressLabel = task.status === 'IN_PROGRESS' && task.progress !== null && task.progress !== undefined
     ? ` | 进度: ${task.progress}%`
     : '';
-  const quadrantLabel = task.quadrant ? ` | ${task.quadrant}` : '';
-  row.append(element('h3', undefined, `${task.task_number ?? task.id} ${task.title}`), element('p', 'task-meta', `${task.status}${quadrantLabel}${progressLabel} | 截止: ${task.due_at ?? '未设置'} | 延期: ${task.delay_count} | 版本: ${task.status_version}`));
+  const labels = parseTaskLabels(task.labels ?? []);
+  const labelsLabel = labels.length > 0 ? ` | 标签: ${labels.join(', ')}` : '';
+  row.append(element('h3', undefined, `${task.task_number ?? task.id} ${task.title}`), element('p', 'task-meta', `${task.status} | ${task.quadrant}${labelsLabel}${progressLabel} | 截止: ${task.due_at ?? '未设置'} | 延期: ${task.delay_count} | 版本: ${task.status_version}`));
   if (task.status === 'WAITING') row.append(element('p', 'blocked-reason', `阻塞: ${task.blocked_reason ?? '未说明'}`));
   if (task.due_at && Date.parse(task.due_at) < Date.now() && task.status !== 'DONE' && task.status !== 'CANCELLED') row.append(element('p', 'overdue-warning', '已过期'));
   const done = button('完成', (event) => { event.stopPropagation(); void sync.transitionTask(task.id, 'DONE'); });

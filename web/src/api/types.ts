@@ -35,7 +35,8 @@ export interface TaskItem {
   delay_count: number; total_delay_minutes: number; version: number; status_version: number; field_versions: Record<string, number>;
   lifecycle_version: number; deleted_at: string | null;
   task_number?: string;
-  quadrant?: TaskQuadrant | null;
+  quadrant: TaskQuadrant;
+  labels: string[];
   progress?: number | null;
   [key: string]: unknown;
 }

@@ -28,6 +28,8 @@ class CloudTaskRepository {
 
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,
@@ -37,7 +39,12 @@ class CloudTaskRepository {
     String? requestId,
   }) async {
     final id = requestId ?? newRequestId();
-    final body = <String, Object?>{'request_id': id, 'title': title};
+    final body = <String, Object?>{
+      'request_id': id,
+      'title': title,
+      'quadrant': quadrant,
+      'labels': labels,
+    };
     if (description != null) body['description'] = description;
     if (dueAt != null) body['due_at'] = dueAt;
     if (parentTaskId != null) body['parent_task_id'] = parentTaskId;

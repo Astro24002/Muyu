@@ -109,3 +109,31 @@ def test_create_rejects_invalid_labels_before_commit(db_engine, case: str, label
 
         assert error.value.code == "invalid_request"
         assert session.scalar(select(Task).where(Task.workspace_id == workspace.id)) is None
+
+
+def test_patch_rejects_null_labels_instead_of_treating_it_as_an_empty_array(db_engine) -> None:
+    with Session(db_engine) as session:
+        user, workspace = _workspace(session)
+        task = TaskService(session).create(
+            workspace.id,
+            user.id,
+            uuid4(),
+            "Labels are non-null",
+            quadrant="Q1",
+            labels=["工作"],
+        )
+        session.commit()
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).patch(
+                workspace.id,
+                user.id,
+                task.id,
+                uuid4(),
+                {"labels": None},
+                {"labels": 1},
+            )
+
+        assert error.value.code == "invalid_request"
+        session.rollback()
+        assert session.get(Task, task.id).labels == ["工作"]

@@ -1,5 +1,5 @@
 import type { PendingApproval, TaskComment, TaskItem, TaskStatus } from '../api/types';
-import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
+import { isTaskQuadrant, parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type EditableTaskChanges, type TaskConflict } from '../tasks/task-model';
 
 export interface TaskDetailActions {
   onTransition: (status: string, payload?: { blockedReason?: string; resumeHandlerId?: string }) => Promise<unknown>;
@@ -23,7 +23,6 @@ export type TaskDetailHandle = {
 
 const statuses: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCELLED'];
 const delayReasons = ['NO_TIME', 'TOO_LARGE', 'NOT_WILLING', 'FORGOT', 'WAITING_PARTNER', 'INTERRUPTED', 'OTHER'];
-const quadrants = ['', 'Q1', 'Q2', 'Q3', 'Q4'];
 const progressValues = [20, 40, 60, 80];
 
 export class TaskDetailView {
@@ -70,13 +69,17 @@ export class TaskDetailView {
     }
     const quadrant = document.createElement('select');
     quadrant.setAttribute('aria-label', '四象限');
-    for (const value of quadrants) {
+    for (const value of TASK_QUADRANTS) {
       const option = document.createElement('option');
       option.value = value;
       option.textContent = value || '未设置';
-      option.selected = value === (task.quadrant ?? '');
+      option.selected = value === task.quadrant;
       quadrant.append(option);
     }
+    const labelsInput = input('标签', parseTaskLabels(task.labels ?? []).join(', '));
+    const labelsDisplay = document.createElement('div');
+    labelsDisplay.className = 'task-labels';
+    labelsDisplay.setAttribute('aria-label', '任务标签');
     const progress = document.createElement('select');
     progress.setAttribute('aria-label', '进度');
     for (const value of progressValues) {
@@ -116,6 +119,8 @@ export class TaskDetailView {
       field('描述', description),
       save,
       field('四象限', quadrant),
+      field('标签', labelsInput),
+      labelsDisplay,
       field('状态', status),
       field('阻塞原因', blockedReason),
       field('恢复负责人', resumeHandler),
@@ -135,6 +140,10 @@ export class TaskDetailView {
     let conflictPanel: HTMLElement | undefined;
     const isOwner = () => !actions.currentUserId || actions.currentUserId === currentTask.current_handler_id;
     const canWrite = () => actions.canWrite !== false;
+    const renderLabels = () => {
+      labelsDisplay.replaceChildren();
+      for (const value of parseTaskLabelsInput(labelsInput.value)) labelsDisplay.append(message('task-label', value));
+    };
     const renderMetadata = () => {
       metadata.replaceChildren(
         textNode(currentTask.task_number ? `任务编号：${currentTask.task_number}` : '任务编号：未分配'),
@@ -147,13 +156,15 @@ export class TaskDetailView {
       pendingNotice.hidden = !pending;
       pendingNotice.textContent = pending ? pendingMessage ?? '等待负责人审批' : '';
       progressField.hidden = currentTask.status !== 'IN_PROGRESS';
-      if (!dirty.has('quadrant')) quadrant.value = currentTask.quadrant ?? '';
+      if (!dirty.has('quadrant')) quadrant.value = isTaskQuadrant(currentTask.quadrant) ? currentTask.quadrant : '';
+      if (!dirty.has('labels')) labelsInput.value = parseTaskLabels(currentTask.labels ?? []).join(', ');
       if (!dirty.has('progress')) progress.value = String(currentTask.progress ?? 20);
-      const protectedControls = [save, quadrant, status, blockedReason, resumeHandler, transition];
+      const protectedControls = [save, quadrant, labelsInput, status, blockedReason, resumeHandler, transition];
       for (const control of protectedControls) control.disabled = !canWrite();
       // The server has no pending delay response, so only the owner may delay.
       commentButton.disabled = !canWrite();
       delayButton.disabled = !canWrite() || !isOwner();
+      renderLabels();
     };
 
     const renderComments = () => {
@@ -257,6 +268,7 @@ export class TaskDetailView {
     resumeHandler.addEventListener('change', () => dirty.add('resumeHandler'));
     status.addEventListener('change', () => dirty.add('status'));
     quadrant.addEventListener('change', () => dirty.add('quadrant'));
+    labelsInput.addEventListener('input', () => { dirty.add('labels'); renderLabels(); });
     progress.addEventListener('change', () => dirty.add('progress'));
 
     const handle = (() => {
@@ -272,6 +284,7 @@ export class TaskDetailView {
       updateIfClean('blockedReason', blockedReason, nextTask.blocked_reason ?? '');
       if (!dirty.has('status')) status.value = nextTask.status;
       if (!dirty.has('resumeHandler')) resumeHandler.value = nextTask.resume_handler_id ?? nextTask.current_handler_id;
+      if (!dirty.has('labels')) labelsInput.value = parseTaskLabels(nextTask.labels ?? []).join(', ');
       error.textContent = nextError ?? '';
       renderMetadata();
       renderComments();
@@ -279,9 +292,20 @@ export class TaskDetailView {
     };
 
     save.addEventListener('click', () => void run(() => {
+      if (!isTaskQuadrant(currentTask.quadrant)) {
+        error.textContent = '任务必须设置有效四象限。';
+        return Promise.resolve();
+      }
       const changes: EditableTaskChanges = { title: title.value.trim(), description: description.value };
-      const nextQuadrant: TaskItem['quadrant'] = quadrant.value ? quadrant.value as NonNullable<TaskItem['quadrant']> : null;
-      if (nextQuadrant !== (currentTask.quadrant ?? null)) changes.quadrant = nextQuadrant;
+      const nextQuadrant = quadrant.value;
+      if (!isTaskQuadrant(nextQuadrant)) {
+        error.textContent = '请选择有效四象限。';
+        return Promise.resolve();
+      }
+      if (nextQuadrant !== currentTask.quadrant) changes.quadrant = nextQuadrant;
+      const nextLabels = parseTaskLabelsInput(labelsInput.value);
+      const currentLabels = parseTaskLabels(currentTask.labels ?? []);
+      if (nextLabels.length !== currentLabels.length || nextLabels.some((value, index) => value !== currentLabels[index])) changes.labels = nextLabels;
       if (currentTask.status === 'IN_PROGRESS') {
         const nextProgress = Number(progress.value);
         if (nextProgress !== (currentTask.progress ?? 20)) changes.progress = nextProgress;

@@ -26,9 +26,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _dueAt;
   late final TextEditingController _plannedStartAt;
   late final TextEditingController _estimatedMinutes;
+  final _label = TextEditingController();
   final _comment = TextEditingController();
   late Set<String> _selectedAssignees;
-  String? _selectedQuadrant;
+  late String _selectedQuadrant;
+  late List<String> _selectedLabels;
+  String? _labelError;
   int? _selectedProgress;
   bool _saving = false;
   bool _commenting = false;
@@ -46,6 +49,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _estimatedMinutes = TextEditingController(
       text: widget.task.estimatedMinutes?.toString() ?? '',
     );
+    _selectedLabels = _normalizeLabels(widget.task.labels);
     _selectedAssignees = widget.task.assigneeIds.toSet();
     _selectedQuadrant = widget.task.quadrant;
     _selectedProgress = widget.task.progress;
@@ -58,6 +62,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _dueAt.dispose();
     _plannedStartAt.dispose();
     _estimatedMinutes.dispose();
+    _label.dispose();
     _comment.dispose();
     super.dispose();
   }
@@ -68,6 +73,79 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (task.id == widget.task.id) return task;
     }
     return widget.task;
+  }
+
+  static const _quadrantLabels = <String, String>{
+    'Q1': 'Q1 重要且紧急',
+    'Q2': 'Q2 重要不紧急',
+    'Q3': 'Q3 紧急不重要',
+    'Q4': 'Q4 不重要不紧急',
+  };
+  static const _maxLabelTotalLength = 320;
+
+  static List<String> _normalizeLabels(Iterable<String> labels) {
+    final result = <String>[];
+    final seen = <String>{};
+    for (final value in labels) {
+      final label = value.trim();
+      if (label.isEmpty || !seen.add(label.toLowerCase())) continue;
+      result.add(label);
+    }
+    return result;
+  }
+
+  static bool _sameLabels(Iterable<String> left, Iterable<String> right) {
+    final normalizedLeft = _normalizeLabels(left);
+    final normalizedRight = _normalizeLabels(right);
+    if (normalizedLeft.length != normalizedRight.length) return false;
+    for (var index = 0; index < normalizedLeft.length; index++) {
+      if (normalizedLeft[index].toLowerCase() !=
+          normalizedRight[index].toLowerCase()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _addLabel() {
+    final label = _label.text.trim();
+    if (label.isEmpty) return;
+    final normalized = label.toLowerCase();
+    if (label.runes.length > 32) {
+      setState(() => _labelError = '标签不能超过 32 个字符');
+      return;
+    }
+    if (_selectedLabels.length >= 10) {
+      setState(() => _labelError = '最多添加 10 个标签');
+      return;
+    }
+    final totalLength = _selectedLabels.fold<int>(
+      0,
+      (total, item) => total + item.runes.length,
+    );
+    if (totalLength + label.runes.length > _maxLabelTotalLength) {
+      setState(() => _labelError = '标签总长度不能超过 320 个字符');
+      return;
+    }
+    if (_selectedLabels.any((item) => item.toLowerCase() == normalized)) {
+      setState(() {
+        _label.clear();
+        _labelError = null;
+      });
+      return;
+    }
+    setState(() {
+      _selectedLabels.add(label);
+      _label.clear();
+      _labelError = null;
+    });
+  }
+
+  void _removeLabel(String label) {
+    setState(() {
+      _selectedLabels.remove(label);
+      _labelError = null;
+    });
   }
 
   Future<void> _save() async {
@@ -91,6 +169,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         'planned_start_at': _dateValue(_plannedStartAt.text),
       if (estimate != current.estimatedMinutes) 'estimated_minutes': estimate,
       if (_selectedQuadrant != current.quadrant) 'quadrant': _selectedQuadrant,
+      if (!_sameLabels(_selectedLabels, current.labels))
+        'labels': List.unmodifiable(_selectedLabels),
       if (current.status == 'IN_PROGRESS' &&
           _selectedProgress != current.progress)
         'progress': _selectedProgress,
@@ -409,18 +489,74 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             DropdownButtonFormField<String>(
               key: const Key('task-quadrant-select'),
               initialValue: quadrant,
-              decoration: const InputDecoration(labelText: '四象限'),
-              items: const [
-                DropdownMenuItem(value: null, child: Text('未设置')),
-                DropdownMenuItem(value: 'Q1', child: Text('Q1 重要且紧急')),
-                DropdownMenuItem(value: 'Q2', child: Text('Q2 重要不紧急')),
-                DropdownMenuItem(value: 'Q3', child: Text('Q3 紧急不重要')),
-                DropdownMenuItem(value: 'Q4', child: Text('Q4 不重要不紧急')),
-              ],
+              decoration: const InputDecoration(labelText: '四象限（必选）'),
+              items: _quadrantLabels.entries
+                  .map(
+                    (entry) => DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                  )
+                  .toList(),
               onChanged: !widget.canWrite || task.deletedAt != null
                   ? null
-                  : (value) => setState(() => _selectedQuadrant = value),
+                  : (value) {
+                      if (value != null) {
+                        setState(() => _selectedQuadrant = value);
+                      }
+                    },
             ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('task-detail-label-input'),
+              controller: _label,
+              enabled:
+                  widget.canWrite &&
+                  task.deletedAt == null &&
+                  _selectedLabels.length < 10,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _addLabel(),
+              decoration: InputDecoration(
+                labelText: '标签（可选）',
+                errorText: _labelError,
+                suffixIcon: IconButton(
+                  key: const Key('task-detail-label-add'),
+                  tooltip: '添加标签',
+                  onPressed:
+                      widget.canWrite &&
+                          task.deletedAt == null &&
+                          _selectedLabels.length < 10
+                      ? _addLabel
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ),
+            ),
+            if (_selectedLabels.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      for (final label in _selectedLabels)
+                        InputChip(
+                          key: Key('task-label-chip-$label'),
+                          label: Text(label),
+                          deleteIcon: Icon(
+                            Icons.close,
+                            key: Key('task-label-remove-$label'),
+                          ),
+                          onDeleted: !widget.canWrite || task.deletedAt != null
+                              ? null
+                              : () => _removeLabel(label),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             const SizedBox(height: 8),
             TextField(
               key: const Key('task-detail-description'),

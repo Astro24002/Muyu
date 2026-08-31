@@ -17,7 +17,10 @@ class CreateTaskRequest(BaseModel):
     assignee_ids: list[UUID] | None = None
     planned_start_at: str | None = None
     estimated_minutes: int | None = Field(default=None, ge=0)
+    # Keep the wire field nullable here so the domain can return the stable
+    # `invalid_request` code for both omitted and explicit null quadrants.
     quadrant: str | None = None
+    labels: list[str] = Field(default_factory=list)
 
 
 class PatchTaskRequest(BaseModel):

@@ -11,8 +11,13 @@ operations, conflicts, comments, delays, and workspace cursors.
 - Public statuses are `TODO`, `IN_PROGRESS`, `WAITING`, `DONE`, and
   `CANCELLED`. A `WAITING` transition requires both `blocked_reason` and a
   valid `resume_handler_id`.
-- The entry form creates a title-only task. Description, dates, estimate,
+- The entry form creates a task only after a title and one of the required
+  quadrants (`Q1`-`Q4`) are selected. Labels are optional and entered as a
+  comma-separated classification list. Description, dates, estimate,
   assignees, and handler changes are edited from the task detail view.
+- Each task stores at most ten normalized labels (each no longer than 32
+  Unicode characters, with a 320-character aggregate limit). Labels are
+  task-local classification values, not permission or workflow entities.
 - Deletion is soft deletion (`deleted_at`). Restore creates a new operation;
   comments and delays remain append-only facts.
 - Android and Web submit writes only while connected and treat a committed
@@ -119,7 +124,16 @@ restore. It never targets the production database or inserts production data.
 
 ## Client workflow
 
-Android exposes task creation after the Workspace is ready and opens a detail
-screen for editing and lifecycle actions. Web exposes the same actions in its
-Vite SPA after QR login. Both clients refresh from the server after every
-accepted write and retain the user's draft when a write fails.
+Android exposes four bottom destinations after the Workspace is ready:
+`清单`, `四象限`, `日程`, and `我的`. The list groups tasks as not started,
+in progress, and completed/failed; the quadrant view always has exactly Q1-Q4;
+the schedule groups by local due date and puts missing dates under `未安排`;
+the profile view shows the account and Android devices. The old Android board
+tab is not part of the client.
+
+Android and Web open a detail view with task number, handler, status, quadrant,
+labels, dates, and progress metadata. The task负责人 can edit quadrant and
+the complete label array directly. The other member receives the same
+two-person approval flow and the task stays unchanged until approval. Both
+clients refresh from the server after every accepted write and retain the
+user's draft when a write fails.

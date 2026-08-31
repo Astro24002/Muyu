@@ -166,6 +166,8 @@ class WorkspaceSyncController extends ChangeNotifier {
 
   Future<TaskItem?> create(
     String title, {
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,
@@ -180,6 +182,8 @@ class WorkspaceSyncController extends ChangeNotifier {
     try {
       final created = await repository.create(
         title: title,
+        quadrant: quadrant,
+        labels: labels,
         description: description,
         dueAt: dueAt,
         parentTaskId: parentTaskId,

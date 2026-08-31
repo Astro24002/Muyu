@@ -3,7 +3,7 @@
 abstract interface class TaskMutationResult {}
 
 class TaskItem implements TaskMutationResult {
-  const TaskItem({
+  TaskItem({
     required this.id,
     required this.parentTaskId,
     this.taskNumber = '',
@@ -11,7 +11,8 @@ class TaskItem implements TaskMutationResult {
     required this.description,
     required this.status,
     required this.currentHandlerId,
-    this.quadrant,
+    required String quadrant,
+    List<String> labels = const [],
     // Keep a public `progress` parameter while storing the nullable wire value.
     // The getter supplies 0/100 for terminal statuses when the server omits it.
     int? progress,
@@ -34,7 +35,9 @@ class TaskItem implements TaskMutationResult {
     this.fieldVersions = const {},
     this.lifecycleVersion = 1,
     this.deletedAt,
-  }) : _progress = progress;
+  }) : quadrant = _validateQuadrant(quadrant),
+       labels = List.unmodifiable(labels),
+       _progress = progress;
 
   final String id;
   final String? parentTaskId;
@@ -43,7 +46,8 @@ class TaskItem implements TaskMutationResult {
   final String description;
   final String status;
   final String currentHandlerId;
-  final String? quadrant;
+  final String quadrant;
+  final List<String> labels;
   final int? _progress;
 
   int? get progress => switch (status) {
@@ -85,7 +89,8 @@ class TaskItem implements TaskMutationResult {
       title: json['title'] as String,
       description: json['description'] as String,
       status: status,
-      quadrant: json['quadrant'] as String?,
+      quadrant: _parseQuadrant(json['quadrant']),
+      labels: _parseLabels(json),
       progress: progress,
       currentHandlerId: json['current_handler_id'] as String,
       blockedReason: json['blocked_reason'] as String?,
@@ -120,6 +125,7 @@ class TaskItem implements TaskMutationResult {
     String? description,
     String? status,
     String? quadrant,
+    List<String>? labels,
     int? progress,
     String? currentHandlerId,
     Map<String, int>? fieldVersions,
@@ -133,6 +139,7 @@ class TaskItem implements TaskMutationResult {
     description: description ?? this.description,
     status: status ?? this.status,
     quadrant: quadrant ?? this.quadrant,
+    labels: labels ?? this.labels,
     progress: progress ?? this.progress,
     currentHandlerId: currentHandlerId ?? this.currentHandlerId,
     blockedReason: blockedReason,
@@ -164,6 +171,7 @@ class TaskItem implements TaskMutationResult {
     'description': description,
     'status': status,
     'quadrant': quadrant,
+    'labels': labels,
     'progress': progress,
     'current_handler_id': currentHandlerId,
     'blocked_reason': blockedReason,
@@ -189,6 +197,31 @@ class TaskItem implements TaskMutationResult {
 
   static DateTime? _date(Object? value) =>
       value == null ? null : DateTime.parse(value as String);
+
+  static const _validQuadrants = {'Q1', 'Q2', 'Q3', 'Q4'};
+
+  static String _parseQuadrant(Object? value) {
+    if (value is! String || !_validQuadrants.contains(value)) {
+      throw const FormatException(
+        'task quadrant must be one of Q1, Q2, Q3, Q4',
+      );
+    }
+    return value;
+  }
+
+  static String _validateQuadrant(String value) => _parseQuadrant(value);
+
+  static List<String> _parseLabels(Map<String, dynamic> json) {
+    // Omitted labels are accepted for cached pre-label snapshots. Values from
+    // a mixed-type array are ignored, but a non-array is malformed protocol
+    // data and must not replace the last valid snapshot.
+    if (!json.containsKey('labels')) return const [];
+    final value = json['labels'];
+    if (value is! List) {
+      throw const FormatException('task labels must be an array of strings');
+    }
+    return value.whereType<String>().toList(growable: false);
+  }
 
   static int? _derivedProgress(String status) => switch (status) {
     'TODO' => 0,

@@ -29,7 +29,7 @@ def _workspace(session: Session):
 def _task(session: Session, workspace, user):
     from app.db.models import Task
 
-    task = Task(workspace_id=workspace.id, task_number="26080001", title="Schema task", created_by=user.id)
+    task = Task(workspace_id=workspace.id, task_number="26080001", title="Schema task", quadrant="Q1", labels=[], created_by=user.id)
     session.add(task)
     session.flush()
     return task

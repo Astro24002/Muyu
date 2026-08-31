@@ -289,6 +289,7 @@ class Task(Base):
         CheckConstraint("version > 0", name="ck_tasks_version_positive"),
         CheckConstraint("lifecycle_version > 0", name="ck_tasks_lifecycle_version_positive"),
         CheckConstraint("progress IS NULL OR progress IN (20, 40, 60, 80)", name="ck_tasks_progress_allowed"),
+        CheckConstraint("jsonb_typeof(labels) = 'array'", name="ck_tasks_labels_array"),
         UniqueConstraint("task_number", name="uq_tasks_task_number"),
     )
 
@@ -299,7 +300,8 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     status: Mapped[TaskStatus] = mapped_column(_enum(TaskStatus), nullable=False, default=TaskStatus.TODO, server_default="TODO")
-    quadrant: Mapped[TaskQuadrant | None] = mapped_column(_enum(TaskQuadrant))
+    quadrant: Mapped[TaskQuadrant] = mapped_column(_enum(TaskQuadrant), nullable=False)
+    labels: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     progress: Mapped[int | None] = mapped_column(Integer)
     current_handler_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"))
     blocked_reason: Mapped[str | None] = mapped_column(Text)

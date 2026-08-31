@@ -16,6 +16,7 @@ TaskItem task() => TaskItem(
   description: '',
   status: 'TODO',
   currentHandlerId: 'user-a',
+  quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
   estimatedMinutes: null,
@@ -26,6 +27,7 @@ TaskItem task() => TaskItem(
   createdAt: DateTime.utc(2026, 8, 28),
   updatedAt: DateTime.utc(2026, 8, 28),
   assigneeIds: const ['user-a', 'user-b'],
+  labels: const [],
 );
 
 TaskApprovalRequest approval(String id, String requester, String approver) =>
@@ -76,6 +78,8 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
   @override
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,

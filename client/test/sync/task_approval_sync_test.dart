@@ -14,6 +14,7 @@ TaskItem localTask({String title = 'Original'}) => TaskItem(
   description: '',
   status: 'TODO',
   currentHandlerId: 'user-a',
+  quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
   estimatedMinutes: null,
@@ -24,6 +25,7 @@ TaskItem localTask({String title = 'Original'}) => TaskItem(
   createdAt: DateTime.utc(2026, 8, 28),
   updatedAt: DateTime.utc(2026, 8, 28),
   assigneeIds: const ['user-a', 'user-b'],
+  labels: const [],
   progress: 0,
 );
 

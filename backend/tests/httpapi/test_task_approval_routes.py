@@ -71,7 +71,7 @@ def test_owner_comment_delete_is_pending_and_comment_author_approves(db_engine) 
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Comment task"},
+        json={"request_id": str(uuid4()), "title": "Comment task", "quadrant": "Q1"},
     ).json()
     comment = client.post(
         f"/api/v1/tasks/{created['id']}/comments",
@@ -106,7 +106,7 @@ def test_approval_workspace_path_must_match_authenticated_workspace(db_engine) -
     task = client.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "Scoped"},
+        json={"request_id": str(uuid4()), "title": "Scoped", "quadrant": "Q1"},
     ).json()
     foreign_workspace = uuid4()
     response = client.post(

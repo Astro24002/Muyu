@@ -31,7 +31,7 @@ from app.db.models import (
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
-from app.tasks.service import MUTABLE_FIELDS, TaskService
+from app.tasks.service import MUTABLE_FIELDS, TaskService, normalize_task_labels
 
 
 TASK_UPDATE_FIELDS = MUTABLE_FIELDS - {"quadrant", "assignee_ids", "current_handler_id"}
@@ -769,10 +769,15 @@ class TaskApprovalService:
                 raise TaskApprovalError("approval_not_allowed", "task update fields and versions are invalid")
             if "progress" in changes and changes["progress"] not in {None, 20, 40, 60, 80}:
                 raise TaskApprovalError("approval_not_allowed", "progress must be 20, 40, 60, or 80")
+            if "labels" in changes:
+                try:
+                    normalize_task_labels(changes["labels"])
+                except TaskConflictError as error:
+                    raise TaskApprovalError(error.code, str(error)) from error
         elif request_type == TaskApprovalRequestType.QUADRANT_UPDATE:
             if set(changes) != {"quadrant"} or set(versions) != {"quadrant"}:
                 raise TaskApprovalError("approval_not_allowed", "quadrant update requires the quadrant field version")
-            if changes["quadrant"] is not None and changes["quadrant"] not in {item.value for item in TaskQuadrant}:
+            if changes["quadrant"] not in {item.value for item in TaskQuadrant}:
                 raise TaskApprovalError("approval_not_allowed", "quadrant must be Q1, Q2, Q3, or Q4")
         elif request_type == TaskApprovalRequestType.STATUS_UPDATE:
             if "target_status" not in changes or set(changes) - STATUS_CHANGE_FIELDS:
@@ -843,6 +848,11 @@ class TaskApprovalService:
             normalized["current_handler_id"] = normalized.pop("handler_id")
         if "status" in normalized and "target_status" not in normalized:
             normalized["target_status"] = normalized.pop("status")
+        if "labels" in normalized:
+            try:
+                normalized["labels"] = normalize_task_labels(normalized["labels"])
+            except TaskConflictError as error:
+                raise TaskApprovalError(error.code, str(error)) from error
         return normalized
 
     def _normalize_versions(self, value: Mapping[str, int]) -> dict[str, int]:
@@ -884,6 +894,11 @@ class TaskApprovalService:
             decoded["assignee_ids"] = [self._uuid(value, "assignee_id") for value in decoded["assignee_ids"]]
         if "current_handler_id" in decoded and decoded["current_handler_id"] is not None:
             decoded["current_handler_id"] = self._uuid(decoded["current_handler_id"], "current_handler_id")
+        if "labels" in decoded:
+            try:
+                decoded["labels"] = normalize_task_labels(decoded["labels"])
+            except TaskConflictError as error:
+                raise TaskApprovalError(error.code, str(error)) from error
         return decoded
 
     def _json_value(self, value: Any) -> Any:

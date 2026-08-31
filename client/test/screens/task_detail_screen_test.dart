@@ -14,6 +14,7 @@ TaskItem detailTask() => TaskItem(
   description: 'Description',
   status: 'TODO',
   currentHandlerId: 'user-1',
+  quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
   estimatedMinutes: null,
@@ -24,6 +25,7 @@ TaskItem detailTask() => TaskItem(
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
   assigneeIds: const ['user-1'],
+  labels: const [],
   fieldVersions: const {'title': 3, 'description': 2},
 );
 
@@ -60,6 +62,8 @@ class RecordingRepository implements WorkspaceSyncRepository {
   @override
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,

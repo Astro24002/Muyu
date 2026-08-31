@@ -87,7 +87,7 @@ def test_pending_device_is_rejected_by_every_task_write_with_device_not_verified
     created = client.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "Read-only task"},
+        json={"request_id": str(uuid4()), "title": "Read-only task", "quadrant": "Q1"},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -98,7 +98,7 @@ def test_pending_device_is_rejected_by_every_task_write_with_device_not_verified
         (
             "post",
             "/api/v1/tasks",
-            {"request_id": str(uuid4()), "title": "Denied"},
+            {"request_id": str(uuid4()), "title": "Denied", "quadrant": "Q1"},
         ),
         (
             "patch",
@@ -145,7 +145,7 @@ def test_active_device_can_write_and_revoked_device_cannot_refresh(db_engine) ->
     created = client.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "Writable task"},
+        json={"request_id": str(uuid4()), "title": "Writable task", "quadrant": "Q1"},
     )
     assert created.status_code == 201, created.text
 

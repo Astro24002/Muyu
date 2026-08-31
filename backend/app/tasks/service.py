@@ -27,8 +27,11 @@ from app.tasks.operations import request_fingerprint
 from app.tasks.numbering import TaskNumberAllocator
 
 
-MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "assignee_ids", "quadrant", "progress"}
+MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "assignee_ids", "quadrant", "progress", "labels"}
 ALLOWED_PROGRESS = {20, 40, 60, 80}
+MAX_TASK_LABELS = 10
+MAX_TASK_LABEL_LENGTH = 32
+MAX_TASK_LABEL_CHARS = 320
 TRANSITIONS = {
     "TODO": {"IN_PROGRESS", "WAITING", "DONE", "CANCELLED"},
     "IN_PROGRESS": {"WAITING", "DONE", "CANCELLED"},
@@ -38,18 +41,56 @@ TRANSITIONS = {
 }
 
 
+def normalize_task_labels(value: object) -> list[str]:
+    """Normalize and validate the small, task-local classification set."""
+    if not isinstance(value, (list, tuple)):
+        raise TaskConflictError("invalid_request", "labels must be an array")
+    labels: list[str] = []
+    seen: set[str] = set()
+    total_chars = 0
+    for raw in value:
+        if not isinstance(raw, str):
+            raise TaskConflictError("invalid_request", "labels must contain strings")
+        label = raw.strip()
+        if not label:
+            raise TaskConflictError("invalid_request", "labels cannot contain empty values")
+        if len(label) > MAX_TASK_LABEL_LENGTH:
+            raise TaskConflictError(
+                "invalid_request",
+                f"each label must be at most {MAX_TASK_LABEL_LENGTH} characters",
+            )
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        labels.append(label)
+        total_chars += len(label)
+        if len(labels) > MAX_TASK_LABELS:
+            raise TaskConflictError(
+                "invalid_request",
+                f"a task can have at most {MAX_TASK_LABELS} labels",
+            )
+        if total_chars > MAX_TASK_LABEL_CHARS:
+            raise TaskConflictError(
+                "invalid_request",
+                f"labels can contain at most {MAX_TASK_LABEL_CHARS} characters",
+            )
+    return labels
+
+
 class TaskService:
     def __init__(self, session: Session, *, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self.session = session
         self.now = now
         self.last_cursor: int | None = None
 
-    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, assignee_ids: list[UUID] | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None, quadrant: str | None = None) -> Task:
+    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, assignee_ids: list[UUID] | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None, quadrant: str | None = None, labels: list[str] | None = None) -> Task:
         title = title.strip()
         if not title:
             raise TaskConflictError("invalid_request", "title is required")
-        if quadrant is not None and quadrant not in {item.value for item in TaskQuadrant}:
+        if quadrant not in {item.value for item in TaskQuadrant}:
             raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
+        normalized_labels = normalize_task_labels([] if labels is None else labels)
         if parent_task_id is not None:
             parent = self.session.scalar(select(Task).where(Task.id == parent_task_id, Task.workspace_id == workspace_id))
             if parent is None:
@@ -66,7 +107,7 @@ class TaskService:
             raise TaskConflictError("invalid_request", "assignees must be active workspace members")
         fingerprint = request_fingerprint(
             "/api/v1/tasks",
-            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "assignee_ids": [str(item) for item in assignees], "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant},
+            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "assignee_ids": [str(item) for item in assignees], "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels},
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
@@ -86,11 +127,12 @@ class TaskService:
             parent_task_id=parent_task_id,
             planned_start_at=planned_start_at,
             estimated_minutes=estimated_minutes,
-            quadrant=TaskQuadrant(quadrant) if quadrant else None,
+            quadrant=TaskQuadrant(quadrant),
+            labels=normalized_labels,
             current_handler_id=actor_user_id,
             status=TaskStatus.TODO,
             created_by=actor_user_id,
-            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "assignee_ids": 1, "quadrant": 1, "progress": 1},
+            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "assignee_ids": 1, "quadrant": 1, "progress": 1, "labels": 1},
         )
         self.session.add(task)
         self.session.flush()
@@ -112,16 +154,8 @@ class TaskService:
 
     def patch(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, changes: dict[str, Any], base_field_versions: dict[str, int]) -> Task:
         task = self._task(workspace_id, task_id)
-        fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}", {"changes": changes, "base_field_versions": base_field_versions})
+        changes = dict(changes)
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
-        if existing is not None:
-            if existing.base_versions != {"fingerprint": fingerprint}:
-                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
-            self.last_cursor = existing.cursor
-            return task
-        self._require_handler(task, actor_user_id)
-        if task.deleted_at is not None:
-            raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")
         unknown = set(changes) - MUTABLE_FIELDS
         if unknown:
             raise TaskConflictError("invalid_request", f"unknown task fields: {sorted(unknown)}")
@@ -138,17 +172,31 @@ class TaskService:
                 raise TaskConflictError("invalid_request", "invalid handler id") from exc
         if "quadrant" in changes:
             quadrant = changes["quadrant"]
-            if quadrant is not None and quadrant not in {item.value for item in TaskQuadrant}:
+            if quadrant not in {item.value for item in TaskQuadrant}:
                 raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
-            if quadrant is not None:
-                changes = dict(changes)
-                changes["quadrant"] = TaskQuadrant(quadrant)
+            changes = dict(changes)
+            changes["quadrant"] = TaskQuadrant(quadrant)
+        if "labels" in changes:
+            changes = dict(changes)
+            changes["labels"] = normalize_task_labels(changes["labels"])
         if "progress" in changes:
             progress = changes["progress"]
             if progress is not None and progress not in ALLOWED_PROGRESS:
                 raise TaskConflictError("invalid_request", "progress must be 20, 40, 60, or 80")
             if task.status != TaskStatus.IN_PROGRESS:
                 raise TaskConflictError("invalid_request", "progress can only be changed while task is in progress")
+        fingerprint = request_fingerprint(
+            f"/api/v1/tasks/{task_id}",
+            {"changes": changes, "base_field_versions": base_field_versions},
+        )
+        if existing is not None:
+            if existing.base_versions != {"fingerprint": fingerprint}:
+                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+            self.last_cursor = existing.cursor
+            return task
+        self._require_handler(task, actor_user_id)
+        if task.deleted_at is not None:
+            raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")
         current_versions = dict(task.field_versions or {})
         conflicts: list[TaskConflict] = []
         before = self.snapshot(task)
@@ -575,6 +623,7 @@ class TaskService:
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": public_status,
             "quadrant": task.quadrant.value if isinstance(task.quadrant, TaskQuadrant) else task.quadrant,
+            "labels": list(task.labels or []),
             "progress": public_progress,
             "current_handler_id": str(task.current_handler_id) if task.current_handler_id else "",
             "blocked_reason": task.blocked_reason,

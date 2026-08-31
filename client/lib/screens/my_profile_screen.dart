@@ -11,12 +11,14 @@ class MyProfileScreen extends StatefulWidget {
     required this.repository,
     this.managementRepository,
     this.canWrite = true,
+    this.showAppBar = true,
   });
 
   final MobileSession session;
   final DeviceRepository repository;
   final DeviceManagementRepository? managementRepository;
   final bool canWrite;
+  final bool showAppBar;
 
   @override
   State<MyProfileScreen> createState() => _MyProfileScreenState();
@@ -47,18 +49,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('我的'),
-      actions: [
-        IconButton(
-          tooltip: '刷新设备',
-          onPressed: _reload,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: ListView(
+  Widget build(BuildContext context) {
+    final body = ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
@@ -105,8 +97,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           },
         ),
       ],
-    ),
-  );
+    );
+    if (!widget.showAppBar) return body;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('我的'),
+        actions: [
+          IconButton(
+            tooltip: '刷新设备',
+            onPressed: _reload,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: body,
+    );
+  }
 
   Widget _deviceTile(DeviceSummary device) {
     final status = switch (device.status) {

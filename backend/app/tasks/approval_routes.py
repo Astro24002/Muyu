@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/approval-requests",
 
 def _approval_error(error: TaskApprovalError) -> ApiError:
     status_code = {
+        "invalid_request": 422,
         "approval_not_found": 404,
         "approval_not_allowed": 403,
         "approval_conflicted": 409,

@@ -19,6 +19,22 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-08-31 - Android 任务导航与多标签施工完成
+
+- 类型：工程实施 / 全量验证。
+- 变更：任务数据新增必选四象限 `Q1`-`Q4` 与任务内多标签；服务端 PostgreSQL
+  迁移 `0004_task_labels_quadrant` 设置 `tasks.quadrant NOT NULL`、`labels JSONB`
+  非空数组，并贯通创建、编辑、字段版本、双人审批、快照和 cursor 增量。
+  Android 工作区改为四项底部导航“清单 / 四象限 / 日程 / 我的”，移除看板入口；
+  创建和详情编辑支持象限与最多 10 个标签（单标签 32、总长度 320）；非负责人修改
+  继续返回待审批且不乐观修改。Web 保持原页面布局并发送相同字段与校验。
+- 验证：PostgreSQL 后端全量 `142 passed, 3 skipped`；Flutter 格式检查、`flutter analyze`
+  和全量 `74 tests` 通过；Android debug APK 构建成功并确认嵌入
+  `https://muyu.bkverse.space`；Web `71 tests`、typecheck、Vite build 通过；客户端边界、
+  旧运行时、部署拓扑和 CI tag/release 触发器检查通过。
+- 数据与发布：验证使用 disposable PostgreSQL 容器，未操作线上数据；本轮不创建新 tag、
+  Release 或 iOS 安装包。真实 Android 设备安装、扫码和线上任务操作仍需单独人工验收。
+
 ### 2026-08-28 - 双人任务审批闭环与 0.1.2 发布准备
 
 - 类型：实施完成 / 全量验收 / 发布准备。

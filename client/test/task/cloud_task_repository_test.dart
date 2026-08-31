@@ -15,6 +15,8 @@ void main() {
     'description': '',
     'status': 'TODO',
     'current_handler_id': 'user-1',
+    'quadrant': 'Q2',
+    'labels': ['工作'],
     'planned_start_at': null,
     'due_at': null,
     'estimated_minutes': null,
@@ -67,13 +69,19 @@ void main() {
           baseUrl: 'https://api.example',
           httpClient: MockClient((incoming) async {
             request = incoming;
-            return http.Response(jsonEncode(taskJson), 201);
+            return http.Response(
+              jsonEncode(taskJson),
+              201,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
           }),
         ),
       );
 
       final result = await repository.create(
         title: ' New title ',
+        quadrant: 'Q2',
+        labels: const ['工作', '重要'],
         description: 'details',
         dueAt: '2026-08-25T00:00:00Z',
         plannedStartAt: '2026-08-24T00:00:00Z',
@@ -89,6 +97,8 @@ void main() {
       );
       expect(body['request_id'], request.headers['x-request-id']);
       expect(body['title'], ' New title ');
+      expect(body['quadrant'], 'Q2');
+      expect(body['labels'], ['工作', '重要']);
       expect(body['planned_start_at'], '2026-08-24T00:00:00Z');
       expect(body['estimated_minutes'], 30);
       expect(result.title, 'New title');

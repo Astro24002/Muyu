@@ -12,6 +12,7 @@ TaskItem task(String title) => TaskItem(
   description: '',
   status: 'TODO',
   currentHandlerId: 'user-1',
+  quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
   estimatedMinutes: null,
@@ -22,6 +23,7 @@ TaskItem task(String title) => TaskItem(
   createdAt: DateTime.utc(2026, 8, 24),
   updatedAt: DateTime.utc(2026, 8, 24),
   assigneeIds: const ['user-1'],
+  labels: const [],
 );
 
 class FakeSyncRepository implements WorkspaceSyncRepository {
@@ -34,6 +36,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   @override
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,
@@ -182,7 +186,7 @@ void main() {
     final controller = WorkspaceSyncController(repository);
     await controller.refresh();
 
-    final created = await controller.create('Created title');
+    final created = await controller.create('Created title', quadrant: 'Q1');
 
     expect(created!.title, 'Created title');
     expect(

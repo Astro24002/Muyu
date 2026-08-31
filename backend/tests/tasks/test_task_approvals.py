@@ -60,6 +60,7 @@ def _task(session: Session, workspace: Workspace, owner: User, *assignees: User)
         uuid4(),
         "Original",
         assignee_ids=[item.id for item in (owner, *assignees)] or None,
+        quadrant="Q1",
     )
 
 
@@ -109,7 +110,7 @@ def test_create_rejects_workspaces_without_exactly_two_active_members(db_engine,
             task_id = uuid4()
         else:
             requester = users[0]
-            task_id = TaskService(session).create(workspace.id, requester.id, uuid4(), "Original").id
+            task_id = TaskService(session).create(workspace.id, requester.id, uuid4(), "Original", quadrant="Q1").id
 
         with pytest.raises(TaskConflictError) as error:
             _create_update(session, workspace, requester, task_id)

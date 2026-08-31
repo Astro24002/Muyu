@@ -101,6 +101,7 @@ def _require_workspace(actor: Actor, workspace_id: UUID) -> None:
 
 def _approval_error(error: TaskApprovalError) -> ApiError:
     status_code = {
+        "invalid_request": 422,
         "approval_not_found": 404,
         "approval_not_allowed": 403,
         "approval_required": 202,
@@ -139,7 +140,7 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
         due_at = datetime.fromisoformat(body.due_at) if body.due_at else None
         service = TaskService(session)
         planned_start_at = datetime.fromisoformat(body.planned_start_at) if body.planned_start_at else None
-        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at, body.parent_task_id, body.assignee_ids, planned_start_at, body.estimated_minutes, body.quadrant)
+        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at, body.parent_task_id, body.assignee_ids, planned_start_at, body.estimated_minutes, body.quadrant, body.labels)
         session.commit()
     except (ValueError, TaskConflictError) as error:
         session.rollback()

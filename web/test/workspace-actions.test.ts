@@ -23,13 +23,15 @@ describe('workspace actions', () => {
     const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
     const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
     const description = root.querySelector<HTMLInputElement>('input[placeholder="任务描述"]')!;
+    const quadrant = root.querySelector<HTMLSelectElement>('select[aria-label="新任务四象限"]')!;
     title.value = ' Draft task ';
     description.value = 'Details';
+    quadrant.value = 'Q2';
     title.dispatchEvent(new Event('input', { bubbles: true }));
     description.dispatchEvent(new Event('input', { bubbles: true }));
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(sync.createTask).toHaveBeenCalledWith('Draft task', 'Details');
+    expect(sync.createTask).toHaveBeenCalledWith('Draft task', 'Details', 'Q2', []);
     expect(root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.value).toBe('');
     cleanup();
   });
@@ -40,7 +42,9 @@ describe('workspace actions', () => {
     const root = document.createElement('div');
     const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
     const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
+    const quadrant = root.querySelector<HTMLSelectElement>('select[aria-label="新任务四象限"]')!;
     title.value = 'Keep me';
+    quadrant.value = 'Q1';
     title.dispatchEvent(new Event('input', { bubbles: true }));
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await Promise.resolve();
@@ -54,7 +58,9 @@ describe('workspace actions', () => {
     const root = document.createElement('div');
     const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
     const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
+    const quadrant = root.querySelector<HTMLSelectElement>('select[aria-label="新任务四象限"]')!;
     title.value = 'Keep handled error';
+    quadrant.value = 'Q1';
     title.dispatchEvent(new Event('input', { bubbles: true }));
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await Promise.resolve();
@@ -69,7 +75,9 @@ describe('workspace actions', () => {
     const root = document.createElement('div');
     const cleanup = WorkspaceView.mount(root, sync as never, vi.fn());
     const title = root.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')!;
+    const quadrant = root.querySelector<HTMLSelectElement>('select[aria-label="新任务四象限"]')!;
     title.value = 'In flight'; title.dispatchEvent(new Event('input', { bubbles: true }));
+    quadrant.value = 'Q1';
     root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     sync.state = { ...sync.state, loading: true };
     sync.emit();
@@ -82,7 +90,7 @@ describe('workspace actions', () => {
 });
 
 function makeTask(id: string, title: string): TaskItem {
-  return { id, workspace_id: 'workspace-1', parent_task_id: null, title, description: '', due_at: null, status: 'TODO', current_handler_id: 'user-1', blocked_reason: null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'user-1', created_at: '2026-08-26T00:00:00Z', updated_at: '2026-08-26T00:00:00Z', assignee_ids: ['user-1'], delay_count: 0, total_delay_minutes: 0, version: 1, status_version: 1, field_versions: { title: 1, description: 1 }, lifecycle_version: 1, deleted_at: null };
+  return { id, workspace_id: 'workspace-1', parent_task_id: null, title, description: '', due_at: null, status: 'TODO', current_handler_id: 'user-1', blocked_reason: null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'user-1', created_at: '2026-08-26T00:00:00Z', updated_at: '2026-08-26T00:00:00Z', assignee_ids: ['user-1'], delay_count: 0, total_delay_minutes: 0, version: 1, status_version: 1, field_versions: { title: 1, description: 1 }, lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: [] };
 }
 
 function fakeSync(input: { tasks: TaskItem[]; cursor: number }) {

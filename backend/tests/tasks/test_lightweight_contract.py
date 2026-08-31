@@ -26,19 +26,19 @@ def _workspace_with_two_users(session):
 def test_create_one_level_subtask_and_assignees(db_engine):
     with Session(db_engine) as session:
         user_a, user_b, workspace = _workspace_with_two_users(session)
-        parent = TaskService(session).create(workspace.id, user_a.id, uuid4(), "父任务")
-        child = TaskService(session).create(workspace.id, user_a.id, uuid4(), "子任务", parent_task_id=parent.id, assignee_ids=[user_a.id, user_b.id])
+        parent = TaskService(session).create(workspace.id, user_a.id, uuid4(), "父任务", quadrant="Q1")
+        child = TaskService(session).create(workspace.id, user_a.id, uuid4(), "子任务", parent_task_id=parent.id, assignee_ids=[user_a.id, user_b.id], quadrant="Q1")
         assert child.parent_task_id == parent.id
         assert set(session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == child.id))) == {user_a.id, user_b.id}
         with pytest.raises(TaskConflictError) as error:
-            TaskService(session).create(workspace.id, user_a.id, uuid4(), "二层", parent_task_id=child.id)
+            TaskService(session).create(workspace.id, user_a.id, uuid4(), "二层", parent_task_id=child.id, quadrant="Q1")
         assert error.value.code == "nested_task_not_allowed"
 
 
 def test_transition_waiting_done_and_stale_status_creates_conflict(db_engine):
     with Session(db_engine) as session:
         user, _, workspace = _workspace_with_two_users(session)
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动", quadrant="Q1")
         TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "IN_PROGRESS", 1)
         waiting = TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "WAITING", 2, blocked_reason="等待确认", resume_handler_id=user.id)
         assert waiting.status.value == "WAITING"
@@ -52,7 +52,7 @@ def test_transition_waiting_done_and_stale_status_creates_conflict(db_engine):
 def test_transition_replay_keeps_cursor_and_rejects_unassigned_handler(db_engine):
     with Session(db_engine) as session:
         user_a, user_b, workspace = _workspace_with_two_users(session)
-        task = TaskService(session).create(workspace.id, user_a.id, uuid4(), "行动")
+        task = TaskService(session).create(workspace.id, user_a.id, uuid4(), "行动", quadrant="Q1")
         request_id = uuid4()
         first_service = TaskService(session)
         started = first_service.transition(workspace.id, user_a.id, task.id, request_id, "IN_PROGRESS", 1)
@@ -79,7 +79,7 @@ def test_transition_replay_keeps_cursor_and_rejects_unassigned_handler(db_engine
 def test_waiting_requires_reason_and_restore_respects_lifecycle_version(db_engine):
     with Session(db_engine) as session:
         user, _, workspace = _workspace_with_two_users(session)
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动", quadrant="Q1")
         with pytest.raises(TaskConflictError) as error:
             TaskService(session).transition(
                 workspace.id,
@@ -109,8 +109,8 @@ def test_waiting_requires_reason_and_restore_respects_lifecycle_version(db_engin
 def test_parent_delete_is_rejected_while_child_is_live(db_engine):
     with Session(db_engine) as session:
         user, _, workspace = _workspace_with_two_users(session)
-        parent = TaskService(session).create(workspace.id, user.id, uuid4(), "父任务")
-        TaskService(session).create(workspace.id, user.id, uuid4(), "子任务", parent_task_id=parent.id)
+        parent = TaskService(session).create(workspace.id, user.id, uuid4(), "父任务", quadrant="Q1")
+        TaskService(session).create(workspace.id, user.id, uuid4(), "子任务", parent_task_id=parent.id, quadrant="Q1")
         with pytest.raises(TaskConflictError) as error:
             TaskService(session).lifecycle(workspace.id, user.id, parent.id, uuid4(), "delete", 1)
         assert error.value.code == "lifecycle_conflict"

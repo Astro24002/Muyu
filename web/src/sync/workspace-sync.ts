@@ -1,7 +1,7 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
 import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
-import { upsertTask } from '../tasks/task-model';
+import { parseTaskItem, upsertTask } from '../tasks/task-model';
 
 export interface WorkspaceSyncState {
   snapshot: WorkspaceSnapshot | null;
@@ -103,8 +103,8 @@ export class WorkspaceSyncController {
     await this.loadSnapshot();
   }
 
-  async createTask(title: string, description: string): Promise<void> {
-    await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({ requestId: this.requestIdFactory(), title, description }));
+  async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = []): Promise<void> {
+    await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({ requestId: this.requestIdFactory(), title, description, quadrant, labels }));
   }
 
   async patchTask(taskId: string, changes: EditableTaskChanges): Promise<TaskWriteResult | undefined> {
@@ -313,7 +313,7 @@ export class WorkspaceSyncController {
   private mergeTask(task: TaskItem, cursor: number, updateCursor = true): void {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
-    const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, task), cursor: updateCursor ? cursor : snapshot.cursor };
+    const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, parseTaskItem(task)), cursor: updateCursor ? cursor : snapshot.cursor };
     this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
@@ -356,7 +356,7 @@ export class WorkspaceSyncController {
     if (!snapshot) return;
     const approvals = [...(snapshot.approval_requests ?? [])].filter((item) => item.id !== result.approval_request.id);
     approvals.push(result.approval_request);
-    const tasks = result.task ? upsertTask(snapshot.tasks, result.task) : snapshot.tasks;
+    const tasks = result.task ? upsertTask(snapshot.tasks, parseTaskItem(result.task)) : snapshot.tasks;
     const comments = result.comment
       ? [...(snapshot.comments ?? [])].filter((item) => item.id !== result.comment!.id).concat(result.comment)
       : snapshot.comments ?? [];
@@ -422,6 +422,7 @@ function conflictsFromError(error: ApiError): TaskConflict[] {
 function normalizeSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   return {
     ...snapshot,
+    tasks: snapshot.tasks.map(parseTaskItem),
     comments: snapshot.comments ?? [],
     approval_requests: snapshot.approval_requests ?? [],
   };

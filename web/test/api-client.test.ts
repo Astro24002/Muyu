@@ -67,4 +67,28 @@ describe('ApiClient', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/workspaces/current/snapshot', expect.anything());
   });
+
+  it('keeps a 202 task write as an explicit pending approval result', async () => {
+    const pending = { pending: true, approval_request: { id: 'approval-1' }, cursor: 8 };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(pending), { status: 202 }));
+
+    await expect(new ApiClient().patchTask('task-1', {
+      requestId: 'request-1',
+      changes: { labels: ['工作', '婚礼'] },
+      baseFieldVersions: { labels: 1 },
+    })).resolves.toEqual(pending);
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks/task-1', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'request-1', changes: { labels: ['工作', '婚礼'] }, base_field_versions: { labels: 1 } }),
+    }));
+  });
+
+  it('sends the required quadrant and complete label array when creating a task', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'task-1', cursor: 2 }), { status: 201 }),
+    );
+    await new ApiClient().createTask({ requestId: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作', '婚礼'] });
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作', '婚礼'] }),
+    }));
+  });
 });

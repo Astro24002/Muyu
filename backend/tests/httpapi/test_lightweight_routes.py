@@ -63,7 +63,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     parent = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Parent"},
+        json={"request_id": str(uuid4()), "title": "Parent", "quadrant": "Q1"},
     )
     assert parent.status_code == 201, parent.text
     parent_body = parent.json()
@@ -74,6 +74,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
         json={
             "request_id": str(uuid4()),
             "title": "Child",
+            "quadrant": "Q1",
             "parent_task_id": parent_body["id"],
             "assignee_ids": [parent_body["current_handler_id"]],
         },
@@ -111,6 +112,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
         json={
             "request_id": str(uuid4()),
             "title": "Nested",
+            "quadrant": "Q1",
             "parent_task_id": child.json()["id"],
         },
     )
@@ -126,7 +128,7 @@ def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_en
     created = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Original"},
+        json={"request_id": str(uuid4()), "title": "Original", "quadrant": "Q1"},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -182,7 +184,7 @@ def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_en
     second = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Second"},
+        json={"request_id": str(uuid4()), "title": "Second", "quadrant": "Q1"},
     ).json()
     current = client.patch(
         f"/api/v1/tasks/{second['id']}",

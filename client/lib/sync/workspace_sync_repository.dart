@@ -13,6 +13,8 @@ abstract class WorkspaceSyncRepository {
 
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,
@@ -140,6 +142,8 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
   @override
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,
@@ -148,7 +152,12 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     int? estimatedMinutes,
     required String requestId,
   }) async {
-    final body = <String, Object?>{'request_id': requestId, 'title': title};
+    final body = <String, Object?>{
+      'request_id': requestId,
+      'title': title,
+      'quadrant': quadrant,
+      'labels': labels,
+    };
     if (description != null) {
       body['description'] = description;
     }

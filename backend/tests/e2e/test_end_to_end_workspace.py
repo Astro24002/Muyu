@@ -82,7 +82,7 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
     created = mobile.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "A creates a task"},
+        json={"request_id": str(uuid4()), "title": "A creates a task", "quadrant": "Q1"},
     )
     assert created.status_code == 201, created.text
     task_id = created.json()["id"]
@@ -97,7 +97,7 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
     denied = mobile.post(
         "/api/v1/tasks",
         headers=pending_headers,
-        json={"request_id": str(uuid4()), "title": "read only"},
+        json={"request_id": str(uuid4()), "title": "read only", "quadrant": "Q1"},
     )
     assert denied.status_code == 403
     assert denied.json()["code"] == "device_not_verified"
@@ -124,7 +124,7 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
     writable = mobile.post(
         "/api/v1/tasks",
         headers=pending_headers,
-        json={"request_id": str(uuid4()), "title": "approved device task"},
+        json={"request_id": str(uuid4()), "title": "approved device task", "quadrant": "Q1"},
     )
     assert writable.status_code == 201, writable.text
 
@@ -165,7 +165,7 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
     assert any(item["id"] == task_id for item in browser_snapshot.json()["tasks"])
     browser_created = browser.post(
         "/api/v1/tasks",
-        json={"request_id": str(uuid4()), "title": "web task"},
+        json={"request_id": str(uuid4()), "title": "web task", "quadrant": "Q1"},
     )
     assert browser_created.status_code == 201, browser_created.text
     assert any(

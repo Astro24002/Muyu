@@ -23,6 +23,7 @@ TaskItem task(String id, String title) => TaskItem(
   description: '',
   status: 'TODO',
   currentHandlerId: 'user-1',
+  quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
   estimatedMinutes: null,
@@ -33,6 +34,7 @@ TaskItem task(String id, String title) => TaskItem(
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
   assigneeIds: const ['user-1'],
+  labels: const [],
 );
 
 class FakeTaskRepository implements WorkspaceSyncRepository {
@@ -42,6 +44,8 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   final Completer<void>? createCompleter;
   final List<TaskItem> tasks = [];
   String? lastTitle;
+  String? lastQuadrant;
+  List<String>? lastLabels;
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
@@ -64,6 +68,8 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   @override
   Future<TaskItem> create({
     required String title,
+    required String quadrant,
+    List<String> labels = const [],
     String? description,
     String? dueAt,
     String? parentTaskId,
@@ -73,9 +79,14 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     required String requestId,
   }) async {
     lastTitle = title;
+    lastQuadrant = quadrant;
+    lastLabels = List.of(labels);
     if (createCompleter != null) await createCompleter!.future;
     if (failCreate) throw Exception('create failed');
-    final created = task('task-${tasks.length + 1}', title);
+    final created = task(
+      'task-${tasks.length + 1}',
+      title,
+    ).copyWith(quadrant: quadrant, labels: labels);
     tasks.add(created);
     return created;
   }
@@ -170,14 +181,14 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byTooltip('我的'));
+    await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
     await tester.pumpAndSettle();
 
     expect(find.byType(MyProfileScreen), findsOneWidget);
-    expect(find.text('我的'), findsOneWidget);
+    expect(find.text('我的'), findsWidgets);
   });
 
-  testWidgets('title-only creation is available and successful task appears', (
+  testWidgets('creation requires a quadrant and successful task appears', (
     tester,
   ) async {
     final repo = FakeTaskRepository();
@@ -192,10 +203,22 @@ void main() {
       'Buy milk',
     );
     await tester.pump();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('create-task-button')))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const Key('task-create-quadrant-select')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Q2 重要不紧急').last);
+    await tester.pump();
     await tester.tap(find.byKey(const Key('create-task-button')));
     await tester.pumpAndSettle();
 
     expect(repo.lastTitle, 'Buy milk');
+    expect(repo.lastQuadrant, 'Q2');
+    expect(repo.lastLabels, isEmpty);
     expect(find.text('Buy milk'), findsOneWidget);
   });
 
@@ -217,6 +240,10 @@ void main() {
         find.byKey(const Key('task-title-input')),
         'Keep me',
       );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('task-create-quadrant-select')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Q1 重要且紧急').last);
       await tester.pump();
       await tester.tap(find.byKey(const Key('create-task-button')));
       await tester.pump();
@@ -294,5 +321,38 @@ void main() {
           .onPressed,
       isNull,
     );
+  });
+
+  testWidgets('bottom navigation exposes exactly the four task destinations', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('清单'), findsWidgets);
+    expect(find.text('四象限'), findsOneWidget);
+    expect(find.text('日程'), findsOneWidget);
+    expect(find.text('我的'), findsOneWidget);
+    expect(find.text('看板'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('task-quadrant-destination')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-quadrant-title-Q1')), findsOneWidget);
+    expect(find.byKey(const Key('task-quadrant-title-Q2')), findsOneWidget);
+    expect(find.byKey(const Key('task-quadrant-title-Q3')), findsOneWidget);
+    expect(find.byKey(const Key('task-quadrant-title-Q4')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('task-schedule-destination')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-schedule-scroll')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+    await tester.pumpAndSettle();
+    expect(find.text('当前会话不可用'), findsOneWidget);
   });
 }

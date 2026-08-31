@@ -145,7 +145,7 @@ def test_cloud_protocol_registration_invitation_sync_and_web_approval() -> None:
         task = client.post(
             "/api/v1/tasks",
             headers=headers_a,
-            json={"title": "protocol task", "description": "", "request_id": _request_id()},
+            json={"title": "protocol task", "description": "", "quadrant": "Q1", "request_id": _request_id()},
         )
         assert task.status_code == 201, task.text
         task_id = task.json()["id"]
@@ -272,6 +272,7 @@ def test_two_user_task_workflow_postgresql(db_engine) -> None:
             "request_id": str(uuid4()),
             "title": "Shared acceptance task",
             "description": "initial description",
+            "quadrant": "Q2",
             "due_at": due_at,
             "assignee_ids": [str(user_a_id), str(user_b_id)],
         },

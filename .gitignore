@@ -8,3 +8,4 @@ client/.dart_tool/
 client/build/
 client/.idea/
 .worktrees/
+.superpowers/brainstorm/

@@ -12,6 +12,10 @@
    - Flutter 只负责 Android；
    - TypeScript + Vite 负责独立 Web SPA；
    - FastAPI 只提供 API，Caddy 服务 Web 静态构建并代理 API。
+3. [Web 前端视觉方向设计](./superpowers/specs/2026-08-31-web-frontend-visual-direction-design.md)
+   - 固定“安静留白 + 柔和生活感”的产品气质；
+   - 使用顶部轻导航、重点任务和线性行动列表，避免传统后台控制台；
+   - 定义桌面与未来 Windows 适配的设计令牌、禁用模式和视觉验收标准。
 
 ## 待执行实施计划
 

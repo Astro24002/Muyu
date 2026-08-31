@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../src/api/client';
 import { App } from '../src/app/App';
 import type { QrLoginController } from '../src/auth/qr-login';
-import type { WorkspaceSyncController } from '../src/sync/workspace-sync';
+import type { WorkspaceSyncController, WorkspaceSyncState } from '../src/sync/workspace-sync';
 import { cleanup, render } from './react-test-helpers';
 
 describe('React app shell', () => {
@@ -10,12 +10,15 @@ describe('React app shell', () => {
     const legacyRoot = document.createElement('div');
     legacyRoot.id = 'app';
     document.body.append(legacyRoot);
+    const loadSnapshot = vi.fn().mockResolvedValue(undefined);
+    const loginDispose = vi.fn();
+    const syncDispose = vi.fn();
 
     render(
       <App
         api={{} as ApiClient}
-        login={{} as QrLoginController}
-        sync={{} as WorkspaceSyncController}
+        login={{ dispose: loginDispose } as unknown as QrLoginController}
+        sync={{ loadSnapshot, state: emptySyncState(), dispose: syncDispose } as unknown as WorkspaceSyncController}
       />,
       { container: legacyRoot },
     );
@@ -25,5 +28,45 @@ describe('React app shell', () => {
     cleanup();
 
     expect(legacyRoot).toBeEmptyDOMElement();
+    legacyRoot.remove();
+    expect(document.body.contains(legacyRoot)).toBe(false);
+  });
+
+  it('keeps the legacy runtime mounted and disposes it with the React shell', () => {
+    const legacyRoot = document.createElement('div');
+    legacyRoot.id = 'app';
+    document.body.append(legacyRoot);
+    const loadSnapshot = vi.fn().mockResolvedValue(undefined);
+    const loginDispose = vi.fn();
+    const syncDispose = vi.fn();
+    const { unmount } = render(
+      <App
+        api={{} as ApiClient}
+        login={{ dispose: loginDispose } as unknown as QrLoginController}
+        sync={{ loadSnapshot, state: emptySyncState(), dispose: syncDispose } as unknown as WorkspaceSyncController}
+      />,
+      { container: legacyRoot },
+    );
+
+    expect(loadSnapshot).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    expect(loginDispose).toHaveBeenCalledTimes(1);
+    expect(syncDispose).toHaveBeenCalledTimes(1);
+    expect(legacyRoot).toBeEmptyDOMElement();
+    legacyRoot.remove();
   });
 });
+
+function emptySyncState(): WorkspaceSyncState {
+  return {
+    snapshot: null,
+    cursor: 0,
+    loading: false,
+    stale: false,
+    error: null,
+    conflicts: [],
+    authRequired: false,
+  };
+}

@@ -28,8 +28,10 @@ export class WorkspaceView {
     let draftQuadrant: TaskItem['quadrant'] | '' = '';
     let draftLabels = '';
     let showApprovals = false;
+    let disposed = false;
 
     const render = (state: WorkspaceSyncState) => {
+      if (disposed) return;
       if (state.authRequired) {
         sessionCleanup?.();
         sessionCleanup = undefined;
@@ -49,7 +51,7 @@ export class WorkspaceView {
       const page = buildWorkspace(
         state,
         sync,
-        onLogout,
+        () => { if (!disposed) onLogout(); },
         mode,
         myOnly,
         draftTitle,
@@ -65,12 +67,14 @@ export class WorkspaceView {
         (value) => { draftQuadrant = value; },
         (value) => { draftLabels = value; },
         () => { draftTitle = ''; draftDescription = ''; draftQuadrant = ''; draftLabels = ''; },
-        (value) => { creating = value; render(sync.state); },
+        (value) => { if (!disposed) { creating = value; render(sync.state); } },
         (nextMode) => { mode = nextMode; render(sync.state); },
         (nextMy) => { myOnly = nextMy; render(sync.state); },
         () => { showSessions = !showSessions; render(sync.state); },
         () => { showApprovals = !showApprovals; render(sync.state); },
+        () => !disposed,
         (task) => {
+          if (disposed) return;
           activeTaskId = task.id;
           detailHandle = TaskDetailView.mount(root, task, state.snapshot?.members ?? [], {
             conflicts: state.conflicts,
@@ -112,6 +116,7 @@ export class WorkspaceView {
     const unsubscribe = sync.subscribe(render);
     render(sync.state);
     return () => {
+      disposed = true;
       detailCleanup?.();
       sessionCleanup?.();
       approvalCleanup?.();
@@ -145,6 +150,7 @@ function buildWorkspace(
   setMyOnly: (value: boolean) => void,
   toggleSessions: () => void,
   toggleApprovals: () => void,
+  isActive: () => boolean,
   openTask: (task: TaskItem) => void,
 ): HTMLElement {
   const page = element('main', 'workspace-page');
@@ -216,9 +222,9 @@ function buildWorkspace(
     setCreating(true);
     formError.textContent = '';
     void sync.createTask(title.value.trim(), description.value, quadrant.value as TaskItem['quadrant'], normalizedLabels).then(() => {
-      if (!sync.state.error) clearDraft();
+      if (isActive() && !sync.state.error) clearDraft();
     }).catch((error: unknown) => {
-      formError.textContent = error instanceof Error ? error.message : '无法创建任务，请检查网络后重试。';
+      if (isActive()) formError.textContent = error instanceof Error ? error.message : '无法创建任务，请检查网络后重试。';
     }).finally(() => setCreating(false));
   });
   page.append(form);

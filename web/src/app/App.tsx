@@ -5,7 +5,7 @@ import type { WebSocketFactory } from '../realtime/workspace-socket';
 import type { WebSessionViewApi } from '../ui/web-session-view';
 import { QrLoginView } from '../ui/qr-login-view';
 import { WorkspaceView } from '../ui/workspace-view';
-import type { WorkspaceSyncController } from '../sync/workspace-sync';
+import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
 import { parseHash, type Route } from './routes';
 import { useQrLoginState, useWorkspaceState } from './use-external-state';
 import { useWorkspaceRealtime } from './use-workspace-realtime';
@@ -24,12 +24,14 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const loginState = useQrLoginState(login);
   const [screen, setScreen] = useState<AppScreen>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
+  const [route, setRoute] = useState<Route>(() => parseHash(typeof window === 'undefined' ? '' : window.location.hash));
   const legacyRootRef = useRef<HTMLDivElement>(null);
   const legacyViewCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const legacySessionRef = useRef<LegacySyncBridge | undefined>(undefined);
   const activeRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const loggingOutRef = useRef(false);
+  const authRecoveryRef = useRef(false);
   const previousLoginKindRef = useRef<QrLoginState['kind']>(loginState.kind);
   const canUseLegacyViews = typeof sync.subscribe === 'function' && typeof login.subscribe === 'function';
   const workspaceId = screen === 'workspace' && !workspaceState.authRequired
@@ -38,6 +40,8 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const stopRealtime = useWorkspaceRealtime(sync, workspaceId, { socketFactory });
 
   const disposeLegacyView = useCallback((): void => {
+    legacySessionRef.current?.invalidate();
+    legacySessionRef.current = undefined;
     legacyViewCleanupRef.current?.();
     legacyViewCleanupRef.current = undefined;
     legacyRootRef.current?.replaceChildren();
@@ -67,8 +71,25 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     startLogin();
   }, [login, startLogin, stopLocalWorkspace, sync]);
 
+  const bestEffortLogout = useCallback((): void => {
+    if (typeof api.logoutWebSession !== 'function') return;
+    try {
+      void Promise.resolve(api.logoutWebSession()).catch(() => undefined);
+    } catch {
+      // Session cleanup is advisory during auth recovery.
+    }
+  }, [api]);
+
+  const recoverAuthRequired = useCallback((): void => {
+    if (!activeRef.current || authRecoveryRef.current) return;
+    authRecoveryRef.current = true;
+    enterLogin(true);
+    bestEffortLogout();
+  }, [bestEffortLogout, enterLogin]);
+
   const loadWorkspace = useCallback((clearFirst = false): void => {
     if (!activeRef.current) return;
+    authRecoveryRef.current = false;
     const generation = ++sessionGenerationRef.current;
     if (clearFirst) {
       stopLocalWorkspace();
@@ -88,7 +109,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
       if (!activeRef.current || generation !== sessionGenerationRef.current) return;
       const state = sync.state;
       if (state.authRequired) {
-        enterLogin(true);
+        recoverAuthRequired();
       } else if (state.snapshot) {
         setScreen('workspace');
       } else if (state.error) {
@@ -100,7 +121,11 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }).catch((error: unknown) => {
       if (!activeRef.current || generation !== sessionGenerationRef.current) return;
       const state = sync.state;
-      if (state.authRequired || isUnauthorized(error)) {
+      if (state.authRequired) {
+        recoverAuthRequired();
+        return;
+      }
+      if (isUnauthorized(error)) {
         enterLogin(true);
         return;
       }
@@ -111,7 +136,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
       setLoadError(state.error ?? errorMessage(error));
       setScreen('error');
     });
-  }, [enterLogin, stopLocalWorkspace, sync]);
+  }, [enterLogin, recoverAuthRequired, stopLocalWorkspace, sync]);
 
   const logout = useCallback((): void => {
     if (!activeRef.current || loggingOutRef.current) return;
@@ -158,8 +183,8 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   }, []);
 
   useEffect(() => {
-    if (workspaceState.authRequired && !loggingOutRef.current) enterLogin(true);
-  }, [enterLogin, workspaceState.authRequired]);
+    if (workspaceState.authRequired) recoverAuthRequired();
+  }, [recoverAuthRequired, workspaceState.authRequired]);
 
   useEffect(() => {
     const previousKind = previousLoginKindRef.current;
@@ -179,11 +204,20 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
 
     if (screen === 'workspace' && workspaceState.snapshot) {
       root.replaceChildren();
-      const cleanup = WorkspaceView.mount(root, sync, logout, webSessionApi(api), enterLogin);
+      const legacySession = createLegacySyncBridge(sync);
+      legacySessionRef.current = legacySession;
+      const onLegacyLogout = (): void => {
+        if (!legacySession.isActive()) return;
+        if (sync.state.authRequired) recoverAuthRequired();
+        else logout();
+      };
+      const cleanup = WorkspaceView.mount(root, legacySession.sync, onLegacyLogout, webSessionApi(api), recoverAuthRequired);
       legacyViewCleanupRef.current = cleanup;
       return () => {
         if (legacyViewCleanupRef.current !== cleanup) return;
         legacyViewCleanupRef.current = undefined;
+        if (legacySessionRef.current === legacySession) legacySessionRef.current = undefined;
+        legacySession.invalidate();
         cleanup();
         root.replaceChildren();
       };
@@ -202,7 +236,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }
 
     disposeLegacyView();
-  }, [api, canUseLegacyViews, disposeLegacyView, enterLogin, login, logout, screen, sync, workspaceState.snapshot?.workspace_id]);
+  }, [api, canUseLegacyViews, disposeLegacyView, login, logout, recoverAuthRequired, screen, sync, workspaceState.snapshot?.workspace_id]);
 
   const showPlaceholder = !canUseLegacyViews || screen === 'loading' || screen === 'error';
   const routeKey = route.kind === 'task' ? `task:${route.id}` : route.kind;
@@ -251,4 +285,37 @@ function errorMessage(error: unknown): string {
 function isUnauthorized(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 401;
   return Boolean(error && typeof error === 'object' && 'status' in error && error.status === 401);
+}
+
+interface LegacySyncBridge {
+  sync: WorkspaceSyncController;
+  invalidate: () => void;
+  isActive: () => boolean;
+}
+
+const INACTIVE_LEGACY_STATE: WorkspaceSyncState = {
+  snapshot: null,
+  cursor: 0,
+  loading: false,
+  stale: false,
+  error: null,
+  conflicts: [],
+  authRequired: true,
+};
+
+function createLegacySyncBridge(sync: WorkspaceSyncController): LegacySyncBridge {
+  let active = true;
+  const bridgedSync = new Proxy(sync, {
+    get(target, property) {
+      if (property === 'state') return active ? target.state : INACTIVE_LEGACY_STATE;
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => active ? Reflect.apply(value, target, args) : Promise.resolve(undefined);
+    },
+  });
+  return {
+    sync: bridgedSync,
+    invalidate: () => { active = false; },
+    isActive: () => active,
+  };
 }

@@ -1,4 +1,5 @@
 import { act, fireEvent } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiClient } from '../src/api/client';
 import { App } from '../src/app/App';
@@ -176,6 +177,85 @@ describe('React app lifecycle', () => {
     expect(login.start).toHaveBeenCalledOnce();
   });
 
+  it('ignores a late legacy create completion after logout replaces the workspace with QR login', async () => {
+    const lateCreate = deferred<void>();
+    const login = new FakeLogin();
+    const fake = createFakeSync(workspaceState());
+    const createTask = vi.fn(() => lateCreate.promise);
+    (fake.sync as unknown as { createTask: typeof createTask }).createTask = createTask;
+    const logoutWebSession = vi.fn().mockResolvedValue(undefined);
+    const { container, getByRole, getByPlaceholderText, getByLabelText } = render(
+      <App api={{ logoutWebSession } as unknown as ApiClient} login={login as never} sync={fake.sync} />,
+    );
+
+    await settle();
+    const title = getByPlaceholderText('新任务标题') as HTMLInputElement;
+    const labels = getByPlaceholderText('任务标签（逗号分隔）') as HTMLInputElement;
+    const quadrant = getByLabelText('新任务四象限') as HTMLSelectElement;
+    title.value = 'late task';
+    labels.value = 'late';
+    quadrant.value = 'Q1';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+    labels.dispatchEvent(new Event('input', { bubbles: true }));
+    (getByRole('button', { name: '创建任务' }).closest('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(createTask).toHaveBeenCalledOnce();
+
+    fireEvent.click(getByRole('button', { name: '退出登录' }));
+    await settle();
+    expect(container).toHaveTextContent('二维码登录');
+
+    lateCreate.resolve();
+    await lateCreate.promise;
+    await settle();
+
+    expect(container).toHaveTextContent('二维码登录');
+    expect(container.querySelector('input[placeholder="新任务标题"]')).toBeNull();
+  });
+
+  it('ignores stale legacy task handlers after logout replaces the workspace with QR login', async () => {
+    const login = new FakeLogin();
+    const fake = createFakeSync({
+      ...workspaceState(),
+      snapshot: { ...snapshot, tasks: [minimalTask('stale-task')] },
+    });
+    const { container, getByRole } = render(
+      <App api={{} as ApiClient} login={login as never} sync={fake.sync} />,
+    );
+
+    await settle();
+    const staleTaskRow = container.querySelector<HTMLElement>('.task-row');
+    expect(staleTaskRow).not.toBeNull();
+
+    fireEvent.click(getByRole('button', { name: '退出登录' }));
+    await settle();
+    expect(container).toHaveTextContent('二维码登录');
+
+    staleTaskRow!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(container).toHaveTextContent('二维码登录');
+    expect(container.querySelector('.task-detail')).toBeNull();
+  });
+
+  it('starts QR recovery without waiting for a hanging auth-required logout request', async () => {
+    const login = new FakeLogin();
+    const fake = createFakeSync(workspaceState());
+    const socket = new FakeSocket();
+    const logoutWebSession = vi.fn(() => new Promise<void>(() => undefined));
+    const { container } = render(
+      <App api={{ logoutWebSession } as unknown as ApiClient} login={login as never} sync={fake.sync} socketFactory={() => socket} />,
+    );
+
+    await settle();
+    fake.setState({ ...workspaceState(), authRequired: true, error: '登录已失效。' });
+    fake.emit();
+
+    expect(login.start).toHaveBeenCalledOnce();
+    expect(logoutWebSession).toHaveBeenCalledOnce();
+    await settle();
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(container).toHaveTextContent('二维码登录');
+  });
+
   it('clears an unauthorized workspace and returns to QR login without editable controls', async () => {
     const login = new FakeLogin();
     const fake = createFakeSync(workspaceState());
@@ -237,6 +317,19 @@ describe('React app lifecycle', () => {
     await settle();
 
     expect(container).not.toHaveTextContent('old-task');
+  });
+
+  it('initializes the App route safely when rendered without a browser window', () => {
+    const previousWindow = globalThis.window;
+    vi.stubGlobal('window', undefined);
+    try {
+      const html = renderToString(
+        <App api={{} as ApiClient} login={new FakeLogin() as never} sync={createFakeSync(emptyWorkspaceState()).sync} />,
+      );
+      expect(html).toContain('data-route="today"');
+    } finally {
+      vi.stubGlobal('window', previousWindow);
+    }
   });
 });
 

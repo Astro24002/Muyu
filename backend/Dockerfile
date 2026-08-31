@@ -13,7 +13,8 @@ COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 
 RUN pip install --disable-pip-version-check --no-cache-dir \
-    -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+    -i http://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
     --extra-index-url https://pypi.org/simple .
 
 USER app

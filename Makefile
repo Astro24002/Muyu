@@ -1,5 +1,5 @@
 PYTHON_IMAGE := m.daocloud.io/docker.io/library/python:3.12-slim
-PYPI_INDEX_URL ?= https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+PYPI_INDEX_URL ?= http://mirrors.aliyun.com/pypi/simple/
 TEST_DOCKER_NETWORK ?= host
 COMPOSE_ENV_FILE ?= deploy/.env.example
 COMPOSE_PROJECT_NAME ?= muyu-cloud
@@ -21,7 +21,7 @@ backend-test:
 		-v "$(CURDIR)/backend:/src" \
 		-w /src \
 		$(PYTHON_IMAGE) \
-		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" -e ".[dev]" && python -m pytest -q && python -m compileall -q app alembic'
+		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" --trusted-host mirrors.aliyun.com -e ".[dev]" && python -m pytest -q && python -m compileall -q app alembic'
 
 test-task-approval:
 	docker run --rm --network $(TEST_DOCKER_NETWORK) \
@@ -30,7 +30,7 @@ test-task-approval:
 		-v "$(CURDIR)/backend:/src" \
 		-w /src \
 		$(PYTHON_IMAGE) \
-		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" -e ".[dev]" && python -m pytest -q tests/tasks tests/httpapi/test_task_approval_routes.py tests/sync/test_task_approval_sync.py tests/e2e/test_two_person_task_approval.py'
+		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" --trusted-host mirrors.aliyun.com -e ".[dev]" && python -m pytest -q tests/tasks tests/httpapi/test_task_approval_routes.py tests/sync/test_task_approval_sync.py tests/e2e/test_two_person_task_approval.py'
 
 backend-migrate:
 	docker run --rm --network $(TEST_DOCKER_NETWORK) \
@@ -39,7 +39,7 @@ backend-migrate:
 		-v "$(CURDIR)/backend:/src" \
 		-w /src \
 		$(PYTHON_IMAGE) \
-		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" -e . && alembic upgrade head'
+		sh -c 'pip install --disable-pip-version-check -i "$$PYPI_INDEX_URL" --trusted-host mirrors.aliyun.com -e . && alembic upgrade head'
 
 backend-smoke:
 	API_BASE_URL=$${API_BASE_URL:-http://localhost:$(API_PORT)} sh -c 'curl --fail --silent --show-error "$$API_BASE_URL/health/ready"'

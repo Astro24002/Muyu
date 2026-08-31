@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.service import SmsAuthError, normalize_phone as normalize_auth_phone
@@ -269,7 +269,7 @@ class WorkspaceBootstrapService:
             workspace = self.session.get(Workspace, membership.workspace_id)
             if workspace is None:
                 raise WorkspaceConflict("not_found", "workspace not found")
-            workspace_payload = self._workspace_payload(workspace)
+            workspace_payload = self._workspace_payload(workspace, user_id)
             invite = self.session.scalar(
                 select(WorkspaceInvite).where(
                     WorkspaceInvite.workspace_id == workspace.id,
@@ -305,7 +305,7 @@ class WorkspaceBootstrapService:
             if workspace is not None:
                 return BootstrapPayload(
                     state=BootstrapState.INVITED,
-                    workspace=self._workspace_payload(workspace),
+                    workspace=self._workspace_payload(workspace, user_id),
                     invite=self._invite_payload(invite),
                     device=device_payload,
                 )
@@ -326,14 +326,42 @@ class WorkspaceBootstrapService:
             raise WorkspaceConflict("device_not_active", "active device is required")
         return device.id
 
-    def _workspace_payload(self, workspace: Workspace) -> BootstrapWorkspace:
-        member_count = self.session.scalar(
-            select(func.count(WorkspaceMembership.id)).where(
+    def _workspace_payload(self, workspace: Workspace, viewer_user_id: UUID) -> BootstrapWorkspace:
+        rows = self.session.execute(
+            select(WorkspaceMembership, User)
+            .join(User, User.id == WorkspaceMembership.user_id)
+            .where(
                 WorkspaceMembership.workspace_id == workspace.id,
                 WorkspaceMembership.status == MembershipStatus.ACTIVE,
             )
+            .order_by(WorkspaceMembership.member_slot.asc(), WorkspaceMembership.id.asc())
+        ).all()
+        members = [
+            {
+                "user_id": membership.user_id,
+                "display_name": user.display_name,
+                "phone_masked": _mask_phone(user.phone),
+                "member_slot": membership.member_slot,
+                "membership_status": membership.status,
+                "is_current": membership.user_id == viewer_user_id,
+            }
+            for membership, user in rows
+        ]
+        member_count = len(members)
+        match_status = (
+            "waiting_partner"
+            if member_count < 2
+            else "matched"
+            if member_count == 2
+            else "error"
         )
-        return BootstrapWorkspace(id=workspace.id, name=workspace.name, member_count=int(member_count or 0))
+        return BootstrapWorkspace(
+            id=workspace.id,
+            name=workspace.name,
+            member_count=member_count,
+            match_status=match_status,
+            members=members,
+        )
 
     def _invite_payload(self, invite: WorkspaceInvite | None) -> BootstrapInvite | None:
         if invite is None:

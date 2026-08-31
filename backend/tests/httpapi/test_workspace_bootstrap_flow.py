@@ -67,6 +67,10 @@ def test_bind_partner_creates_one_owner_and_pending_invite(db_engine) -> None:
     body = response.json()
     assert body["state"] == "WAITING_FOR_PARTNER"
     assert body["workspace"]["member_count"] == 1
+    assert body["workspace"]["match_status"] == "waiting_partner"
+    assert len(body["workspace"]["members"]) == 1
+    assert body["workspace"]["members"][0]["member_slot"] == 1
+    assert body["workspace"]["members"][0]["is_current"] is True
     assert body["invite"]["status"] == "PENDING"
     assert body["invite"]["phone_masked"] == "+86******0169"
 
@@ -120,6 +124,11 @@ def test_partner_first_device_accepts_invite_without_device_approval(db_engine) 
     body = response.json()
     assert body["state"] == "READY"
     assert body["workspace"]["member_count"] == 2
+    assert body["workspace"]["match_status"] == "matched"
+    assert [item["member_slot"] for item in body["workspace"]["members"]] == [1, 2]
+    assert body["workspace"]["members"][0]["is_current"] is False
+    assert body["workspace"]["members"][1]["is_current"] is True
+    assert body["workspace"]["members"][1]["phone_masked"].endswith("0169")
     assert body["device"] == {"status": "VERIFIED", "can_write": True}
 
     with Session(db_engine) as session:

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Mapping
+from typing import Literal, Mapping
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.enums import BootstrapState, DeviceStatus, InviteStatus, PublicDeviceStatus
+from app.db.enums import BootstrapState, DeviceStatus, InviteStatus, MembershipStatus, PublicDeviceStatus
 
 
 PUBLIC_DEVICE_STATUS: Mapping[DeviceStatus, PublicDeviceStatus] = {
@@ -50,6 +50,19 @@ class BootstrapWorkspace(BaseModel):
     id: UUID
     name: str | None = None
     member_count: int = Field(ge=0)
+    match_status: Literal["waiting_partner", "matched", "error"] = "waiting_partner"
+    members: list["BootstrapMember"] = Field(default_factory=list)
+
+
+class BootstrapMember(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    display_name: str | None = None
+    phone_masked: str
+    member_slot: int = Field(ge=1, le=2)
+    membership_status: MembershipStatus
+    is_current: bool = False
 
 
 class BootstrapInvite(BaseModel):
@@ -94,6 +107,7 @@ class DeviceSummary(BaseModel):
 __all__ = [
     "BootstrapDevice",
     "BootstrapInvite",
+    "BootstrapMember",
     "BootstrapPayload",
     "BootstrapResponse",
     "BootstrapState",

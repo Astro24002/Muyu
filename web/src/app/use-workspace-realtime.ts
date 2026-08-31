@@ -24,6 +24,7 @@ export function useWorkspaceRealtime(
     let fallbackTimer: TimerHandle | undefined;
     let socket: WorkspaceSocket | undefined;
     let stopped = false;
+    let reconnecting = false;
 
     const stopFallback = (): void => {
       if (fallbackTimer !== undefined) globalThis.clearInterval(fallbackTimer);
@@ -54,10 +55,18 @@ export function useWorkspaceRealtime(
         factory: socketFactory,
         onHint: (cursor) => {
           if (!active || cursor <= sync.state.cursor || typeof sync.pull !== 'function') return;
-          void sync.pull();
+          void sync.pull(cursor);
         },
-        onOpen: stopFallback,
-        onFailure: startFallback,
+        onOpen: () => {
+          const wasReconnecting = reconnecting;
+          reconnecting = false;
+          if (wasReconnecting && typeof sync.pull === 'function') void sync.pull();
+          stopFallback();
+        },
+        onFailure: () => {
+          reconnecting = true;
+          startFallback();
+        },
       });
       socket.connect();
     }

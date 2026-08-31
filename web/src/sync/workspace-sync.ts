@@ -24,6 +24,13 @@ export interface WorkspaceSyncOptions {
 type Listener = (state: WorkspaceSyncState) => void;
 type IsCurrent = () => boolean;
 
+interface PendingPull {
+  cursorHint?: number;
+  afterCursor?: number;
+  isCurrent?: IsCurrent;
+  resolve: () => void;
+}
+
 export type WorkspaceSyncApi = Pick<ApiClient,
   | 'getWorkspaceSnapshot'
   | 'getWorkspaceChanges'
@@ -58,6 +65,8 @@ export class WorkspaceSyncController {
   private disposed = false;
   private generation = 0;
   private readonly requestIdFactory: () => string;
+  private pendingPulls: PendingPull[] = [];
+  private pullDrain: Promise<void> | undefined;
 
   constructor(private readonly api: WorkspaceSyncApi, options: WorkspaceSyncOptions = {}) {
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
@@ -73,30 +82,30 @@ export class WorkspaceSyncController {
   dispose(): void {
     this.generation += 1;
     this.disposed = true;
+    this.resolvePendingPulls();
     this.listeners.clear();
   }
 
   clear(): void {
     this.generation += 1;
+    this.resolvePendingPulls();
     this.currentState = INITIAL_STATE;
     for (const listener of this.listeners) listener(this.currentState);
   }
 
-  async loadSnapshot(): Promise<void> {
+  async loadSnapshot(parentIsCurrent?: IsCurrent): Promise<void> {
     await this.run('无法加载工作区，请检查网络后重试。', async (isCurrent) => {
       const snapshot = await this.api.getWorkspaceSnapshot();
       if (!isCurrent()) return;
       const normalized = normalizeSnapshot(snapshot);
       this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), stale: false, error: null, authRequired: false });
-    });
+    }, false, parentIsCurrent);
   }
 
-  async pull(): Promise<void> {
-    if (!this.currentState.snapshot) {
-      await this.loadSnapshot();
-      return;
-    }
-    await this.pullFrom(this.currentState.cursor);
+  async pull(cursorHint?: number): Promise<void> {
+    if (this.disposed) return;
+    if (this.currentState.snapshot && cursorHint !== undefined && cursorHint <= this.currentState.cursor) return;
+    await this.enqueuePull(cursorHint);
   }
 
   async refresh(): Promise<void> {
@@ -142,15 +151,24 @@ export class WorkspaceSyncController {
 
   async addComment(taskId: string, body: string): Promise<void> {
     const cursorBeforeWrite = this.currentState.cursor;
-    await this.run('无法添加评论，请检查网络后重试。', async () => {
+    await this.run('无法添加评论，请检查网络后重试。', async (isCurrent) => {
       const result = await this.api.addTaskComment(taskId, { requestId: this.requestIdFactory(), body });
+      if (!isCurrent()) return;
       const cursor = result && typeof result.cursor === 'number' ? result.cursor : cursorBeforeWrite;
-      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+      if (cursor > cursorBeforeWrite) {
+        if (!isCurrent()) return;
+        await this.pullFrom(cursorBeforeWrite, isCurrent);
+      }
     });
   }
 
   async addDelay(taskId: string, newDueAt: string, reason: string, note?: string): Promise<void> {
-    await this.run('无法延期任务，请检查网络后重试。', async () => { await this.api.addTaskDelay(taskId, { requestId: this.requestIdFactory(), newDueAt, reason, note }); await this.pull(); });
+    const cursorBeforeWrite = this.currentState.cursor;
+    await this.run('无法延期任务，请检查网络后重试。', async (isCurrent) => {
+      await this.api.addTaskDelay(taskId, { requestId: this.requestIdFactory(), newDueAt, reason, note });
+      if (!isCurrent()) return;
+      await this.pullFrom(cursorBeforeWrite, isCurrent);
+    });
   }
 
   async createApprovalRequest(taskId: string, input: {
@@ -167,7 +185,7 @@ export class WorkspaceSyncController {
     }
     const cursorBeforeWrite = this.currentState.cursor;
     let created: TaskApprovalRequest | undefined;
-    await this.run('无法提交审批请求，请检查网络后重试。', async () => {
+    await this.run('无法提交审批请求，请检查网络后重试。', async (isCurrent) => {
       const approval = await this.api.createApprovalRequest!({
         workspaceId: snapshot.workspace_id,
         requestId: this.requestIdFactory(),
@@ -177,10 +195,14 @@ export class WorkspaceSyncController {
         proposedChanges: input.proposedChanges,
         baseFieldVersions: input.baseFieldVersions,
       });
+      if (!isCurrent()) return;
       created = approval;
       this.mergeApproval(approval);
       const cursor = cursorFrom(approval);
-      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+      if (cursor > cursorBeforeWrite) {
+        if (!isCurrent()) return;
+        await this.pullFrom(cursorBeforeWrite, isCurrent);
+      }
     });
     return created;
   }
@@ -193,9 +215,11 @@ export class WorkspaceSyncController {
       return [];
     }
     let result: TaskApprovalRequest[] = [];
-    await this.run('无法加载审批请求，请检查网络后重试。', async () => {
-      result = await this.api.listApprovalRequests!(snapshot.workspace_id, box);
-      this.mergeApprovals(result);
+    await this.run('无法加载审批请求，请检查网络后重试。', async (isCurrent) => {
+      const approvals = await this.api.listApprovalRequests!(snapshot.workspace_id, box);
+      if (!isCurrent()) return;
+      result = approvals;
+      this.mergeApprovals(approvals);
     });
     return result;
   }
@@ -221,13 +245,17 @@ export class WorkspaceSyncController {
     }
     const cursorBeforeWrite = this.currentState.cursor;
     let result: (TaskComment & { cursor?: number }) | PendingApproval | undefined;
-    await this.run('无法删除评论，请检查网络后重试。', async () => {
+    await this.run('无法删除评论，请检查网络后重试。', async (isCurrent) => {
       const response = await this.api.deleteTaskComment!(taskId, commentId, { requestId: this.requestIdFactory(), baseVersion });
+      if (!isCurrent()) return;
       result = response;
       if (isPendingApproval(response)) this.mergeApproval(response.approval_request);
       else this.mergeComment(response);
       const cursor = cursorFrom(response);
-      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+      if (cursor > cursorBeforeWrite) {
+        if (!isCurrent()) return;
+        await this.pullFrom(cursorBeforeWrite, isCurrent);
+      }
     });
     return result;
   }
@@ -242,15 +270,18 @@ export class WorkspaceSyncController {
     let result: TaskWriteResult | undefined;
     await this.run(message, async (isCurrent) => {
       const response = await operation();
-      result = response;
       if (!isCurrent()) return;
+      result = response;
       if (isPendingApproval(response)) {
         this.mergeApproval(response.approval_request);
       } else {
         this.mergeTask(response, response.cursor);
       }
       onSuccess?.();
-      if (response.cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite);
+      if (response.cursor > cursorBeforeWrite) {
+        if (!isCurrent()) return;
+        await this.pullFrom(cursorBeforeWrite, isCurrent);
+      }
     });
     return result;
   }
@@ -269,34 +300,48 @@ export class WorkspaceSyncController {
     }
     const cursorBeforeAction = this.currentState.cursor;
     let result: ApprovalActionResult | undefined;
-    await this.run('无法处理审批请求，请检查网络后重试。', async () => {
+    await this.run('无法处理审批请求，请检查网络后重试。', async (isCurrent) => {
       const input = { workspaceId: snapshot.workspace_id, requestId: this.requestIdFactory() };
       const response = action === 'approve'
         ? await this.api.approveApproval!(approvalId, input)
         : action === 'reject'
           ? await this.api.rejectApproval!(approvalId, { ...input, reason })
           : await this.api.cancelApproval!(approvalId, input);
+      if (!isCurrent()) return;
       result = response;
       const cursor = cursorFrom(response);
-      if (cursor > cursorBeforeAction) await this.pullFrom(cursorBeforeAction);
-      this.mergeApprovalResult(response);
+      this.mergeApprovalResult(response, cursor <= cursorBeforeAction);
+      if (cursor > cursorBeforeAction) {
+        if (!isCurrent()) return;
+        await this.pullFrom(cursorBeforeAction, isCurrent);
+      }
     });
     return result;
   }
 
-  private async pullFrom(afterCursor: number): Promise<void> {
+  private async pullFrom(afterCursor: number, parentIsCurrent?: IsCurrent): Promise<void> {
+    if (parentIsCurrent && !parentIsCurrent()) return;
+    await this.enqueuePull(undefined, afterCursor, parentIsCurrent);
+  }
+
+  private async pullChanges(afterCursor: number, parentIsCurrent?: IsCurrent): Promise<void> {
     await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
       const changes = await this.api.getWorkspaceChanges(afterCursor);
       if (!isCurrent()) return;
       if (!areContiguous(changes.changes, afterCursor) || (changes.changes.length === 0 && changes.cursor !== afterCursor)) {
-        await this.loadSnapshot();
+        if (!isCurrent()) return;
+        await this.loadSnapshot(isCurrent);
         return;
       }
-      for (const change of changes.changes) this.applyChange(change);
+      for (const change of changes.changes) {
+        if (!isCurrent()) return;
+        this.applyChange(change);
+      }
+      if (!isCurrent()) return;
       const cursor = Math.max(this.currentState.cursor, changes.cursor);
       const snapshot = this.currentState.snapshot;
       this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, approvals: snapshot?.approval_requests, comments: snapshot?.comments, stale: false, error: null, authRequired: false });
-    }, true);
+    }, true, parentIsCurrent);
   }
 
   private applyChange(change: WorkspaceChange): void {
@@ -351,7 +396,7 @@ export class WorkspaceSyncController {
     this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? cursor : this.currentState.cursor, comments, approvals: nextSnapshot.approval_requests, stale: false, error: null, authRequired: false });
   }
 
-  private mergeApprovalResult(result: ApprovalActionResult): void {
+  private mergeApprovalResult(result: ApprovalActionResult, updateCursor = true): void {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
     const approvals = [...(snapshot.approval_requests ?? [])].filter((item) => item.id !== result.approval_request.id);
@@ -360,21 +405,23 @@ export class WorkspaceSyncController {
     const comments = result.comment
       ? [...(snapshot.comments ?? [])].filter((item) => item.id !== result.comment!.id).concat(result.comment)
       : snapshot.comments ?? [];
-    const cursor = typeof result.cursor === 'number' && result.cursor > snapshot.cursor ? result.cursor : snapshot.cursor;
+    const cursor = updateCursor && typeof result.cursor === 'number' && result.cursor > snapshot.cursor ? result.cursor : snapshot.cursor;
     const nextSnapshot = { ...snapshot, tasks, comments, approval_requests: approvals, cursor };
     this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, stale: false, error: null, authRequired: false });
   }
 
-  private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false): Promise<void> {
+  private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false, parentIsCurrent?: IsCurrent): Promise<void> {
     const generation = this.generation;
-    const isCurrent = () => !this.disposed && generation === this.generation;
+    const isCurrent = () => !this.disposed && generation === this.generation && (!parentIsCurrent || parentIsCurrent());
+    if (!isCurrent()) return;
     if (!nested) this.setState({ loading: true, error: null });
     try {
       await operation(isCurrent);
     } catch (error) {
       if (!isCurrent()) return;
       if (error instanceof ApiError && error.status === 410 && error.code === 'sync_cursor_expired') {
-        await this.loadSnapshot();
+        if (!isCurrent()) return;
+        await this.loadSnapshot(isCurrent);
         return;
       }
       if (error instanceof ApiError && error.status === 409 && error.code === 'field_conflict') {
@@ -391,6 +438,61 @@ export class WorkspaceSyncController {
     if (this.disposed) return;
     this.currentState = { ...this.currentState, ...update };
     for (const listener of this.listeners) listener(this.currentState);
+  }
+
+  private async enqueuePull(cursorHint?: number, afterCursor?: number, isCurrent?: IsCurrent): Promise<void> {
+    if (this.disposed || (isCurrent && !isCurrent())) return;
+    await new Promise<void>((resolve) => {
+      this.pendingPulls.push({ cursorHint, afterCursor, isCurrent, resolve });
+      this.startPullDrain();
+    });
+  }
+
+  private startPullDrain(): void {
+    if (this.pullDrain) return;
+    this.pullDrain = this.drainPulls().finally(() => {
+      this.pullDrain = undefined;
+      if (this.pendingPulls.length > 0) this.startPullDrain();
+    });
+  }
+
+  private async drainPulls(): Promise<void> {
+    while (this.pendingPulls.length > 0) {
+      const batch = this.pendingPulls.splice(0);
+      try {
+        const active = batch.filter((request) => !request.isCurrent || request.isCurrent());
+        if (active.length === 0) continue;
+
+        const isCurrent = (): boolean => active.some((request) => !request.isCurrent || request.isCurrent());
+        if (!this.currentState.snapshot) {
+          await this.loadSnapshot(isCurrent);
+          continue;
+        }
+
+        const currentCursor = this.currentState.cursor;
+        const highestHint = active.reduce<number | undefined>((highest, request) => {
+          if (request.cursorHint === undefined) return highest;
+          return highest === undefined ? request.cursorHint : Math.max(highest, request.cursorHint);
+        }, undefined);
+        const writeRequests = active.filter((request) => request.afterCursor !== undefined);
+        const needsWritePull = writeRequests.length > 0;
+        const needsHintPull = active.some((request) => request.afterCursor === undefined
+          && (request.cursorHint === undefined || (highestHint !== undefined && highestHint > currentCursor)));
+        if (!needsWritePull && !needsHintPull) continue;
+
+        const afterCursor = needsWritePull
+          ? Math.min(currentCursor, Math.min(...writeRequests.map((request) => request.afterCursor!)))
+          : currentCursor;
+        await this.pullChanges(afterCursor, isCurrent);
+      } finally {
+        for (const request of batch) request.resolve();
+      }
+    }
+  }
+
+  private resolvePendingPulls(): void {
+    const pending = this.pendingPulls.splice(0);
+    for (const request of pending) request.resolve();
   }
 }
 

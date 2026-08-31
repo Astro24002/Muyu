@@ -127,7 +127,7 @@ describe('React app lifecycle', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('pulls every ten seconds only while the page is visible and stops after reconnect', async () => {
+  it('pulls every ten seconds only while the page is visible and catches up immediately after reconnect', async () => {
     vi.useFakeTimers();
     const login = new FakeLogin();
     const fake = createFakeSync(workspaceState());
@@ -151,8 +151,9 @@ describe('React app lifecycle', () => {
 
     vi.advanceTimersByTime(1_000);
     sockets[1].open();
+    expect(fake.sync.pull).toHaveBeenCalledTimes(2);
     vi.advanceTimersByTime(10_000);
-    expect(fake.sync.pull).toHaveBeenCalledOnce();
+    expect(fake.sync.pull).toHaveBeenCalledTimes(2);
     unmount();
   });
 
@@ -254,6 +255,56 @@ describe('React app lifecycle', () => {
     await settle();
     expect(socket.close).toHaveBeenCalledOnce();
     expect(container).toHaveTextContent('二维码登录');
+  });
+
+  it('loads a new workspace when QR sign-in succeeds before explicit logout resolves', async () => {
+    const logoutRequest = deferred<void>();
+    const oldSnapshot = {
+      ...snapshot,
+      tasks: [{ ...minimalTask('old-session-task'), workspace_id: 'workspace-1' }],
+    };
+    const newSnapshot = {
+      ...snapshot,
+      workspace_id: 'workspace-new',
+      workspace: { id: 'workspace-new', name: 'New workspace', status: 'ACTIVE' },
+      tasks: [{ ...minimalTask('new-session-task'), workspace_id: 'workspace-new' }],
+      cursor: 8,
+    };
+    const syncApi = {
+      getWorkspaceSnapshot: vi.fn().mockResolvedValueOnce(oldSnapshot).mockResolvedValueOnce(newSnapshot),
+      getWorkspaceChanges: vi.fn().mockResolvedValue({ workspace_id: 'workspace-new', cursor: 8, changes: [] }),
+      createTask: vi.fn(),
+      patchTask: vi.fn(),
+      resolveConflict: vi.fn(),
+      transitionTask: vi.fn(),
+      addTaskComment: vi.fn(),
+      addTaskDelay: vi.fn(),
+    };
+    const sync = new WorkspaceSyncController(syncApi as never);
+    const login = new FakeLogin();
+    const logoutWebSession = vi.fn(() => logoutRequest.promise);
+    const { container, getByRole } = render(
+      <App api={{ logoutWebSession } as unknown as ApiClient} login={login as never} sync={sync} />,
+    );
+
+    await settle();
+    expect(container).toHaveTextContent('old-session-task');
+
+    fireEvent.click(getByRole('button', { name: '退出登录' }));
+    await settle();
+    fireEvent.click(getByRole('button', { name: '重新生成二维码' }));
+    login.signIn();
+    await settle();
+    await settle();
+
+    expect(container).toHaveTextContent('new-session-task');
+    expect(container).not.toHaveTextContent('old-session-task');
+
+    logoutRequest.resolve();
+    await settle();
+
+    expect(container).toHaveTextContent('new-session-task');
+    expect(login.start).toHaveBeenCalledOnce();
   });
 
   it('clears an unauthorized workspace and returns to QR login without editable controls', async () => {

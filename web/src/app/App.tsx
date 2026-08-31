@@ -31,6 +31,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const activeRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const loggingOutRef = useRef(false);
+  const logoutRequestRef = useRef(0);
   const authRecoveryRef = useRef(false);
   const previousLoginKindRef = useRef<QrLoginState['kind']>(loginState.kind);
   const canUseLegacyViews = typeof sync.subscribe === 'function' && typeof login.subscribe === 'function';
@@ -52,15 +53,15 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     disposeLegacyView();
   }, [disposeLegacyView, stopRealtime]);
 
-  const startLogin = useCallback((): void => {
-    if (!activeRef.current || loggingOutRef.current || typeof login.start !== 'function') return;
+  const startLogin = useCallback((allowDuringLogout = false): void => {
+    if (!activeRef.current || (!allowDuringLogout && loggingOutRef.current) || typeof login.start !== 'function') return;
     const kind = login.state?.kind;
     if (kind === undefined || kind === 'signed_out' || kind === 'expired' || kind === 'failure') {
       void login.start();
     }
   }, [login]);
 
-  const enterLogin = useCallback((clearSync = true): void => {
+  const enterLogin = useCallback((clearSync = true, allowDuringLogout = false): void => {
     if (!activeRef.current) return;
     sessionGenerationRef.current += 1;
     stopLocalWorkspace();
@@ -68,7 +69,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     setLoadError(null);
     setScreen('login');
     if (typeof login.stop === 'function') login.stop();
-    startLogin();
+    startLogin(allowDuringLogout);
   }, [login, startLogin, stopLocalWorkspace, sync]);
 
   const bestEffortLogout = useCallback((): void => {
@@ -83,7 +84,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const recoverAuthRequired = useCallback((): void => {
     if (!activeRef.current || authRecoveryRef.current) return;
     authRecoveryRef.current = true;
-    enterLogin(true);
+    enterLogin(true, true);
     bestEffortLogout();
   }, [bestEffortLogout, enterLogin]);
 
@@ -141,6 +142,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const logout = useCallback((): void => {
     if (!activeRef.current || loggingOutRef.current) return;
     loggingOutRef.current = true;
+    const logoutRequest = ++logoutRequestRef.current;
     sessionGenerationRef.current += 1;
     stopLocalWorkspace();
     if (typeof sync.clear === 'function') sync.clear();
@@ -158,6 +160,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }
     void request.catch(() => undefined).finally(() => {
       if (!activeRef.current) return;
+      if (logoutRequest !== logoutRequestRef.current) return;
       loggingOutRef.current = false;
       startLogin();
     });
@@ -189,7 +192,11 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   useEffect(() => {
     const previousKind = previousLoginKindRef.current;
     previousLoginKindRef.current = loginState.kind;
-    if (loginState.kind === 'signed_in' && previousKind !== 'signed_in' && !loggingOutRef.current) {
+    if (loginState.kind === 'signed_in' && previousKind !== 'signed_in') {
+      if (loggingOutRef.current) {
+        loggingOutRef.current = false;
+        logoutRequestRef.current += 1;
+      }
       loadWorkspace(true);
     }
   }, [loadWorkspace, loginState.kind]);

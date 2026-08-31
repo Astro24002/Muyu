@@ -83,3 +83,35 @@ npm test -- --run
 ```
 
 The full-suite failures are the same pre-existing `test/workspace-actions.test.ts` failures recorded above: the create-task test observes zero mocked `createTask` calls, and the loading-rerender test observes an enabled create control. No new failing file was introduced by Fix Round 1.
+
+## Fix Round 2
+
+Date: 2026-08-31
+
+### Review fixes
+
+- Made every approval/comment/task async response generation-safe, including response assignment, state merges, nested reconciliation pulls, cursor-expiry snapshot recovery, and error/finally handling. `clear()` and `dispose()` also release queued pull waiters so session teardown cannot leave a caller blocked.
+- Added a controller-level pull queue. Pulls are serialized from the current cursor, duplicate and concurrent realtime hints are coalesced with the highest pending hint retained, and explicit write reconciliation pulls use the same queue without being dropped after an ACK advances the local cursor.
+- Realtime hints now pass their cursor to the controller. A socket reconnect performs an immediate catch-up pull before fallback polling is stopped; fallback and reconnect pulls share the controller queue.
+- Explicit logout now carries a request token. A new QR sign-in can load its workspace while the prior logout is pending, and a stale logout completion cannot clear the new session lifecycle. Auth-required recovery starts immediately even when an explicit logout is in flight.
+
+### Verification
+
+The new regressions were first run against `0010cf3` and failed on the expected missing guards, duplicate pulls, absent reconnect pull, and skipped new-session load. After the fixes:
+
+```text
+npm test -- --run test/routes.test.ts test/use-external-state.test.tsx test/app-lifecycle.test.tsx test/workspace-sync.test.ts test/app.test.ts test/qr-login.test.ts
+6 files passed, 56 tests passed
+
+npm run typecheck
+passed (tsc --noEmit)
+```
+
+The relevant legacy compatibility tests also pass:
+
+```text
+npm test -- --run test/app-shell.test.tsx test/app-session-isolation.test.ts test/qr-login.test.ts
+3 files passed, 21 tests passed
+```
+
+The full suite remains at 15 files passed, 1 file failed, 104 tests passed, and 2 tests failed. Both failures are the same pre-existing `test/workspace-actions.test.ts` failures documented in Fix Round 1; no new failing file was introduced by Fix Round 2.

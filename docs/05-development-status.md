@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15 以及 Android/Web 客户端边界 Tasks 1-8 已实现并完成本地收口验证；后续只剩部署到明确的新空数据库和真实设备验收。
+- 当前阶段：云端协调架构 Tasks 1-15 以及 Android/Web 客户端边界 Tasks 1-8 已实现，`v0.1.2` 已完成 CI 验证并发布；后续只剩真实 Android 设备验收。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -52,9 +52,21 @@
 - 环境说明：清华 PyPI 镜像在一次全新依赖安装中返回 HTTP 403；审批专项随后使用已准备的
   Python 3.12 依赖镜像复跑通过，不影响代码测试结果。
 - 首次 tag 验证发现 schema 测试在公共 schema 与隔离 schema 同时存在时重复聚合枚举值；已在
-  `89bd456` 中限定当前 schema，并在全新数据库复跑通过。待办：更新 `v0.1.2` tag、等待
-  CI/Release Actions 成功并确认 GitHub Release 仅包含
-  `Muyu-v0.1.2.apk`；真实 Android 扫码/安装验收仍取决于连接设备。
+  `89bd456` 中限定当前 schema，并在全新数据库复跑通过。随后将 `v0.1.2` 安全更新到
+  `7fa7762`，CI（[33348660152](https://github.com/Astro24002/Muyu/actions/runs/33348660152)）和
+  Release（[33348660116](https://github.com/Astro24002/Muyu/actions/runs/33348660116)）均成功。
+  GitHub Release 仅包含 `Muyu-v0.1.2.apk`，大小 `180,784,798` 字节，SHA-256 为
+  `5abca32227b80e822bfb07b25538fb8dfadcfb27145358606a3a713486e2ca67`；公开健康检查
+  `/health/live` 与 `/health/ready` 均返回 HTTP 200。真实 Android 扫码/安装验收仍取决于连接设备。
+
+### 2026-08-31 - v0.1.2 已发布
+
+- 类型：发布完成 / CI 验收。
+- Tag：`v0.1.2` 指向 `7fa776284b8dace75b827d3057cabffda1e606e8`。
+- GitHub Release：[木鱼协作 v0.1.2](https://github.com/Astro24002/Muyu/releases/tag/v0.1.2)，仅发布
+  `Muyu-v0.1.2.apk`；资产 SHA-256 为
+  `5abca32227b80e822bfb07b25538fb8dfadcfb27145358606a3a713486e2ca67`。
+- CI 的 Android、Web、后端和部署检查均成功；云协议和 Android 真机 job 按当前触发条件跳过。
 
 ### 2026-08-27 - Task Domain Completion: PostgreSQL Acceptance
 

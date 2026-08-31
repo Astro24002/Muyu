@@ -37,7 +37,7 @@ Items below remain unchecked unless the described release evidence is produced.
 - [x] Client boundary, legacy-runtime, CI-trigger and Compose topology checks passed.
 - [x] Version set to `0.1.2+1`; release APK filename reserved as
       `Muyu-v0.1.2.apk`.
-- [ ] Release APK build, checksum, GitHub tag/release and successful Action run.
+- [x] Release APK build, checksum, GitHub tag/release and successful Action run.
 
 ## 0.1.2 final verification (2026-08-31)
 
@@ -51,7 +51,12 @@ Items below remain unchecked unless the described release evidence is produced.
       two-person smoke: `1 passed` with `APPROVED` and final cursor `14`.
 - [x] Final Flutter: format unchanged, `flutter analyze` clean, `61 tests` passed.
 - [x] Final Web: `10` test files / `65 tests` passed, typecheck and Vite build passed.
-- [ ] GitHub tag, Release asset and successful GitHub Actions run; complete after publication.
+- [x] GitHub tag `v0.1.2` points to `7fa776284b8dace75b827d3057cabffda1e606e8`.
+      CI run [33348660152](https://github.com/Astro24002/Muyu/actions/runs/33348660152)
+      and Release run [33348660116](https://github.com/Astro24002/Muyu/actions/runs/33348660116)
+      completed successfully. The published [GitHub Release](https://github.com/Astro24002/Muyu/releases/tag/v0.1.2)
+      contains exactly one asset, `Muyu-v0.1.2.apk` (180,784,798 bytes),
+      SHA-256 `5abca32227b80e822bfb07b25538fb8dfadcfb27145358606a3a713486e2ca67`.
 
 The Tsinghua PyPI mirror returned HTTP 403 during one fresh dependency-install attempt.
 The same focused tests were then run in the prepared Python 3.12 dependency image
@@ -85,7 +90,8 @@ The same focused tests were then run in the prepared Python 3.12 dependency imag
 
 ## After release
 
-- [ ] Verify `/health/live` and `/health/ready` through the public TLS origin.
+- [x] Verify `/health/live` and `/health/ready` through the public TLS origin;
+      both returned HTTP 200 (`{"status":"live"}` and `{"status":"ready"}`).
 - [ ] Verify the first Android user can create a Workspace and then complete Web QR
       login at the public HTTPS origin.
 - [ ] Register the first Android account and verify the two-person workspace

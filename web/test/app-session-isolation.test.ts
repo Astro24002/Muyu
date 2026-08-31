@@ -5,6 +5,8 @@ import type { WebSessionSummary } from '../src/api/types';
 import { WorkspaceView } from '../src/ui/workspace-view';
 import type { WorkspaceSyncState } from '../src/sync/workspace-sync';
 
+const testNow = Date.parse('2026-08-28T12:00:00.000Z');
+
 describe('web session integration boundaries', () => {
   afterEach(() => document.body.replaceChildren());
 
@@ -25,7 +27,7 @@ describe('web session integration boundaries', () => {
       approveAndroidDevice: vi.fn(),
     };
 
-    const cleanup = WebSessionView.mount(root, api);
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -43,7 +45,7 @@ describe('web session integration boundaries', () => {
       revokeWebSession: vi.fn(),
       revokeAllWebSessions: vi.fn(),
     };
-    const oldCleanup = WebSessionView.mount(root, oldApi);
+    const oldCleanup = WebSessionView.mount(root, oldApi, { now: () => testNow });
     oldCleanup();
 
     const newSession: WebSessionSummary = {
@@ -58,7 +60,7 @@ describe('web session integration boundaries', () => {
       revokeWebSession: vi.fn(),
       revokeAllWebSessions: vi.fn(),
     };
-    const newCleanup = WebSessionView.mount(root, newApi);
+    const newCleanup = WebSessionView.mount(root, newApi, { now: () => testNow });
     resolveOld([{
       id: 'web-old',
       status: 'ACTIVE',

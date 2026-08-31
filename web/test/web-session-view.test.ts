@@ -18,6 +18,7 @@ const expiredSession: WebSessionSummary = {
   created_at: '2026-08-20T09:00:00.000Z',
   expires_at: '2026-08-21T03:00:00.000Z',
 };
+const testNow = Date.parse('2026-08-28T12:00:00.000Z');
 
 function apiStub(sessions: WebSessionSummary[] = [activeSession, expiredSession]) {
   return {
@@ -37,7 +38,7 @@ describe('WebSessionView', () => {
     const root = document.createElement('div');
     const api = apiStub();
 
-    const cleanup = WebSessionView.mount(root, api);
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow });
     await settle();
 
     expect(api.listWebSessions).toHaveBeenCalledOnce();
@@ -53,7 +54,7 @@ describe('WebSessionView', () => {
     const second = { ...activeSession, id: 'session-second', origin: 'https://second.example' };
     const api = apiStub([activeSession, second]);
 
-    const cleanup = WebSessionView.mount(root, api);
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow });
     await settle();
     root.querySelector<HTMLButtonElement>('[data-action="revoke"][data-session-id="session-active"]')!.click();
     await settle();
@@ -69,7 +70,7 @@ describe('WebSessionView', () => {
     const api = apiStub();
     api.revokeWebSession.mockRejectedValue(new Error('network'));
 
-    const cleanup = WebSessionView.mount(root, api);
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow });
     await settle();
     root.querySelector<HTMLButtonElement>('[data-action="revoke"]')!.click();
     await settle();
@@ -82,7 +83,7 @@ describe('WebSessionView', () => {
   it('clears active sessions after revoke-all succeeds', async () => {
     const root = document.createElement('div');
     const api = apiStub();
-    const cleanup = WebSessionView.mount(root, api);
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow });
     await settle();
 
     root.querySelector<HTMLButtonElement>('[data-action="revoke-all"]')!.click();
@@ -100,7 +101,7 @@ describe('WebSessionView', () => {
     const onAuthRequired = vi.fn();
     api.listWebSessions.mockRejectedValue(new ApiError(401, 'web_session_expired', 'expired'));
 
-    const cleanup = WebSessionView.mount(root, api, { onAuthRequired });
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow, onAuthRequired });
     await settle();
 
     expect(onAuthRequired).toHaveBeenCalledOnce();
@@ -114,7 +115,7 @@ describe('WebSessionView', () => {
     const api = apiStub();
     api.listWebSessions.mockReturnValue(new Promise((value) => { resolve = value; }));
 
-    const cleanup = WebSessionView.mount(root, api);
+    const cleanup = WebSessionView.mount(root, api, { now: () => testNow });
     cleanup();
     resolve([activeSession]);
     await settle();

@@ -55,3 +55,9 @@ The full suite was not rerun after this task because verification was intentiona
 - `web/test/today-page.test.tsx`
 - `web/test/all-tasks-page.test.tsx`
 - `web/test/task-composer.test.tsx`
+
+## Fix Round 1
+
+- Passed `disabled={busy}` from `AllTasksPage` to `TaskFilters`, so loading, stale, and auth-required sync states disable all filter controls.
+- Added a focused regression that updates the fake sync through each unavailable state and asserts the status, quadrant, label, and ownership controls are disabled.
+- Verification: `npm test -- --run test/all-tasks-page.test.tsx` passed (1 file, 3 tests); `npm run typecheck` passed.

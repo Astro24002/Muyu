@@ -43,7 +43,7 @@ export function AllTasksPage({ sync, onOpenTask, onCreateTask }: AllTasksPagePro
       </section>
 
       <section className="all-tasks-page__section" data-all-tasks-section="filters">
-        <TaskFilters value={filters} onChange={setFilters} />
+        <TaskFilters value={filters} onChange={setFilters} disabled={busy} />
       </section>
 
       <section className="all-tasks-page__section" data-all-tasks-section="list">

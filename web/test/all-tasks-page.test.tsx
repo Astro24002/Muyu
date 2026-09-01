@@ -85,10 +85,30 @@ describe('AllTasksPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
     expect(sync.transitionTask).toHaveBeenCalledWith(task.id, 'DONE');
   });
+
+  it('disables every filter control while sync is unavailable', () => {
+    const { sync, updateState } = createFakeSync([makeTask()]);
+    const { rerender } = render(<AllTasksPage sync={sync} onOpenTask={vi.fn()} onCreateTask={vi.fn()} />);
+    const getFilterControls = (): HTMLElement[] => [
+      screen.getByLabelText('状态'),
+      screen.getByLabelText('四象限'),
+      screen.getByLabelText('标签'),
+      screen.getByRole('checkbox', { name: '只看我的任务' }),
+    ];
+
+    for (const unavailableState of ['loading', 'stale', 'authRequired'] as const) {
+      updateState({ loading: false, stale: false, authRequired: false, [unavailableState]: true });
+      rerender(<AllTasksPage sync={sync} onOpenTask={vi.fn()} onCreateTask={vi.fn()} />);
+      getFilterControls().forEach((control) => expect(control).toBeDisabled());
+    }
+  });
 });
 
-function createFakeSync(tasks: TaskItem[]): { sync: WorkspaceSyncController } {
-  const state: WorkspaceSyncState = {
+function createFakeSync(tasks: TaskItem[]): {
+  sync: WorkspaceSyncController;
+  updateState: (patch: Partial<WorkspaceSyncState>) => void;
+} {
+  let state: WorkspaceSyncState = {
     snapshot: makeSnapshot(tasks),
     cursor: 1,
     loading: false,
@@ -107,8 +127,11 @@ function createFakeSync(tasks: TaskItem[]): { sync: WorkspaceSyncController } {
     transitionTask: vi.fn().mockResolvedValue(undefined),
     createTask: vi.fn().mockResolvedValue(undefined),
   } as unknown as WorkspaceSyncController;
-  void listeners;
-  return { sync };
+  const updateState = (patch: Partial<WorkspaceSyncState>): void => {
+    state = { ...state, ...patch };
+    listeners.forEach((listener) => listener(state));
+  };
+  return { sync, updateState };
 }
 
 function makeSnapshot(tasks: TaskItem[]): WorkspaceSnapshot {

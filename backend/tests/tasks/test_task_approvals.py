@@ -380,6 +380,45 @@ def test_approval_lifecycle_writes_activity_and_workspace_cursor(db_engine) -> N
         assert {"APPROVAL_REQUESTED", "APPROVAL_REJECTED"} <= event_types
 
 
+def test_handler_transfer_approval_changes_task_handler_to_other_active_member(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session)
+        task = _task(session, workspace, owner)
+        assert task.current_handler_id == owner.id
+        active_member_ids = set(
+            session.scalars(
+                select(WorkspaceMembership.user_id).where(
+                    WorkspaceMembership.workspace_id == workspace.id,
+                    WorkspaceMembership.status == MembershipStatus.ACTIVE,
+                )
+            ).all()
+        )
+        assert active_member_ids == {owner.id, requester.id}
+        assert requester.id != task.current_handler_id
+
+        service = TaskApprovalService(session)
+        request = service.create(
+            workspace.id,
+            requester.id,
+            uuid4(),
+            task.id,
+            TaskApprovalRequestType.HANDLER_TRANSFER,
+            {"current_handler_id": requester.id},
+            {"current_handler_id": task.field_versions["current_handler_id"]},
+        )
+
+        assert request.requester_id == requester.id
+        assert request.approver_id == owner.id
+        assert request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER
+        assert request.proposed_changes == {"current_handler_id": str(requester.id)}
+
+        result = service.approve(workspace.id, owner.id, request.id, uuid4())
+
+        assert result.request.status == TaskApprovalRequestStatus.APPROVED
+        assert result.task is task
+        assert task.current_handler_id == requester.id
+
+
 def test_specialized_task_approval_types_delegate_to_owner_task_service(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)

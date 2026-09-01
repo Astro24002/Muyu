@@ -24,7 +24,6 @@ TaskItem task(String title) => TaskItem(
   statusVersion: 1,
   createdAt: DateTime.utc(2026, 8, 24),
   updatedAt: DateTime.utc(2026, 8, 24),
-  assigneeIds: const ['user-1'],
   labels: const [],
 );
 
@@ -44,7 +43,6 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,

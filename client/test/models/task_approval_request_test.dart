@@ -26,7 +26,6 @@ Map<String, dynamic> taskJson() => {
   'status_version': 1,
   'created_at': '2026-08-28T00:00:00Z',
   'updated_at': '2026-08-28T00:00:00Z',
-  'assignee_ids': ['user-a', 'user-b'],
   'delay_count': 0,
   'total_delay_minutes': 0,
   'field_versions': {'title': 2, 'progress': 1},

@@ -68,6 +68,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     assert parent.status_code == 201, parent.text
     parent_body = parent.json()
     assert parent_body["status"] == "TODO"
+    assert "assignee_ids" not in parent_body
     child = client.post(
         "/api/v1/tasks",
         headers=headers,
@@ -76,10 +77,10 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
             "title": "Child",
             "quadrant": "Q1",
             "parent_task_id": parent_body["id"],
-            "assignee_ids": [parent_body["current_handler_id"]],
         },
     )
     assert child.status_code == 201, child.text
+    assert "assignee_ids" not in child.json()
 
     transition = client.post(
         f"/api/v1/tasks/{parent_body['id']}/transition",
@@ -118,6 +119,48 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     )
     assert nested.status_code == 422, nested.text
     assert nested.json()["code"] == "nested_task_not_allowed"
+
+
+def test_removed_assignee_fields_are_rejected_with_validation_envelope(db_engine) -> None:
+    client = _client(db_engine)
+    token = _authenticated(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "Owner task", "quadrant": "Q1"},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+
+    create_with_removed_field = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "Legacy task",
+            "quadrant": "Q1",
+            "assignee_ids": [task["current_handler_id"]],
+        },
+    )
+    patch_with_removed_field = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"assignee_ids": [task["current_handler_id"]]},
+            "base_field_versions": {"assignee_ids": 1},
+        },
+    )
+
+    for response in (create_with_removed_field, patch_with_removed_field):
+        assert response.status_code == 422, response.text
+        body = response.json()
+        assert body["code"] == "VALIDATION_ERROR"
+        assert body["message"] == "request validation failed"
+        assert isinstance(body["details"], list)
+        assert body["details"]
 
 
 def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_engine) -> None:

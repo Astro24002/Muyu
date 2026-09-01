@@ -59,7 +59,9 @@ def test_patch_validates_quadrant_progress_and_owner(db_engine) -> None:
     with Session(db_engine) as session:
         user_a, user_b, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
-        task = service.create(workspace.id, user_a.id, uuid4(), "Task", assignee_ids=[user_a.id, user_b.id], quadrant="Q1")
+        task = service.create(workspace.id, user_a.id, uuid4(), "Task", quadrant="Q1")
+        assert task.current_handler_id == user_a.id
+        assert "assignee_ids" not in service.snapshot(task)
         versions = task.field_versions
 
         task = service.transition(workspace.id, user_a.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)

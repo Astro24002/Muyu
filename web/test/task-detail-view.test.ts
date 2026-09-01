@@ -4,7 +4,7 @@ import { TaskDetailView } from '../src/ui/task-detail-view';
 import { WorkspaceView } from '../src/ui/workspace-view';
 import type { WorkspaceSyncState } from '../src/sync/workspace-sync';
 
-const task: TaskItem = { id: 'task-1', workspace_id: 'workspace-1', parent_task_id: null, title: 'Original', description: 'Details', due_at: null, status: 'TODO', current_handler_id: 'user-1', blocked_reason: null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'user-1', created_at: '2026-08-26T00:00:00Z', updated_at: '2026-08-26T00:00:00Z', assignee_ids: ['user-1'], delay_count: 0, total_delay_minutes: 0, version: 3, status_version: 2, field_versions: { title: 3, description: 2, quadrant: 1, labels: 1 }, lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: ['工作', '婚礼'] };
+const task: TaskItem = { id: 'task-1', workspace_id: 'workspace-1', parent_task_id: null, title: 'Original', description: 'Details', due_at: null, status: 'TODO', current_handler_id: 'user-1', blocked_reason: null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'user-1', created_at: '2026-08-26T00:00:00Z', updated_at: '2026-08-26T00:00:00Z', delay_count: 0, total_delay_minutes: 0, version: 3, status_version: 2, field_versions: { title: 3, description: 2, quadrant: 1, labels: 1 }, lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: ['工作', '婚礼'] };
 
 describe('TaskDetailView', () => {
   it('saves edited fields and exposes status, comment, delay and conflict actions', async () => {
@@ -75,8 +75,7 @@ describe('TaskDetailView', () => {
     const root = document.createElement('div');
     const onTransition = vi.fn(async () => undefined);
     const actions = { onTransition, onComment: vi.fn(async () => undefined), onDelay: vi.fn(async () => undefined), onSave: vi.fn(async () => undefined) };
-    const waitingTask = { ...task, assignee_ids: ['user-1', 'user-2'] };
-    const cleanup = TaskDetailView.mount(root, waitingTask, [{ user_id: 'user-1', member_slot: 1 }, { user_id: 'user-2', member_slot: 2 }], actions);
+    const cleanup = TaskDetailView.mount(root, task, [{ user_id: 'user-1', member_slot: 1 }, { user_id: 'user-2', member_slot: 2 }], actions);
     root.querySelector<HTMLSelectElement>('select[aria-label="状态"]')!.value = 'WAITING';
     root.querySelector<HTMLInputElement>('input[aria-label="阻塞原因"]')!.value = '需要确认';
     root.querySelector<HTMLSelectElement>('select[aria-label="恢复负责人"]')!.value = 'user-2';

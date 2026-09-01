@@ -6,8 +6,7 @@ TaskItem makeTask(
   String id,
   String status,
   DateTime? due, {
-  String handler = 'u2',
-  List<String> assignees = const ['u1'],
+  String handler = 'u1',
   String quadrant = 'Q1',
   List<String> labels = const [],
   DateTime? updatedAt,
@@ -30,7 +29,6 @@ TaskItem makeTask(
   statusVersion: 1,
   createdAt: DateTime.utc(2026),
   updatedAt: updatedAt ?? DateTime.utc(2026),
-  assigneeIds: assignees,
 );
 
 void main() {
@@ -49,6 +47,20 @@ void main() {
       'overdue': 0,
     });
   });
+
+  test(
+    'filters mine by current handler and ignores another member history',
+    () {
+      final tasks = [
+        makeTask('owned-by-me', 'TODO', null, handler: 'u1'),
+        makeTask('owned-by-other', 'TODO', null, handler: 'u2'),
+      ];
+
+      expect(TaskView.mine(tasks, 'u1').map((task) => task.id), [
+        'owned-by-me',
+      ]);
+    },
+  );
 
   test('byStatus exposes only the fixed lifecycle groups', () {
     final grouped = TaskView.byStatus([

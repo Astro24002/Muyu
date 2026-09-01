@@ -24,7 +24,6 @@ TaskItem detailTask() => TaskItem(
   statusVersion: 7,
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
-  assigneeIds: const ['user-1'],
   labels: const [],
   fieldVersions: const {'title': 3, 'description': 2},
 );
@@ -67,7 +66,6 @@ class RecordingRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
@@ -176,13 +174,12 @@ void main() {
         find.byKey(const Key('task-detail-estimated-minutes')),
         '45',
       );
-      await tester.ensureVisible(find.byKey(const Key('task-assignee-user-2')));
-      await tester.tap(find.byKey(const Key('task-assignee-user-2')));
+      expect(find.byType(FilterChip), findsNothing);
       await tester.ensureVisible(find.byKey(const Key('task-save-button')));
       await tester.tap(find.byKey(const Key('task-save-button')));
       await tester.pumpAndSettle();
       expect(repository.updatedFields?['estimated_minutes'], 45);
-      expect(repository.updatedFields?['assignee_ids'], contains('user-2'));
+      expect(repository.updatedFields, isNot(contains('assignee_ids')));
 
       expect(
         find.byKey(const Key('resolve-conflict-conflict-1')),

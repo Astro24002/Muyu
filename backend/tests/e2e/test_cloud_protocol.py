@@ -149,13 +149,20 @@ def test_cloud_protocol_registration_invitation_sync_and_web_approval() -> None:
         )
         assert task.status_code == 201, task.text
         task_id = task.json()["id"]
+        assert "assignee_ids" not in task.json()
         assert client.get("/api/v1/tasks", headers=headers_b).status_code == 200
 
         snapshot = client.get("/api/v1/workspaces/current/snapshot", headers=headers_b)
         assert snapshot.status_code == 200, snapshot.text
         assert any(item["id"] == task_id for item in snapshot.json()["tasks"])
+        assert all("assignee_ids" not in item for item in snapshot.json()["tasks"])
         changes = client.get("/api/v1/workspaces/current/changes?after_cursor=0", headers=headers_b)
         assert changes.status_code == 200, changes.text
+        assert all(
+            "assignee_ids" not in item["resource"]
+            for item in changes.json()["changes"]
+            if item["resource_type"] == "task" and item["resource"] is not None
+        )
 
         proof = "browser-proof-" + _request_id()
         challenge_response = client.post(
@@ -274,23 +281,25 @@ def test_two_user_task_workflow_postgresql(db_engine) -> None:
             "description": "initial description",
             "quadrant": "Q2",
             "due_at": due_at,
-            "assignee_ids": [str(user_a_id), str(user_b_id)],
         },
     )
     assert created.status_code == 201, created.text
     task = created.json()
     task_id = task["id"]
     assert task["cursor"] == 1
-    assert set(task["assignee_ids"]) == {str(user_a_id), str(user_b_id)}
+    assert task["current_handler_id"] == str(user_a_id)
+    assert "assignee_ids" not in task
 
     b_snapshot = client.get("/api/v1/workspaces/current/snapshot", headers=headers_b)
     assert b_snapshot.status_code == 200, b_snapshot.text
     assert b_snapshot.json()["cursor"] == task["cursor"]
     assert b_snapshot.json()["tasks"][0]["id"] == task_id
+    assert "assignee_ids" not in b_snapshot.json()["tasks"][0]
     b_changes = client.get("/api/v1/workspaces/current/changes?after_cursor=0", headers=headers_b)
     assert b_changes.status_code == 200, b_changes.text
     assert [item["cursor"] for item in b_changes.json()["changes"]] == [1]
     assert b_changes.json()["changes"][0]["resource"]["title"] == "Shared acceptance task"
+    assert "assignee_ids" not in b_changes.json()["changes"][0]["resource"]
 
     current = client.patch(
         f"/api/v1/tasks/{task_id}",

@@ -96,7 +96,6 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
             "TASK_DELETE",
             "TASK_RESTORE",
             "COMMENT_DELETE",
-            "ASSIGNEE_UPDATE",
             "HANDLER_TRANSFER",
         ],
         "task_quadrant": ["Q1", "Q2", "Q3", "Q4"],

@@ -3,13 +3,19 @@ import { deriveTaskSummary, filterMyTasks, groupTasksByStatus } from '../src/tas
 import { parseTaskItem, parseTaskLabels } from '../src/tasks/task-model';
 import type { TaskItem } from '../src/api/types';
 
-const task = (id: string, status: TaskItem['status'], due_at: string | null, assignee_ids = ['u1'], current_handler_id = 'u2'): TaskItem => ({ id, workspace_id: 'w', parent_task_id: null, title: id, description: '', due_at, status, current_handler_id, blocked_reason: status === 'WAITING' ? '原因' : null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'u1', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', assignee_ids, delay_count: 0, total_delay_minutes: 0, version: 1, status_version: 1, field_versions: { quadrant: 1, labels: 1 }, lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: [] });
+const task = (id: string, status: TaskItem['status'], due_at: string | null, current_handler_id = 'u1'): TaskItem => ({ id, workspace_id: 'w', parent_task_id: null, title: id, description: '', due_at, status, current_handler_id, blocked_reason: status === 'WAITING' ? '原因' : null, blocked_since: null, resume_handler_id: null, waiting_for_user_id: null, planned_start_at: null, estimated_minutes: null, completed_at: null, created_by: 'u1', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', delay_count: 0, total_delay_minutes: 0, version: 1, status_version: 1, field_versions: { quadrant: 1, labels: 1 }, lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: [] });
 
 describe('task projections', () => {
-  it('keeps all five status groups and filters handler or assignee matches', () => {
-    const tasks = [task('todo', 'TODO', null), task('waiting', 'WAITING', null, ['u2']), task('done', 'DONE', null)];
+  it('keeps all five status groups and filters by current handler', () => {
+    const tasks = [task('todo', 'TODO', null), task('waiting', 'WAITING', null, 'u2'), task('done', 'DONE', null)];
     expect(Object.keys(groupTasksByStatus(tasks))).toEqual(['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCELLED']);
     expect(filterMyTasks(tasks, 'u1').map((item) => item.id)).toEqual(['todo', 'done']);
+  });
+
+  it('excludes a task owned by the other member from my tasks', () => {
+    const tasks = [task('mine', 'TODO', null, 'u1'), task('other', 'TODO', null, 'u2')];
+
+    expect(filterMyTasks(tasks, 'u1').map((item) => item.id)).toEqual(['mine']);
   });
 
   it('does not count completed tasks as overdue', () => {

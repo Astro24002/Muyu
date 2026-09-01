@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:muyu_client/auth/mobile_session_store.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/task.dart';
+import 'package:muyu_client/models/task_overview.dart';
 import 'package:muyu_client/models/user.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
@@ -23,16 +24,19 @@ TaskItem task(
   String id,
   String title, {
   String status = 'TODO',
+  String currentHandlerId = 'user-1',
   DateTime? dueAt,
   List<String> labels = const [],
   String? parentTaskId,
+  int delayCount = 0,
+  int totalDelayMinutes = 0,
 }) => TaskItem(
   id: id,
   parentTaskId: parentTaskId,
   title: title,
   description: '',
   status: status,
-  currentHandlerId: 'user-1',
+  currentHandlerId: currentHandlerId,
   quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: dueAt,
@@ -43,8 +47,9 @@ TaskItem task(
   statusVersion: 1,
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
-  assigneeIds: const ['user-1'],
   labels: labels,
+  delayCount: delayCount,
+  totalDelayMinutes: totalDelayMinutes,
 );
 
 class FakeTaskRepository implements WorkspaceSyncRepository {
@@ -83,7 +88,6 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
@@ -218,6 +222,36 @@ Future<WorkspaceSyncController> readyController(FakeTaskRepository repo) async {
 }
 
 void main() {
+  test(
+    'Android profile overview counts owned parents and children independently',
+    () {
+      final overview = TaskOverview.fromTasks([
+        task('parent', 'Parent', delayCount: 2, totalDelayMinutes: 90),
+        task(
+          'child',
+          'Child',
+          status: 'DONE',
+          parentTaskId: 'parent',
+          delayCount: 1,
+          totalDelayMinutes: 60,
+        ),
+        task(
+          'other-owner',
+          'Other owner',
+          currentHandlerId: 'user-2',
+          delayCount: 8,
+          totalDelayMinutes: 480,
+        ),
+      ], 'user-1');
+
+      expect(overview.taskCount, 2);
+      expect(overview.unfinishedCount, 1);
+      expect(overview.completedCount, 1);
+      expect(overview.delayCount, 3);
+      expect(overview.totalDelayMinutes, 150);
+    },
+  );
+
   const loggedInSession = MobileSession(
     accessToken: 'access',
     refreshToken: 'refresh',

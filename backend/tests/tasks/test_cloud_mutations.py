@@ -93,9 +93,11 @@ def test_snapshot_and_changes_are_workspace_scoped(db_engine) -> None:
         snapshot = SyncService(session).snapshot(workspace.id)
         assert snapshot["cursor"] == 1
         assert snapshot["tasks"][0]["title"] == "Visible"
+        assert "assignee_ids" not in snapshot["tasks"][0]
         changes = SyncService(session).changes(workspace.id, 0)
         assert changes["cursor"] == 1
         assert changes["changes"][0]["resource_type"] == "task"
+        assert "assignee_ids" not in changes["changes"][0]["resource"]
 
 
 def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
@@ -108,12 +110,10 @@ def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
             user_a.id,
             request_id,
             "  Explicit fields  ",
-            "Details",
-            datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
-            None,
-            [user_a.id, user_b.id],
-            datetime(2026, 8, 28, 9, tzinfo=timezone.utc),
-            90,
+            description="Details",
+            due_at=datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
+            planned_start_at=datetime(2026, 8, 28, 9, tzinfo=timezone.utc),
+            estimated_minutes=90,
             quadrant="Q1",
         )
         first_cursor = service.last_cursor
@@ -123,8 +123,8 @@ def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
         assert snapshot["due_at"] == "2026-09-01T12:00:00+00:00"
         assert snapshot["planned_start_at"] == "2026-08-28T09:00:00+00:00"
         assert snapshot["estimated_minutes"] == 90
-        assert set(snapshot["assignee_ids"]) == {str(user_a.id), str(user_b.id)}
         assert snapshot["current_handler_id"] == str(user_a.id)
+        assert "assignee_ids" not in snapshot
         assert snapshot["status"] == "TODO"
         replay_service = TaskService(session)
         replay = replay_service.create(
@@ -132,12 +132,10 @@ def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
             user_a.id,
             request_id,
             "Explicit fields",
-            "Details",
-            datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
-            None,
-            [user_a.id, user_b.id],
-            datetime(2026, 8, 28, 9, tzinfo=timezone.utc),
-            90,
+            description="Details",
+            due_at=datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
+            planned_start_at=datetime(2026, 8, 28, 9, tzinfo=timezone.utc),
+            estimated_minutes=90,
             quadrant="Q1",
         )
         assert replay.id == task.id

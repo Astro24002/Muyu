@@ -17,7 +17,6 @@ from app.db.enums import (
 from app.db.models import (
     ActivityEvent,
     TaskApprovalRequest,
-    TaskAssignee,
     TaskComment,
     TaskOperation,
     Task,
@@ -53,13 +52,12 @@ def _workspace(session: Session, member_count: int = 2, phone_seed: int = 8000) 
     return users, workspace
 
 
-def _task(session: Session, workspace: Workspace, owner: User, *assignees: User):
+def _task(session: Session, workspace: Workspace, owner: User):
     return TaskService(session).create(
         workspace.id,
         owner.id,
         uuid4(),
         "Original",
-        assignee_ids=[item.id for item in (owner, *assignees)] or None,
         quadrant="Q1",
     )
 
@@ -88,8 +86,9 @@ def _create_update(
 def test_create_derives_the_only_other_active_member_and_keeps_task_unchanged(db_engine) -> None:
     with Session(db_engine) as session:
         [requester, approver], workspace = _workspace(session)
-        task = _task(session, workspace, requester, approver)
+        task = _task(session, workspace, requester)
         before = TaskService(session).snapshot(task)
+        assert "assignee_ids" not in before
 
         request = _create_update(session, workspace, approver, task.id)
 
@@ -121,7 +120,7 @@ def test_create_rejects_workspaces_without_exactly_two_active_members(db_engine,
 def test_create_rejects_self_and_cross_workspace_requests(db_engine) -> None:
     with Session(db_engine) as session:
         [user_a, user_b], workspace = _workspace(session)
-        task = _task(session, workspace, user_a, user_b)
+        task = _task(session, workspace, user_a)
         service = TaskApprovalService(session)
 
         with pytest.raises(TaskConflictError) as self_error:
@@ -153,7 +152,7 @@ def test_create_rejects_self_and_cross_workspace_requests(db_engine) -> None:
 def test_request_id_replay_is_immutable_and_mismatch_is_rejected(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         request_id = uuid4()
         proposed = {"title": "Proposed"}
         service = TaskApprovalService(session)
@@ -214,10 +213,21 @@ def test_create_schema_forbids_unknown_fields_and_mismatched_versions() -> None:
         )
 
 
+def test_create_schema_rejects_removed_assignee_approval_type() -> None:
+    with pytest.raises(ValueError):
+        ApprovalRequestCreate(
+            request_id=uuid4(),
+            task_id=uuid4(),
+            request_type="ASSIGNEE_UPDATE",
+            proposed_changes={},
+            base_field_versions={},
+        )
+
+
 def test_list_filters_incoming_and_outgoing_boxes(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         service = TaskApprovalService(session)
         outgoing = _create_update(session, workspace, requester, task.id)
 
@@ -233,7 +243,7 @@ def test_list_filters_incoming_and_outgoing_boxes(db_engine) -> None:
 def test_approve_requires_derived_active_approver_and_applies_once(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         approval = _create_update(session, workspace, requester, task.id)
         service = TaskApprovalService(session)
 
@@ -267,7 +277,7 @@ def test_approve_requires_derived_active_approver_and_applies_once(db_engine) ->
 def test_reject_and_cancel_are_one_time_and_do_not_mutate_target(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         service = TaskApprovalService(session)
         rejected = _create_update(session, workspace, requester, task.id)
         rejection = service.reject(workspace.id, owner.id, rejected.id, uuid4(), "Not now")
@@ -292,7 +302,7 @@ def test_reject_and_cancel_are_one_time_and_do_not_mutate_target(db_engine) -> N
 def test_stale_field_marks_request_conflicted_without_overwriting_new_value(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         approval = _create_update(session, workspace, requester, task.id)
         TaskService(session).patch(workspace.id, owner.id, task.id, uuid4(), {"title": "Owner edit"}, {"title": 1})
 
@@ -306,7 +316,7 @@ def test_stale_field_marks_request_conflicted_without_overwriting_new_value(db_e
 def test_stale_pending_requests_can_be_cancelled_after_handler_change(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         approval = _create_update(session, workspace, requester, task.id)
         TaskService(session).patch(
             workspace.id,
@@ -329,7 +339,7 @@ def test_stale_pending_requests_can_be_cancelled_after_handler_change(db_engine)
 def test_comment_delete_approval_is_approved_by_comment_author(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, author], workspace = _workspace(session)
-        task = _task(session, workspace, owner, author)
+        task = _task(session, workspace, owner)
         comment = TaskService(session).add_comment(workspace.id, author.id, task.id, "Keep audit")
         service = TaskApprovalService(session)
         approval = service.create(
@@ -355,7 +365,7 @@ def test_comment_delete_approval_is_approved_by_comment_author(db_engine) -> Non
 def test_approval_lifecycle_writes_activity_and_workspace_cursor(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         service = TaskApprovalService(session)
         request = _create_update(session, workspace, requester, task.id)
         creation_cursor = session.scalar(
@@ -373,7 +383,7 @@ def test_approval_lifecycle_writes_activity_and_workspace_cursor(db_engine) -> N
 def test_specialized_task_approval_types_delegate_to_owner_task_service(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         task = TaskService(session).transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         service = TaskApprovalService(session)
 
@@ -405,7 +415,7 @@ def test_specialized_task_approval_types_delegate_to_owner_task_service(db_engin
 def test_task_delete_and_restore_approvals_preserve_lifecycle_rules(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         service = TaskApprovalService(session)
         delete_request = service.create(
             workspace.id,
@@ -435,7 +445,7 @@ def test_task_delete_and_restore_approvals_preserve_lifecycle_rules(db_engine) -
 def test_approval_rejects_disabled_principal_and_unknown_request(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
-        task = _task(session, workspace, owner, requester)
+        task = _task(session, workspace, owner)
         approval = _create_update(session, workspace, requester, task.id)
         owner.status = UserStatus.DISABLED
         with pytest.raises(TaskConflictError) as disabled:

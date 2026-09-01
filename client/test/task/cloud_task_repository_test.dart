@@ -27,7 +27,6 @@ void main() {
     'lifecycle_version': 1,
     'created_at': '2026-08-24T00:00:00Z',
     'updated_at': '2026-08-24T00:00:00Z',
-    'assignee_ids': ['user-1'],
     'field_versions': {'title': 1},
   };
 
@@ -57,6 +56,7 @@ void main() {
       expect(request.headers['x-request-id'], 'request-1');
       expect(body['base_field_versions'], {'title': 4});
       expect(body['changes'], {'title': 'New title'});
+      expect(body, isNot(contains('assignee_ids')));
     },
   );
 
@@ -101,6 +101,7 @@ void main() {
       expect(body['labels'], ['工作', '重要']);
       expect(body['planned_start_at'], '2026-08-24T00:00:00Z');
       expect(body['estimated_minutes'], 30);
+      expect(body, isNot(contains('assignee_ids')));
       expect(result.title, 'New title');
     },
   );

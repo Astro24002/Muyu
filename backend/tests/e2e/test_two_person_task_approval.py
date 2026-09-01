@@ -32,7 +32,6 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
             "title": "Shared task",
             "quadrant": "Q2",
             "labels": ["工作", "婚礼"],
-            "assignee_ids": [owner["user"]["id"], partner["user"]["id"]],
         },
     )
     assert created_response.status_code == 201, created_response.text
@@ -42,6 +41,8 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert task["task_number"].isdigit()
     assert task["quadrant"] == "Q2"
     assert task["labels"] == ["工作", "婚礼"]
+    assert task["current_handler_id"] == owner["user"]["id"]
+    assert "assignee_ids" not in task
 
     pending_response = client.patch(
         f"/api/v1/tasks/{task_id}",
@@ -72,6 +73,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert approved.status_code == 200, approved.text
     assert approved.json()["approval_request"]["status"] == "APPROVED"
     assert approved.json()["task"]["title"] == "Partner proposal"
+    assert "assignee_ids" not in approved.json()["task"]
 
     partner_snapshot = client.get(
         "/api/v1/workspaces/current/snapshot", headers=partner_headers
@@ -81,6 +83,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert partner_snapshot.json()["tasks"][0]["title"] == "Partner proposal"
     assert partner_snapshot.json()["tasks"][0]["quadrant"] == "Q2"
     assert partner_snapshot.json()["tasks"][0]["labels"] == ["工作", "婚礼"]
+    assert "assignee_ids" not in partner_snapshot.json()["tasks"][0]
 
     comment = client.post(
         f"/api/v1/tasks/{task_id}/comments",
@@ -172,6 +175,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert owner_final.json()["tasks"] == partner_final.json()["tasks"]
     assert owner_final.json()["tasks"][0]["quadrant"] == "Q2"
     assert owner_final.json()["tasks"][0]["labels"] == ["工作", "婚礼"]
+    assert "assignee_ids" not in owner_final.json()["tasks"][0]
     assert any(item["id"] == comment_id and item["deleted_at"] for item in owner_final.json()["comments"])
     print(
         "two-person task approval smoke: "

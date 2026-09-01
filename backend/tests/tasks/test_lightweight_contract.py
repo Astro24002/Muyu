@@ -2,11 +2,10 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
-from app.db.models import TaskAssignee, User, Workspace, WorkspaceCursor, WorkspaceMembership
+from app.db.models import User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
 
@@ -23,13 +22,14 @@ def _workspace_with_two_users(session):
     return users[0], users[1], workspace
 
 
-def test_create_one_level_subtask_and_assignees(db_engine):
+def test_create_one_level_subtask_uses_only_current_handler(db_engine):
     with Session(db_engine) as session:
         user_a, user_b, workspace = _workspace_with_two_users(session)
         parent = TaskService(session).create(workspace.id, user_a.id, uuid4(), "父任务", quadrant="Q1")
-        child = TaskService(session).create(workspace.id, user_a.id, uuid4(), "子任务", parent_task_id=parent.id, assignee_ids=[user_a.id, user_b.id], quadrant="Q1")
+        child = TaskService(session).create(workspace.id, user_a.id, uuid4(), "子任务", parent_task_id=parent.id, quadrant="Q1")
         assert child.parent_task_id == parent.id
-        assert set(session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == child.id))) == {user_a.id, user_b.id}
+        assert child.current_handler_id == user_a.id
+        assert "assignee_ids" not in TaskService(session).snapshot(child)
         with pytest.raises(TaskConflictError) as error:
             TaskService(session).create(workspace.id, user_a.id, uuid4(), "二层", parent_task_id=child.id, quadrant="Q1")
         assert error.value.code == "nested_task_not_allowed"

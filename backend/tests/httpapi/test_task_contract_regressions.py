@@ -54,11 +54,41 @@ def test_create_contract_exposes_versions_and_cursor(db_engine) -> None:
     assert body["status"] == "TODO"
     assert body["quadrant"] == "Q1"
     assert body["labels"] == ["工作"]
-    assert isinstance(body["assignee_ids"], list) and len(body["assignee_ids"]) == 1
-    assert body["current_handler_id"] == body["assignee_ids"][0]
+    assert body["current_handler_id"]
+    assert "assignee_ids" not in body
     assert body["version"] == 1
     assert body["field_versions"]["title"] == 1
     assert body["cursor"] == 1
+
+    updated = client.patch(
+        f"/api/v1/tasks/{body['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Updated contract task"},
+            "base_field_versions": {"title": body["field_versions"]["title"]},
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert "assignee_ids" not in updated.json()
+
+    detail = client.get(f"/api/v1/tasks/{body['id']}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert "assignee_ids" not in detail.json()
+
+    snapshot = client.get("/api/v1/workspaces/current/snapshot", headers=headers)
+    assert snapshot.status_code == 200, snapshot.text
+    assert all("assignee_ids" not in task for task in snapshot.json()["tasks"])
+
+    changes = client.get(
+        "/api/v1/workspaces/current/changes?after_cursor=0", headers=headers
+    )
+    assert changes.status_code == 200, changes.text
+    assert all(
+        "assignee_ids" not in change["resource"]
+        for change in changes.json()["changes"]
+        if change["resource_type"] == "task" and change["resource"] is not None
+    )
 
 
 def test_create_rejects_empty_or_whitespace_title(db_engine) -> None:

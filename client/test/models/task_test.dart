@@ -25,7 +25,6 @@ void main() {
       'status_version': 1,
       'created_at': '2026-08-17T00:00:00Z',
       'updated_at': '2026-08-17T00:00:00Z',
-      'assignee_ids': ['user-a', 'user-b'],
       'delay_count': 3,
       'total_delay_minutes': 8640,
     });
@@ -35,7 +34,7 @@ void main() {
     expect(task.labels, ['工作', '婚礼']);
     expect(task.plannedStartAt, DateTime.utc(2026, 9, 1, 1));
     expect(task.dueAt, isNull);
-    expect(task.assigneeIds, ['user-a', 'user-b']);
+    expect(task.toJson(), isNot(contains('assignee_ids')));
     expect(task.blockedReason, '等待确认');
     expect(task.blockedSince, DateTime.utc(2026, 9, 1, 2));
     expect(task.resumeHandlerId, 'user-b');
@@ -67,7 +66,6 @@ void main() {
       'status_version': 1,
       'created_at': '2026-08-28T00:00:00Z',
       'updated_at': '2026-08-28T01:00:00Z',
-      'assignee_ids': ['user-a'],
       'delay_count': 0,
       'total_delay_minutes': 0,
       'field_versions': const <String, int>{},
@@ -97,7 +95,6 @@ void main() {
       'status_version': 1,
       'created_at': '2026-08-17T00:00:00Z',
       'updated_at': '2026-08-17T00:00:00Z',
-      'assignee_ids': ['user-a'],
     };
 
     expect(() => TaskItem.fromJson(json), throwsA(isA<FormatException>()));
@@ -123,7 +120,6 @@ void main() {
       statusVersion: 1,
       createdAt: DateTime.utc(2026, 8, 17),
       updatedAt: DateTime.utc(2026, 8, 17),
-      assigneeIds: const ['user-a'],
     );
 
     labels.add('婚礼');
@@ -151,7 +147,6 @@ void main() {
       'status_version': 1,
       'created_at': '2026-08-17T00:00:00Z',
       'updated_at': '2026-08-17T00:00:00Z',
-      'assignee_ids': ['user-a'],
     };
 
     final task = TaskItem.fromJson(json);
@@ -178,7 +173,6 @@ void main() {
       'status_version': 1,
       'created_at': '2026-08-17T00:00:00Z',
       'updated_at': '2026-08-17T00:00:00Z',
-      'assignee_ids': ['user-a'],
     };
 
     expect(() => TaskItem.fromJson(json), throwsA(isA<FormatException>()));

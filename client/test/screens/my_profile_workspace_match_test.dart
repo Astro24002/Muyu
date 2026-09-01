@@ -3,9 +3,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/auth/mobile_session_store.dart';
+import 'package:muyu_client/models/task.dart';
+import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/models/user.dart';
 import 'package:muyu_client/platform/device_signing_key.dart';
 import 'package:muyu_client/screens/my_profile_screen.dart';
+import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/workspace/device_authorization_repository.dart';
 import 'package:muyu_client/workspace/device_repository.dart';
 import 'package:muyu_client/workspace/workspace_bootstrap_repository.dart';
@@ -159,7 +162,170 @@ class FakeSigningKey implements DeviceSigningKey {
   Future<void> deleteKey() async {}
 }
 
+TaskItem profileTask(
+  String id, {
+  String status = 'TODO',
+  String currentHandlerId = 'user-1',
+  String? parentTaskId,
+  int delayCount = 0,
+  int totalDelayMinutes = 0,
+}) => TaskItem(
+  id: id,
+  parentTaskId: parentTaskId,
+  title: id,
+  description: '',
+  status: status,
+  currentHandlerId: currentHandlerId,
+  quadrant: 'Q1',
+  plannedStartAt: null,
+  dueAt: null,
+  estimatedMinutes: null,
+  completedAt: status == 'DONE' ? DateTime.utc(2026, 9, 1) : null,
+  createdBy: 'user-1',
+  version: 1,
+  statusVersion: 1,
+  createdAt: DateTime.utc(2026, 9, 1),
+  updatedAt: DateTime.utc(2026, 9, 1),
+  delayCount: delayCount,
+  totalDelayMinutes: totalDelayMinutes,
+);
+
+WorkspaceSyncController profileSync() {
+  final controller = WorkspaceSyncController.unavailable();
+  controller.state = WorkspaceSyncState(
+    snapshot: WorkspaceSnapshot(
+      workspaceId: 'workspace-1',
+      cursor: 1,
+      viewerUserId: 'user-1',
+      tasks: [
+        profileTask('mine', delayCount: 2, totalDelayMinutes: 90),
+        profileTask(
+          'mine-child',
+          status: 'DONE',
+          parentTaskId: 'mine',
+          delayCount: 1,
+          totalDelayMinutes: 60,
+        ),
+        profileTask(
+          'partner-task',
+          currentHandlerId: 'user-2',
+          delayCount: 4,
+          totalDelayMinutes: 240,
+        ),
+      ],
+    ),
+    isStale: false,
+  );
+  return controller;
+}
+
 void main() {
+  testWidgets('updates the overview from successful snapshots only', (
+    tester,
+  ) async {
+    final sync = profileSync();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyProfileScreen(
+          session: _session,
+          repository: FakeDeviceRepository(),
+          workspaceRepository: FakeWorkspaceRepository(),
+          sync: sync,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(find.byKey(const Key('profile-overview-task-count')))
+          .data,
+      '2',
+    );
+
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 2,
+        viewerUserId: 'user-1',
+        tasks: [profileTask('new-mine')],
+      ),
+      isStale: false,
+    );
+    sync.notifyListeners();
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<Text>(find.byKey(const Key('profile-overview-task-count')))
+          .data,
+      '1',
+    );
+
+    final lastKnownGood = sync.state.snapshot;
+    sync.state = WorkspaceSyncState(
+      snapshot: lastKnownGood,
+      isStale: true,
+      errorMessage: 'snapshot unavailable',
+    );
+    sync.notifyListeners();
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<Text>(find.byKey(const Key('profile-overview-task-count')))
+          .data,
+      '1',
+    );
+  });
+
+  testWidgets('shows a compact matched account and partner overview sheet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyProfileScreen(
+          session: _session,
+          repository: FakeDeviceRepository(),
+          workspaceRepository: FakeWorkspaceRepository(),
+          sync: profileSync(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile-account-card')), findsOneWidget);
+    expect(find.text('Muyu'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('profile-current-phone'))).data,
+      '+86******0000',
+    );
+    expect(find.textContaining('已匹配'), findsOneWidget);
+    expect(
+      find.byKey(const Key('profile-overview-task-count')),
+      findsOneWidget,
+    );
+    expect(find.text('2'), findsWidgets);
+    expect(find.byKey(const Key('profile-partner-avatar')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('profile-partner-avatar')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile-partner-sheet')), findsOneWidget);
+    expect(find.text('对方'), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('profile-partner-sheet')),
+        matching: find.text('已加入'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('profile-partner-overview-task-count')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('shows workspace matching and approves an incoming device', (
     tester,
   ) async {

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../auth/mobile_session_store.dart';
 import '../devices/device_management_repository.dart';
+import '../models/task_overview.dart';
 import '../platform/device_signing_key.dart';
+import '../sync/workspace_sync_controller.dart';
 import '../workspace/device_authorization_repository.dart';
 import '../workspace/device_repository.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
@@ -17,6 +19,7 @@ class MyProfileScreen extends StatefulWidget {
     this.authorizationRepository,
     this.signingKey,
     this.enrollmentReady,
+    this.sync,
     this.canWrite = true,
     this.showAppBar = true,
     this.onWebQrLogin,
@@ -29,6 +32,7 @@ class MyProfileScreen extends StatefulWidget {
   final DeviceAuthorizationRepository? authorizationRepository;
   final DeviceSigningKey? signingKey;
   final Future<void>? enrollmentReady;
+  final WorkspaceSyncController? sync;
   final bool canWrite;
   final bool showAppBar;
   final VoidCallback? onWebQrLogin;
@@ -55,9 +59,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   Future<void> _refresh() async {
     final next = _loadProfile();
+    final syncRefresh = widget.sync?.refresh();
     setState(() => _profile = next);
     try {
       await next;
+      if (syncRefresh != null) await syncRefresh;
     } catch (_) {
       // FutureBuilder keeps the stable error state visible.
     }
@@ -88,35 +94,42 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final content = widget.sync == null
+        ? _profileBody(context)
+        : AnimatedBuilder(
+            animation: widget.sync!,
+            builder: (context, _) => _profileBody(context),
+          );
+    if (!widget.showAppBar) return content;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('我的'),
+        actions: [
+          IconButton(
+            tooltip: '刷新设备',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
+          if (widget.onWebQrLogin != null)
+            IconButton(
+              key: const Key('profile-web-qr-login'),
+              tooltip: '扫码登录 Web',
+              onPressed: widget.onWebQrLogin,
+              icon: const Icon(Icons.qr_code_scanner),
+            ),
+        ],
+      ),
+      body: content,
+    );
+  }
+
+  Widget _profileBody(BuildContext context) {
     final body = RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.account_circle_outlined),
-              title: Text(
-                widget.session.user.nickname.isEmpty
-                    ? '我的账号'
-                    : widget.session.user.nickname,
-              ),
-              subtitle: Text(widget.session.user.phone),
-            ),
-          ),
-          if (widget.onWebQrLogin != null) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                key: const Key('profile-web-qr-login'),
-                leading: const Icon(Icons.qr_code_scanner),
-                title: const Text('扫码登录 Web'),
-                onTap: widget.onWebQrLogin,
-              ),
-            ),
-          ],
-          const SizedBox(height: 16),
           FutureBuilder<_ProfileData>(
             future: _profile,
             builder: (context, snapshot) {
@@ -146,29 +159,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ],
       ),
     );
-    if (!widget.showAppBar) return body;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的'),
-        actions: [
-          IconButton(
-            tooltip: '刷新设备',
-            onPressed: _reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      body: body,
-    );
+    return body;
   }
 
   Widget _profileSections(BuildContext context, _ProfileData data) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      if (widget.workspaceRepository != null) ...[
-        _workspaceCard(data.workspace),
-        const SizedBox(height: 16),
-      ],
+      _accountCard(data),
+      const SizedBox(height: 16),
       Text('登录设备', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
       if (data.devices.isEmpty)
@@ -182,64 +180,296 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     ],
   );
 
-  Widget _workspaceCard(WorkspaceBootstrapPayload? payload) {
-    final workspace = payload?.workspace;
+  Widget _accountCard(_ProfileData data) {
+    final workspace = data.workspace?.workspace;
+    final members = _membersFor(data);
+    final currentUserId = widget.session.user.id;
+    final currentMember = _memberForUser(members, currentUserId);
+    final partner = _partnerFor(members, currentUserId);
+    final activeMemberCount = members
+        .where((member) => _isActive(member))
+        .length;
     final matchStatus = workspace?.matchStatus;
     final status = switch (matchStatus) {
       WorkspaceMatchStatus.matched => '已匹配 · 2/2 位成员',
       WorkspaceMatchStatus.error => '匹配异常',
       WorkspaceMatchStatus.waitingPartner => '等待对方加入',
-      null =>
-        payload?.state == WorkspaceBootstrapPhase.needsPartner
-            ? '尚未匹配对方'
-            : '共享空间暂不可用',
+      null => switch (data.workspace?.state) {
+        WorkspaceBootstrapPhase.needsPartner => '尚未匹配对方',
+        WorkspaceBootstrapPhase.waitingForPartner ||
+        WorkspaceBootstrapPhase.invited => '等待对方加入',
+        _ => activeMemberCount >= 2 ? '已匹配 · 2/2 位成员' : '共享空间暂不可用',
+      },
     };
-    return Card(
+    final displayName = widget.session.user.nickname.trim().isNotEmpty
+        ? widget.session.user.nickname.trim()
+        : currentMember?.displayName?.trim().isNotEmpty == true
+        ? currentMember!.displayName!.trim()
+        : '我的账号';
+    final phone = currentMember?.phoneMasked.trim().isNotEmpty == true
+        ? currentMember!.phoneMasked
+        : _maskPhone(widget.session.user.phone);
+    final overview = TaskOverview.fromTasks(
+      widget.sync?.state.snapshot?.tasks ?? const [],
+      currentUserId,
+    );
+
+    return KeyedSubtree(
       key: const Key('profile-workspace-match'),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.people_alt_outlined),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '共享空间',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+      child: Card(
+        key: const Key('profile-account-card'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const CircleAvatar(
+                    child: Icon(Icons.account_circle_outlined),
                   ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          key: const Key('profile-current-display-name'),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(phone, key: const Key('profile-current-phone')),
+                      ],
+                    ),
+                  ),
+                  if (partner != null)
+                    IconButton(
+                      key: const Key('profile-partner-avatar'),
+                      tooltip: '查看对方概览',
+                      onPressed: () => _openPartner(partner),
+                      icon: const CircleAvatar(
+                        child: Icon(Icons.person_outline),
+                      ),
+                    ),
+                ],
+              ),
+              const Divider(height: 24),
+              Row(
+                children: [
+                  const Icon(Icons.people_alt_outlined),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '共享空间',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(status, key: const Key('profile-match-status')),
+                ],
+              ),
+              if (members.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  children: [
+                    for (final member in members)
+                      _memberStatus(member, currentUserId),
+                  ],
                 ),
-                Text(status),
               ],
-            ),
-            if (workspace?.members.isNotEmpty == true) ...[
               const Divider(height: 20),
-              for (final member in workspace!.members)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  leading: Icon(
-                    member.isCurrent
-                        ? Icons.person_outline
-                        : Icons.person_add_alt_1_outlined,
-                  ),
-                  title: Text(member.isCurrent ? '我' : '对方'),
-                  subtitle: Text(
-                    member.displayName?.trim().isNotEmpty == true
-                        ? '${member.displayName} · ${member.phoneMasked}'
-                        : member.phoneMasked,
-                  ),
-                  trailing: Text(
-                    member.membershipStatus == 'ACTIVE' ? '已加入' : '待加入',
-                  ),
-                ),
+              _overviewSection(overview, title: '我的概览'),
             ],
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  List<WorkspaceMemberSummary> _membersFor(_ProfileData data) {
+    final workspaceMembers = data.workspace?.workspace?.members;
+    if (workspaceMembers?.isNotEmpty == true) return workspaceMembers!;
+
+    final snapshotMembers = widget.sync?.state.snapshot?.members ?? const [];
+    return [
+      for (final member in snapshotMembers)
+        if (member['user_id'] is String)
+          WorkspaceMemberSummary(
+            userId: member['user_id'] as String,
+            displayName: member['display_name'] as String?,
+            phoneMasked: member['phone_masked'] as String? ?? '',
+            memberSlot: (member['member_slot'] as num?)?.toInt() ?? 0,
+            membershipStatus:
+                member['membership_status'] as String? ?? 'ACTIVE',
+            isCurrent:
+                member['is_current'] as bool? ??
+                member['user_id'] == widget.session.user.id,
+          ),
+    ];
+  }
+
+  WorkspaceMemberSummary? _memberForUser(
+    Iterable<WorkspaceMemberSummary> members,
+    String userId,
+  ) {
+    for (final member in members) {
+      if (member.userId == userId) return member;
+    }
+    return null;
+  }
+
+  WorkspaceMemberSummary? _partnerFor(
+    Iterable<WorkspaceMemberSummary> members,
+    String currentUserId,
+  ) {
+    for (final member in members) {
+      if (member.userId != currentUserId && _isActive(member)) return member;
+    }
+    return null;
+  }
+
+  bool _isActive(WorkspaceMemberSummary member) =>
+      member.membershipStatus.toUpperCase() == 'ACTIVE';
+
+  Widget _memberStatus(WorkspaceMemberSummary member, String currentUserId) {
+    final isCurrent = member.userId == currentUserId || member.isCurrent;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isCurrent ? Icons.person_outline : Icons.person_add_alt_1_outlined,
+          size: 18,
+        ),
+        const SizedBox(width: 4),
+        Text(isCurrent ? '我' : '对方'),
+        if (member.phoneMasked.trim().isNotEmpty) ...[
+          const SizedBox(width: 4),
+          Text(member.phoneMasked),
+        ],
+        const SizedBox(width: 4),
+        Text(_isActive(member) ? '已加入' : '待加入'),
+      ],
+    );
+  }
+
+  Widget _overviewSection(
+    TaskOverview overview, {
+    required String title,
+    String keyPrefix = 'profile-overview',
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 12),
+      Wrap(
+        spacing: 20,
+        runSpacing: 12,
+        children: [
+          _overviewMetric(
+            key: Key('$keyPrefix-task-count'),
+            label: '任务',
+            value: '${overview.taskCount}',
+          ),
+          _overviewMetric(
+            key: Key('$keyPrefix-unfinished-count'),
+            label: '未完成',
+            value: '${overview.unfinishedCount}',
+          ),
+          _overviewMetric(
+            key: Key('$keyPrefix-completed-count'),
+            label: '已完成',
+            value: '${overview.completedCount}',
+          ),
+          _overviewMetric(
+            key: Key('$keyPrefix-delay-count'),
+            label: '延期次数',
+            value: '${overview.delayCount}',
+          ),
+          _overviewMetric(
+            key: Key('$keyPrefix-delay-minutes'),
+            label: '延期时长',
+            value: overview.formattedTotalDelay,
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _overviewMetric({
+    required Key key,
+    required String label,
+    required String value,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        value,
+        key: key,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      const SizedBox(height: 2),
+      Text(label),
+    ],
+  );
+
+  Future<void> _openPartner(WorkspaceMemberSummary partner) async {
+    final overview = TaskOverview.fromTasks(
+      widget.sync?.state.snapshot?.tasks ?? const [],
+      partner.userId,
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => SingleChildScrollView(
+        child: Padding(
+          key: const Key('profile-partner-sheet'),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const CircleAvatar(child: Icon(Icons.person_outline)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      partner.displayName?.trim().isNotEmpty == true
+                          ? partner.displayName!.trim()
+                          : '对方',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  Text(_isActive(partner) ? '已加入' : '待加入'),
+                ],
+              ),
+              if (partner.phoneMasked.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(partner.phoneMasked),
+              ],
+              const Divider(height: 28),
+              _overviewSection(
+                overview,
+                title: '对方概览',
+                keyPrefix: 'profile-partner-overview',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _maskPhone(String phone) {
+    if (phone.length <= 5) return phone;
+    final hasChinaPrefix = phone.startsWith('+86');
+    final prefixLength = hasChinaPrefix ? 3 : 2;
+    final maskLength = hasChinaPrefix
+        ? 6
+        : (phone.length - prefixLength - 4).clamp(4, phone.length);
+    final mask = List.filled(maskLength, '*').join();
+    return '${phone.substring(0, prefixLength)}$mask${phone.substring(phone.length - 4)}';
   }
 
   Widget _authorizationSections(List<DeviceAuthorizationRequest> requests) {

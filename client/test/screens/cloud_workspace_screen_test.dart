@@ -287,6 +287,33 @@ void main() {
     expect(find.text('我的'), findsWidgets);
   });
 
+  testWidgets('profile exposes Web QR login in the destination AppBar', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(
+          api: testApi(),
+          syncController: sync,
+          session: loggedInSession,
+          signingKey: FakeCloudSigningKey(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+    await tester.pump();
+
+    final qr = find.byKey(const Key('profile-web-qr-login'));
+    expect(qr, findsOneWidget);
+    expect(tester.widget<IconButton>(qr).onPressed, isNotNull);
+    expect(
+      find.ancestor(of: qr, matching: find.byType(ListTile)),
+      findsNothing,
+    );
+  });
+
   testWidgets('unverified device creates one authorization request on entry', (
     tester,
   ) async {

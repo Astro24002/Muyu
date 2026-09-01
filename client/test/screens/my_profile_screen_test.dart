@@ -50,16 +50,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('我的'), findsOneWidget);
-    expect(find.text('+8613800138000'), findsOneWidget);
+    expect(find.text('+86******8000'), findsOneWidget);
     expect(find.text('登录设备'), findsOneWidget);
     expect(find.text('Pixel 8'), findsOneWidget);
     expect(find.text('当前设备'), findsOneWidget);
     expect(find.textContaining('长期绑定'), findsOneWidget);
   });
 
-  testWidgets('shows Web QR authorization only when profile provides it', (
-    tester,
-  ) async {
+  testWidgets('places Web QR authorization in the AppBar only', (tester) async {
     const session = MobileSession(
       accessToken: 'access',
       refreshToken: 'refresh',
@@ -86,8 +84,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('profile-web-qr-login')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('profile-web-qr-login')));
+    final qr = find.byKey(const Key('profile-web-qr-login'));
+    expect(qr, findsOneWidget);
+    expect(tester.widget<IconButton>(qr).onPressed, isNotNull);
+    expect(
+      find.ancestor(of: qr, matching: find.byType(ListTile)),
+      findsNothing,
+    );
+    await tester.tap(qr);
     expect(tapped, isTrue);
   });
 }

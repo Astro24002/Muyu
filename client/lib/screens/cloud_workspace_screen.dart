@@ -190,6 +190,15 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
               onPressed: _openApprovals,
               icon: const Icon(Icons.rule),
             ),
+          if (_selectedDestination == 3 &&
+              widget.signingKey != null &&
+              widget.canWrite)
+            IconButton(
+              key: const Key('profile-web-qr-login'),
+              tooltip: '扫码登录 Web',
+              onPressed: _openWebQrScanner,
+              icon: const Icon(Icons.qr_code_scanner),
+            ),
         ],
       );
 
@@ -416,11 +425,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                 HttpDeviceAuthorizationRepository(widget.api),
             signingKey: widget.signingKey,
             enrollmentReady: _enrollmentFuture,
+            sync: _sync,
             canWrite: widget.canWrite,
             showAppBar: false,
-            onWebQrLogin: widget.signingKey != null && widget.canWrite
-                ? _openWebQrScanner
-                : null,
           )
         else
           const _UnavailableProfileView(

@@ -314,6 +314,25 @@ void main() {
     );
   });
 
+  testWidgets('profile hides Web QR login without a session', (tester) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(
+          api: testApi(),
+          syncController: sync,
+          signingKey: FakeCloudSigningKey(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+    await tester.pump();
+
+    expect(find.text('当前会话不可用'), findsOneWidget);
+    expect(find.byKey(const Key('profile-web-qr-login')), findsNothing);
+  });
+
   testWidgets('unverified device creates one authorization request on entry', (
     tester,
   ) async {

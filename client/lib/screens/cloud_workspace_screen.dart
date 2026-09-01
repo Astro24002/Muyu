@@ -191,6 +191,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
               icon: const Icon(Icons.rule),
             ),
           if (_selectedDestination == 3 &&
+              widget.session != null &&
               widget.signingKey != null &&
               widget.canWrite)
             IconButton(

@@ -23,7 +23,7 @@ class TaskOverview {
       taskCount++;
       if (task.status == 'DONE') {
         completedCount++;
-      } else {
+      } else if (task.status != 'CANCELLED') {
         unfinishedCount++;
       }
       delayCount += task.delayCount;

@@ -64,6 +64,25 @@ void main() {
     expect(overview.totalDelayMinutes, 1501);
   });
 
+  test('counts cancelled tasks as terminal in status counts', () {
+    final overview = TaskOverview.fromTasks([
+      task('todo', delayCount: 2, totalDelayMinutes: 30),
+      task(
+        'cancelled',
+        status: 'CANCELLED',
+        delayCount: 3,
+        totalDelayMinutes: 45,
+      ),
+      task('done', status: 'DONE', delayCount: 4, totalDelayMinutes: 60),
+    ], 'user-1');
+
+    expect(overview.taskCount, 3);
+    expect(overview.unfinishedCount, 1);
+    expect(overview.completedCount, 1);
+    expect(overview.delayCount, 9);
+    expect(overview.totalDelayMinutes, 135);
+  });
+
   test(
     'formats total delay into days, hours, and minutes without losing minutes',
     () {

@@ -85,6 +85,17 @@ describe('TaskDetailView', () => {
     cleanup();
   });
 
+  it('populates resume-handler options from active Workspace members and keeps the current handler available', () => {
+    const root = document.createElement('div');
+    const currentTask = { ...task, current_handler_id: 'user-2' };
+    const actions = { onTransition: vi.fn(async () => undefined), onComment: vi.fn(async () => undefined), onDelay: vi.fn(async () => undefined), onSave: vi.fn(async () => undefined) };
+    const cleanup = TaskDetailView.mount(root, currentTask, [{ user_id: 'user-1', member_slot: 1 }, { user_id: 'user-2', member_slot: 2 }], actions);
+
+    expect(Array.from(root.querySelectorAll<HTMLSelectElement>('select[aria-label="恢复负责人"] option')).map((option) => option.value)).toEqual(['user-1', 'user-2']);
+    expect(root.querySelector<HTMLSelectElement>('select[aria-label="恢复负责人"]')?.value).toBe('user-2');
+    cleanup();
+  });
+
   it('renders labels and submits the complete label array with a required quadrant', async () => {
     const root = document.createElement('div');
     const onSave = vi.fn(async () => undefined);

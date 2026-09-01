@@ -58,9 +58,7 @@ export class TaskDetailView {
     const blockedReason = input('阻塞原因', task.blocked_reason ?? '');
     const resumeHandler = document.createElement('select');
     resumeHandler.setAttribute('aria-label', '恢复负责人');
-    const activeMembers = new Set(members.map((member) => member.user_id));
-    const handlerIds = task.assignee_ids.filter((id) => activeMembers.size === 0 || activeMembers.has(id));
-    for (const id of handlerIds) {
+    for (const { user_id: id } of members) {
       const option = document.createElement('option');
       option.value = id;
       option.textContent = id;

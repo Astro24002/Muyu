@@ -9,7 +9,6 @@ export type EditableTaskChanges = Pick<Partial<TaskItem>,
   | 'quadrant'
   | 'labels'
   | 'progress'
-  | 'assignee_ids'
   | 'current_handler_id'
 >;
 

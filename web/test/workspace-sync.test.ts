@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/client';
+import type { TaskItem } from '../src/api/types';
 import { WorkspaceSyncController } from '../src/sync/workspace-sync';
 
-const task = {
+const task: TaskItem = {
   id: 'task-1', workspace_id: 'workspace-1', parent_task_id: null, title: 'Original', description: 'Description',
   status: 'TODO', current_handler_id: 'user-1', blocked_reason: null, blocked_since: null, resume_handler_id: null,
   waiting_for_user_id: null, planned_start_at: null, due_at: null, estimated_minutes: null, completed_at: null,

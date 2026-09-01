@@ -3,7 +3,7 @@ import type { TaskItem, TaskStatus } from '../api/types';
 export const TASK_STATUSES: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCELLED'];
 
 export function filterMyTasks(tasks: TaskItem[], userId: string): TaskItem[] {
-  return tasks.filter((task) => task.current_handler_id === userId || task.assignee_ids.includes(userId));
+  return tasks.filter((task) => task.current_handler_id === userId);
 }
 
 export function groupTasksByStatus(tasks: TaskItem[]): Record<TaskStatus, TaskItem[]> {

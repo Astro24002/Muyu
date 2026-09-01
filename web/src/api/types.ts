@@ -20,7 +20,6 @@ export type TaskApprovalRequestType =
   | 'TASK_DELETE'
   | 'TASK_RESTORE'
   | 'COMMENT_DELETE'
-  | 'ASSIGNEE_UPDATE'
   | 'HANDLER_TRANSFER';
 export type TaskApprovalRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONFLICTED' | 'CANCELLED';
 export type ApprovalRequestType = TaskApprovalRequestType;
@@ -31,7 +30,7 @@ export interface TaskItem {
   due_at: string | null; status: TaskStatus; current_handler_id: string; blocked_reason: string | null;
   blocked_since: string | null; resume_handler_id: string | null; waiting_for_user_id: string | null;
   planned_start_at: string | null; estimated_minutes: number | null; completed_at: string | null;
-  created_by: string; created_at: string; updated_at: string; assignee_ids: string[];
+  created_by: string; created_at: string; updated_at: string;
   delay_count: number; total_delay_minutes: number; version: number; status_version: number; field_versions: Record<string, number>;
   lifecycle_version: number; deleted_at: string | null;
   task_number?: string;

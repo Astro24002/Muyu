@@ -1,6 +1,7 @@
 import { Plus, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { Route } from '../../app/routes';
+import type { WebSessionViewApi } from '../../ui/web-session-view';
 import { IconButton } from '../ui/IconButton';
 import { UserMenu } from './UserMenu';
 
@@ -12,6 +13,8 @@ export interface TopNavProps {
   onLogout?: () => void;
   onCreateTask?: () => void;
   onSearch?: (query: string) => void;
+  sessionApi?: WebSessionViewApi;
+  onAuthRequired?: () => void;
   pendingApprovalCount?: number;
 }
 
@@ -28,6 +31,8 @@ export function TopNav({
   onLogout,
   onCreateTask,
   onSearch,
+  sessionApi,
+  onAuthRequired,
   pendingApprovalCount = 0,
 }: TopNavProps): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -127,7 +132,7 @@ export function TopNav({
             icon={<Plus aria-hidden="true" size={19} strokeWidth={1.8} />}
             onClick={onCreateTask}
           />
-          <UserMenu onLogout={onLogout} />
+          <UserMenu onLogout={onLogout} sessionApi={sessionApi} onAuthRequired={onAuthRequired} />
         </div>
 
         {searchOpen ? (

@@ -1,5 +1,6 @@
 import type { ReactNode, JSX } from 'react';
 import type { Route } from '../../app/routes';
+import type { WebSessionViewApi } from '../../ui/web-session-view';
 import { TopNav, type PrimaryRoute } from './TopNav';
 
 export interface AppShellProps {
@@ -7,6 +8,8 @@ export interface AppShellProps {
   onNavigate: (route: PrimaryRoute) => void;
   onLogout: () => void;
   onCreateTask?: () => void;
+  sessionApi?: WebSessionViewApi;
+  onAuthRequired?: () => void;
   pendingApprovalCount: number;
   children: ReactNode;
 }
@@ -16,6 +19,8 @@ export function AppShell({
   onNavigate,
   onLogout,
   onCreateTask,
+  sessionApi,
+  onAuthRequired,
   pendingApprovalCount,
   children,
 }: AppShellProps): JSX.Element {
@@ -26,6 +31,8 @@ export function AppShell({
         onNavigate={onNavigate}
         onLogout={onLogout}
         onCreateTask={onCreateTask}
+        sessionApi={sessionApi}
+        onAuthRequired={onAuthRequired}
         pendingApprovalCount={pendingApprovalCount}
       />
       <div className="app-shell__body">

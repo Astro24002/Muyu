@@ -9,6 +9,7 @@ import { SyncStatus } from '../components/status/SyncStatus';
 import type { CreateTaskHandler } from '../components/tasks/TaskComposer';
 import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
 import type { TaskActivityState } from '../components/tasks/TaskTimeline';
+import { ActivityPage } from '../pages/ActivityPage';
 import { AllTasksPage } from '../pages/AllTasksPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
@@ -56,6 +57,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const useReactWorkbench = route.kind === 'today'
     || route.kind === 'tasks'
     || route.kind === 'approvals'
+    || route.kind === 'activity'
     || route.kind === 'task';
   const workspaceId = screen === 'workspace' && !workspaceState.authRequired
     ? workspaceState.snapshot?.workspace_id ?? null
@@ -243,6 +245,11 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     setTaskActivityRetry((current) => current + 1);
   }, []);
 
+  const getTaskActivity = useCallback((id: string): Promise<ActivityEvent[]> => {
+    if (typeof api.getTaskActivity !== 'function') return Promise.reject(new Error('当前 API 不支持活动记录。'));
+    return api.getTaskActivity(id);
+  }, [api]);
+
   useEffect(() => {
     const requestSequence = ++taskActivityRequestSequenceRef.current;
     if (!workspaceReady || taskId === null || selectedTask === null) {
@@ -376,6 +383,8 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
           onNavigate={onNavigate}
           onLogout={logout}
           onCreateTask={focusNewTask}
+          sessionApi={webSessionApi(api)}
+          onAuthRequired={recoverAuthRequired}
             pendingApprovalCount={pendingApprovalCount(workspaceState)}
           >
             {route.kind === 'today' ? (
@@ -384,6 +393,12 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
               <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
             ) : route.kind === 'approvals' ? (
               <ApprovalsPage sync={sync} />
+            ) : route.kind === 'activity' ? (
+              <ActivityPage
+                tasks={workspaceState.snapshot?.tasks ?? []}
+                getTaskActivity={getTaskActivity}
+                workspaceKey={workspaceId ?? 'workspace'}
+              />
             ) : route.kind === 'task' ? (
               <>
                 {taskBackground}

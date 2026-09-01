@@ -159,4 +159,4 @@ total_delay_minutes
 
 ## 历史决策说明（2026-09-01）
 
-本文保留当时的设计正文；其中把 `resume_handler_id` 或等待用户约束为任务参与人的决定已被[移除任务参与人模型设计](./2026-09-01-remove-task-participants-design.md)取代。当前只校验同一 Workspace 的 ACTIVE 成员，本文不再作为当前实现依据。
+本文保留当时的设计正文；其中把 `resume_handler_id` 约束为任务参与人的旧决定已被[移除任务参与人模型设计](./2026-09-01-remove-task-participants-design.md)取代，而当时的 `waiting_for_user_id` 是固定用户，并非按任务参与人约束。当前只校验同一 Workspace 的 ACTIVE 成员，本文不再作为当前实现依据。

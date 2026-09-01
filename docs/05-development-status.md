@@ -10,7 +10,7 @@
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
 - 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入，非当前负责人的成员写入受保护字段时继续提交给对方审批；“我的任务”只按当前负责人筛选。
 - 当前 Android 账户概览：从现有 Workspace snapshot 统计当前用户负责的全部未删除父任务和子任务，并显示任务、完成和延期汇总；匹配对象头像打开另一位 ACTIVE 成员的同口径概览。
-- 当前迁移与缓存：Alembic `0005_remove_task_assignees` 校验非删除任务的 `current_handler_id` 必须是同一 Workspace 的 ACTIVE 成员，拒绝静默改写无效负责人；开发迁移会有意删除旧 `task_assignees` 参与人数据和 `ASSIGNEE_UPDATE` 待审批记录。Flutter 快照缓存命名空间为 `muyu.workspace.snapshot.v2.$workspaceId`，旧命名空间不会作为当前契约读取。
+- 当前迁移与缓存：Alembic `0005_remove_task_assignees` 校验非删除任务的 `current_handler_id` 必须是同一 Workspace 的 ACTIVE 成员，拒绝静默改写无效负责人；开发迁移会有意删除旧 `task_assignees` 参与人数据和所有已废弃的 `ASSIGNEE_UPDATE` 记录。Flutter 快照缓存命名空间为 `muyu.workspace.snapshot.v2.$workspaceId`，旧命名空间不会作为当前契约读取。
 - 历史基线：首轮工程、Phase 2/3、固定密码认证和 Local-first P2P 的规格、计划、实现与验收记录只用于理解待替换资产，不可作为新实现依据。
 - 历史工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 历史实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -27,7 +27,7 @@
 - 类型：当前契约收口 / 数据库迁移 / 客户端缓存失效。
 - 任务规则：任务只以 `current_handler_id` 表示当前负责人；同一 Workspace 的两位 ACTIVE 成员读取全部未删除任务和子任务，负责人直写，另一位成员的受保护写入继续使用既有对方审批流程。
 - Android：`“我的”` 概览独立统计当前用户负责的全部未删除父任务和子任务，汇总任务、完成和延期次数/分钟；匹配对象头像进入对方的同口径概览。数据来自 Workspace snapshot，不引入独立 analytics API、表或缓存。
-- 数据库：`0005_remove_task_assignees` 在执行破坏性步骤前拒绝空或非同 Workspace ACTIVE 负责人的非删除任务；迁移会有意删除开发数据库中的旧参与人关联和 `ASSIGNEE_UPDATE` 待审批数据，保留负责人、任务历史、评论、延期、阻塞、活动和其他审批记录，不伪造替代负责人。
+- 数据库：`0005_remove_task_assignees` 在执行破坏性步骤前拒绝空或非同 Workspace ACTIVE 负责人的非删除任务；迁移会有意删除开发数据库中的旧参与人关联和所有已废弃的 `ASSIGNEE_UPDATE` 记录，保留负责人、任务历史、评论、延期、阻塞、活动和其他审批记录，不伪造替代负责人。
 - 客户端缓存：快照键从 `muyu.workspace.snapshot.$workspaceId` 递增为 `muyu.workspace.snapshot.v2.$workspaceId`，旧契约缓存不会被当作当前快照读取；刷新失败继续保留最后一次有效快照。
 - 当前权威：[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)。
 

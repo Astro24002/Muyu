@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
@@ -73,6 +74,48 @@ def test_transition_replay_keeps_cursor_and_accepts_active_member_as_resume_hand
             resume_handler_id=user_b.id,
         )
         assert waiting.resume_handler_id == user_b.id
+
+
+def test_handler_transfer_replay_returns_stored_result_after_target_member_is_revoked(db_engine):
+    with Session(db_engine) as session:
+        user_a, user_b, workspace = _workspace_with_two_users(session)
+        task = TaskService(session).create(workspace.id, user_a.id, uuid4(), "行动", quadrant="Q1")
+        request_id = uuid4()
+        first_service = TaskService(session)
+        first = first_service.patch(
+            workspace.id,
+            user_a.id,
+            task.id,
+            request_id,
+            {"current_handler_id": str(user_b.id)},
+            {"current_handler_id": task.field_versions["current_handler_id"]},
+        )
+        first_cursor = first_service.last_cursor
+        session.commit()
+
+        membership = session.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                WorkspaceMembership.user_id == user_b.id,
+            )
+        )
+        assert membership is not None
+        membership.status = MembershipStatus.REVOKED
+        session.commit()
+
+        replay_service = TaskService(session)
+        replay = replay_service.patch(
+            workspace.id,
+            user_a.id,
+            task.id,
+            request_id,
+            {"current_handler_id": user_b.id},
+            {"current_handler_id": 1},
+        )
+
+        assert replay.id == first.id
+        assert replay.current_handler_id == user_b.id
+        assert replay_service.last_cursor == first_cursor
 
 
 def test_waiting_requires_reason_and_restore_respects_lifecycle_version(db_engine):

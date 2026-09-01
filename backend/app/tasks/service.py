@@ -150,7 +150,10 @@ class TaskService:
         if unknown:
             raise TaskConflictError("invalid_request", f"unknown task fields: {sorted(unknown)}")
         if "current_handler_id" in changes:
-            changes["current_handler_id"] = self._validated_member(workspace_id, changes["current_handler_id"])
+            try:
+                changes["current_handler_id"] = UUID(str(changes["current_handler_id"]))
+            except (TypeError, ValueError) as exc:
+                raise TaskConflictError("invalid_request", "invalid handler id") from exc
         if "quadrant" in changes:
             quadrant = changes["quadrant"]
             if quadrant not in {item.value for item in TaskQuadrant}:
@@ -175,6 +178,8 @@ class TaskService:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
+        if "current_handler_id" in changes:
+            self._validated_member(workspace_id, changes["current_handler_id"])
         self._require_handler(task, actor_user_id)
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")

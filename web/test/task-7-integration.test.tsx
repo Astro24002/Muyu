@@ -107,5 +107,22 @@ describe('Task 7 App integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭任务详情' }));
     await waitFor(() => expect(window.location.hash).toBe(`#/${listRoute}`));
     expect(document.querySelector(`[data-${listRoute === 'today' ? 'today' : 'all-tasks'}-page`)).toBeInTheDocument();
+    expect(document.activeElement).toBe(taskTrigger);
+  });
+
+  it('restores focus to the task control after closing the detail panel with Escape', async () => {
+    window.location.hash = '#/tasks';
+    const { sync, login } = makeApp();
+    render(<App api={{} as ApiClient} login={login} sync={sync} />);
+
+    const taskTrigger = await waitFor(() => screen.getByRole('button', { name: '整理周末晚餐' }));
+    taskTrigger.focus();
+    fireEvent.click(taskTrigger);
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '任务详情' })).toBeInTheDocument());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(window.location.hash).toBe('#/tasks'));
+
+    expect(document.activeElement).toBe(taskTrigger);
   });
 });

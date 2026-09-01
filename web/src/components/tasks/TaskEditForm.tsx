@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
+import type { AppliedTaskWriteResult } from '../../api/client';
 import type { TaskItem, TaskStatus } from '../../api/types';
 import type { TaskDetailActions } from '../../ui/task-detail-view';
 import { isTaskQuadrant, parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
@@ -39,19 +40,25 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<'save' | 'transition' | null>(null);
   const dirtyFields = useRef<Set<DraftField>>(new Set());
+  const draftRef = useRef<TaskDraft>(draft);
   const busyActionRef = useRef<'save' | 'transition' | null>(null);
 
   useEffect(() => {
     setDraft((current) => {
       const next = createDraft(task);
       preserveDirtyFields(next, current, dirtyFields.current);
+      draftRef.current = next;
       return next;
     });
   }, [task]);
 
   const updateDraft = <K extends DraftField>(field: K, value: TaskDraft[K]): void => {
     dirtyFields.current.add(field);
-    setDraft((current) => ({ ...current, [field]: value }));
+    setDraft((current) => {
+      const next = { ...current, [field]: value };
+      draftRef.current = next;
+      return next;
+    });
   };
 
   const run = (action: 'save' | 'transition', operation: () => Promise<unknown>, onSuccess?: (value: unknown) => void): void => {
@@ -101,8 +108,16 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
       changes.progress = Number(draft.progress);
     }
 
+    const submittedDraft = draft;
+    const submittedFields = fieldsForChanges(changes).filter((field) => dirtyFields.current.has(field));
     run('save', () => actions.onSave(changes), (value) => {
-      if (isPendingApproval(value)) setError('等待负责人审批');
+      if (isPendingApproval(value)) {
+        setError('等待负责人审批');
+      } else if (isAppliedWriteResult(value, task.id)) {
+        clearDirtyFields(dirtyFields.current, draftRef.current, submittedDraft, submittedFields);
+      } else {
+        setError('保存未确认，请检查同步状态后重试。');
+      }
     });
   };
 
@@ -118,10 +133,22 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
         ? { resumeHandlerId: draft.resumeHandler }
         : {}),
     };
+    const submittedDraft = draft;
+    const submittedFields: DraftField[] = ['status'];
+    if ('blockedReason' in payload) submittedFields.push('blockedReason');
+    if ('resumeHandlerId' in payload) submittedFields.push('resumeHandler');
+    const dirtySubmittedFields = submittedFields.filter((field) => dirtyFields.current.has(field));
+
     run('transition', () => Object.keys(payload).length === 0
       ? actions.onTransition(draft.status)
       : actions.onTransition(draft.status, payload), (value) => {
-      if (isPendingApproval(value)) setError('等待负责人审批');
+      if (isPendingApproval(value)) {
+        setError('等待负责人审批');
+      } else if (isAppliedWriteResult(value, task.id)) {
+        clearDirtyFields(dirtyFields.current, draftRef.current, submittedDraft, dirtySubmittedFields);
+      } else {
+        setError('状态更新未确认，请检查同步状态后重试。');
+      }
     });
   };
 
@@ -306,6 +333,29 @@ function preserveDirtyFields(next: TaskDraft, current: TaskDraft, dirtyFields: S
   if (dirtyFields.has('progress')) next.progress = current.progress;
 }
 
+function clearDirtyFields(
+  dirtyFields: Set<DraftField>,
+  currentDraft: TaskDraft,
+  submittedDraft: TaskDraft,
+  fields: DraftField[],
+): void {
+  for (const field of fields) {
+    if (Object.is(currentDraft[field], submittedDraft[field])) dirtyFields.delete(field);
+  }
+}
+
+function fieldsForChanges(changes: EditableTaskChanges): DraftField[] {
+  const fields: DraftField[] = [];
+  if ('title' in changes) fields.push('title');
+  if ('description' in changes) fields.push('description');
+  if ('due_at' in changes) fields.push('dueAt');
+  if ('current_handler_id' in changes) fields.push('currentHandler');
+  if ('quadrant' in changes) fields.push('quadrant');
+  if ('labels' in changes) fields.push('labels');
+  if ('progress' in changes) fields.push('progress');
+  return fields;
+}
+
 function getHandlerOptions(task: TaskItem, members: TaskMember[]): string[] {
   const memberIds = members.map((member) => member.user_id);
   const candidates = [...task.assignee_ids, ...memberIds, task.current_handler_id, task.resume_handler_id ?? ''];
@@ -356,4 +406,13 @@ function errorMessage(cause: unknown): string {
 
 function isPendingApproval(value: unknown): value is { pending: true } {
   return Boolean(value && typeof value === 'object' && 'pending' in value && (value as { pending?: unknown }).pending === true);
+}
+
+function isAppliedWriteResult(value: unknown, taskId: string): value is AppliedTaskWriteResult {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as { id?: unknown; cursor?: unknown; pending?: unknown };
+  return result.pending !== true
+    && result.id === taskId
+    && typeof result.cursor === 'number'
+    && Number.isFinite(result.cursor);
 }

@@ -1,14 +1,27 @@
 import type { JSX } from 'react';
 import type { ActivityEvent } from '../../api/types';
+import { Button } from '../ui/Button';
 
 export type { ActivityEvent } from '../../api/types';
 
-export interface TaskTimelineProps {
-  events?: ActivityEvent[];
+export type TaskActivityStatus = 'idle' | 'loading' | 'success' | 'error';
+
+export interface TaskActivityState {
+  status: TaskActivityStatus;
+  events: ActivityEvent[];
+  error?: string;
+  retryable?: boolean;
 }
 
-export function TaskTimeline({ events = [] }: TaskTimelineProps): JSX.Element {
-  const sortedEvents = [...events].sort((left, right) => {
+export interface TaskTimelineProps {
+  events?: ActivityEvent[];
+  activityState?: TaskActivityState;
+  onRetry?: () => void;
+}
+
+export function TaskTimeline({ events = [], activityState, onRetry }: TaskTimelineProps): JSX.Element {
+  const state = activityState ?? { status: 'success' as const, events };
+  const sortedEvents = [...state.events].sort((left, right) => {
     const timeOrder = right.created_at.localeCompare(left.created_at);
     return timeOrder === 0 ? right.id.localeCompare(left.id) : timeOrder;
   });
@@ -16,7 +29,14 @@ export function TaskTimeline({ events = [] }: TaskTimelineProps): JSX.Element {
   return (
     <section className="task-timeline" aria-labelledby="task-timeline-heading">
       <h3 id="task-timeline-heading">活动</h3>
-      {sortedEvents.length === 0 ? (
+      {state.status === 'loading' ? (
+        <p className="task-detail-status" role="status" aria-live="polite">正在加载活动记录…</p>
+      ) : state.status === 'error' ? (
+        <div className="task-detail-error task-timeline__error" role="alert">
+          <p>{state.error ?? '活动记录加载失败，请重试。'}</p>
+          {state.retryable !== false && onRetry ? <Button tone="neutral" onClick={onRetry}>重试</Button> : null}
+        </div>
+      ) : sortedEvents.length === 0 ? (
         <p className="task-detail-empty">暂无活动</p>
       ) : (
         <ol className="task-timeline__list">

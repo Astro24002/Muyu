@@ -8,6 +8,7 @@ import { InlineError } from '../components/status/InlineError';
 import { SyncStatus } from '../components/status/SyncStatus';
 import type { CreateTaskHandler } from '../components/tasks/TaskComposer';
 import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
+import type { TaskActivityState } from '../components/tasks/TaskTimeline';
 import { AllTasksPage } from '../pages/AllTasksPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
@@ -37,12 +38,14 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(() => parseHash(typeof window === 'undefined' ? '' : window.location.hash));
   const [taskListRoute, setTaskListRoute] = useState<'today' | 'tasks'>('tasks');
-  const [taskActivity, setTaskActivity] = useState<ActivityEvent[]>([]);
+  const [taskActivity, setTaskActivity] = useState<TaskActivityState>({ status: 'idle', events: [] });
+  const [taskActivityRetry, setTaskActivityRetry] = useState(0);
   const legacyRootRef = useRef<HTMLDivElement>(null);
   const legacyViewCleanupRef = useRef<(() => void) | undefined>(undefined);
   const legacySessionRef = useRef<LegacySyncBridge | undefined>(undefined);
   const taskListRouteRef = useRef<'today' | 'tasks'>('tasks');
   const taskFocusRef = useRef<{ taskId: string; element: HTMLElement | null } | null>(null);
+  const taskActivityRequestSequenceRef = useRef(0);
   const activeRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const loggingOutRef = useRef(false);
@@ -236,14 +239,24 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }
   }, [loadWorkspace, loginState.kind]);
 
+  const retryTaskActivity = useCallback((): void => {
+    setTaskActivityRetry((current) => current + 1);
+  }, []);
+
   useEffect(() => {
-    if (!workspaceReady || taskId === null || selectedTask === null || typeof api.getTaskActivity !== 'function') {
-      setTaskActivity([]);
+    const requestSequence = ++taskActivityRequestSequenceRef.current;
+    if (!workspaceReady || taskId === null || selectedTask === null) {
+      setTaskActivity({ status: 'idle', events: [] });
+      return undefined;
+    }
+
+    if (typeof api.getTaskActivity !== 'function') {
+      setTaskActivity({ status: 'error', events: [], error: '当前 API 不支持活动记录。', retryable: false });
       return undefined;
     }
 
     let active = true;
-    setTaskActivity([]);
+    setTaskActivity({ status: 'loading', events: [] });
     let request: Promise<ActivityEvent[]>;
     try {
       request = api.getTaskActivity(taskId);
@@ -252,16 +265,25 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }
     void request
       .then((events) => {
-        if (active) setTaskActivity(events);
+        if (active && requestSequence === taskActivityRequestSequenceRef.current) {
+          setTaskActivity({ status: 'success', events });
+        }
       })
-      .catch(() => {
-        if (active) setTaskActivity([]);
+      .catch((error: unknown) => {
+        if (active && requestSequence === taskActivityRequestSequenceRef.current) {
+          setTaskActivity({
+            status: 'error',
+            events: [],
+            error: activityErrorMessage(error),
+            retryable: !isActivityPermissionError(error),
+          });
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [api, selectedTask !== null, taskId, workspaceId, workspaceReady]);
+  }, [api, selectedTask !== null, taskActivityRetry, taskId, workspaceId, workspaceReady]);
 
   useEffect(() => {
     const root = legacyRootRef.current;
@@ -372,7 +394,8 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
                     members={workspaceState.snapshot?.members ?? []}
                     syncState={workspaceState}
                     actions={taskActions}
-                    activity={taskActivity}
+                    activityState={taskActivity}
+                    onActivityRetry={retryTaskActivity}
                     onClose={closeTask}
                   />
                 ) : (
@@ -428,6 +451,17 @@ function webSessionApi(api: AppProps['api']): WebSessionViewApi | undefined {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '无法加载工作区，请检查网络后重试。';
+}
+
+function isActivityPermissionError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function activityErrorMessage(error: unknown): string {
+  if (isActivityPermissionError(error)) return '当前账号无权查看活动记录。';
+  if (error instanceof ApiError && error.status === 404) return '暂时无法找到活动记录，请重试。';
+  if (error instanceof Error && error.message) return `活动记录加载失败：${error.message}`;
+  return '活动记录加载失败，请重试。';
 }
 
 function isUnauthorized(error: unknown): boolean {

@@ -6,7 +6,7 @@ import type { TaskConflict } from '../../tasks/task-model';
 import type { TaskDetailActions } from '../../ui/task-detail-view';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
-import { TaskTimeline, type ActivityEvent } from './TaskTimeline';
+import { TaskTimeline, type ActivityEvent, type TaskActivityState } from './TaskTimeline';
 import { TaskEditForm, type TaskMember } from './TaskEditForm';
 import { ConflictPanel } from '../conflicts/ConflictPanel';
 
@@ -17,11 +17,13 @@ export interface TaskDetailPanelProps {
   actions: TaskDetailActions;
   onClose: () => void;
   activity?: ActivityEvent[];
+  activityState?: TaskActivityState;
+  onActivityRetry?: () => void;
 }
 
 type PanelAction = 'comment' | 'delay' | 'delete-comment' | 'conflict';
 
-export function TaskDetailPanel({ task, members, syncState, actions, onClose, activity = [] }: TaskDetailPanelProps): JSX.Element {
+export function TaskDetailPanel({ task, members, syncState, actions, onClose, activity = [], activityState, onActivityRetry }: TaskDetailPanelProps): JSX.Element {
   const dialogRef = useRef<HTMLElement>(null);
   const busyRef = useRef<Set<PanelAction>>(new Set());
   const [busyActions, setBusyActions] = useState<Set<PanelAction>>(() => new Set());
@@ -212,10 +214,10 @@ export function TaskDetailPanel({ task, members, syncState, actions, onClose, ac
         </section>
 
         {conflicts.length > 0 ? (
-          <ConflictPanel conflicts={conflicts} busy={busyActions.has('conflict')} onResolve={resolveConflict} />
+          <ConflictPanel conflicts={conflicts} busy={!canWrite || busyActions.has('conflict')} onResolve={resolveConflict} />
         ) : null}
 
-        <TaskTimeline events={activity} />
+        <TaskTimeline events={activity} activityState={activityState} onRetry={onActivityRetry} />
 
         {error ? <p className="task-detail-error task-detail-error--panel" role="alert">{error}</p> : null}
         {syncState.error ? <p className="task-detail-error task-detail-error--sync" role="alert">{syncState.error}</p> : null}

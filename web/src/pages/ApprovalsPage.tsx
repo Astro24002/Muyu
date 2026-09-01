@@ -35,9 +35,12 @@ export function ApprovalsPage({ sync }: ApprovalsPageProps): JSX.Element {
     setBusyRequestId(requestId);
     setActionError(null);
     try {
-      if (action === 'approve') await sync.approveApproval(requestId);
-      else if (action === 'reject') await sync.rejectApproval(requestId, reason);
-      else await sync.cancelApproval(requestId);
+      const result = action === 'approve'
+        ? await sync.approveApproval(requestId)
+        : action === 'reject'
+          ? await sync.rejectApproval(requestId, reason)
+          : await sync.cancelApproval(requestId);
+      if (result === undefined && !sync.state.error) setActionError('审批未确认，请检查同步状态后重试。');
     } catch (caught) {
       setActionError(toErrorMessage(caught));
     } finally {

@@ -120,6 +120,21 @@ describe('ApprovalsPage', () => {
     expect(screen.getByText('伙伴提出的新标题')).toBeInTheDocument();
   });
 
+  it('keeps a pending request and its rejection input after an approval action fails', async () => {
+    const fake = makeSync();
+    fake.reject.mockResolvedValue(undefined);
+    render(<ApprovalsPage sync={fake.sync} />);
+    const reason = screen.getByRole('textbox', { name: '拒绝原因' });
+
+    fireEvent.change(reason, { target: { value: '请补充验收结果' } });
+    fireEvent.click(screen.getByRole('button', { name: '拒绝' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('审批未确认'));
+    expect(screen.getAllByText('待处理')).toHaveLength(2);
+    expect(reason).toHaveValue('请补充验收结果');
+    expect(screen.getByRole('button', { name: '批准' })).not.toBeDisabled();
+  });
+
   it('re-renders from sync state after approval instead of removing the request locally', async () => {
     const fake = makeSync();
     fake.approve.mockImplementation(async () => {

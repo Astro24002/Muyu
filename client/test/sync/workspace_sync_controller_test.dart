@@ -25,11 +25,13 @@ TaskItem task(String title) => TaskItem(
   createdAt: DateTime.utc(2026, 8, 24),
   updatedAt: DateTime.utc(2026, 8, 24),
   labels: const [],
+  assigneeIds: const [],
 );
 
 class FakeSyncRepository implements WorkspaceSyncRepository {
   final hints = <WorkspaceChanged>[];
   int snapshotCalls = 0;
+  bool failSnapshots = false;
   Completer<WorkspaceSnapshot>? snapshotCompleter;
   final requestedAfterCursors = <int>[];
   String? lastRequestId;
@@ -43,6 +45,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
+    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
@@ -75,6 +78,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     snapshotCalls++;
     final completer = snapshotCompleter;
     if (completer != null) return completer.future;
+    if (failSnapshots) throw StateError('snapshot unavailable');
     return WorkspaceSnapshot(
       workspaceId: 'w1',
       cursor: 11,
@@ -172,6 +176,20 @@ void main() {
     );
     await Future.wait([first, second]);
     expect(controller.state.isStale, isFalse);
+  });
+
+  test('refresh failure keeps the last known good snapshot', () async {
+    final repository = FakeSyncRepository();
+    final controller = WorkspaceSyncController(repository);
+
+    await controller.refresh();
+    final lastKnownGood = controller.state.snapshot;
+    repository.failSnapshots = true;
+
+    await controller.refresh();
+
+    expect(controller.state.snapshot, same(lastKnownGood));
+    expect(controller.state.isStale, isTrue);
   });
 
   test('transition generates a UUID request id', () async {

@@ -17,7 +17,7 @@ class SharedPreferencesWorkspaceCache implements WorkspaceCache {
 
   final SharedPreferences _preferences;
 
-  String _key(String id) => 'muyu.workspace.snapshot.$id';
+  String _key(String id) => 'muyu.workspace.snapshot.v2.$id';
 
   @override
   Future<WorkspaceSnapshot?> read(String workspaceId) async {

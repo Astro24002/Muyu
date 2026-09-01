@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
 
@@ -181,6 +181,13 @@ def test_task_approval_rejects_self_approval_and_invalid_progress(db_engine) -> 
                 text("UPDATE tasks SET progress = :progress WHERE id = :task_id"),
                 {"progress": progress, "task_id": task.id},
             )
+
+
+def test_task_approval_request_type_rejects_removed_assignee_label(db_engine) -> None:
+    with Session(db_engine) as session:
+        with pytest.raises(DataError):
+            with session.begin_nested():
+                session.execute(text("SELECT 'ASSIGNEE_UPDATE'::task_approval_request_type"))
 
 
 def test_task_approval_request_id_is_unique_within_workspace(db_engine) -> None:

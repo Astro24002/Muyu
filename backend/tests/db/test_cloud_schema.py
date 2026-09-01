@@ -64,15 +64,19 @@ def test_cloud_migration_exposes_authoritative_tables_and_indexes(db_engine) -> 
         "tasks",
         "task_number_sequences",
         "task_approval_requests",
+        "task_user_positions",
         "task_operations",
         "task_conflicts",
         "task_comments",
         "delay_records",
         "important_dates",
         "recurrence_rules",
+        "task_status_history",
+        "task_handler_history",
         "activity_events",
     }
     assert expected_tables.issubset(inspector.get_table_names())
+    assert "task_assignees" not in inspector.get_table_names()
 
     assert {index["name"] for index in inspector.get_indexes("users")} >= {
         "uq_users_normalized_phone",

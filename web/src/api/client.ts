@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config';
 import type {
   ApprovalActionResult,
+  ActivityEvent,
   PendingApproval,
   TaskApprovalRequest,
   TaskComment,
@@ -79,7 +80,7 @@ export class ApiClient {
   addTaskComment(id: string, input: { requestId: string; body: string }): Promise<TaskComment & { cursor?: number }> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/comments`, { method: 'POST', body: { request_id: input.requestId, body: input.body } }); }
   getTaskDelays(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/delays`); }
   addTaskDelay(id: string, input: { requestId: string; newDueAt: string; reason: string; note?: string }): Promise<Record<string, unknown>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/delays`, { method: 'POST', body: { request_id: input.requestId, new_due_at: input.newDueAt, reason: input.reason, note: input.note } }); }
-  getTaskActivity(id: string): Promise<Array<Record<string, unknown>>> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/activity`); }
+  getTaskActivity(id: string): Promise<ActivityEvent[]> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}/activity`); }
 
   createApprovalRequest(input: {
     workspaceId?: string;

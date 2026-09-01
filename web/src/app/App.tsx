@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { ApiError, type ApiClient } from '../api/client';
-import type { TaskItem, TaskQuadrant } from '../api/types';
+import type { ActivityEvent, TaskItem, TaskQuadrant } from '../api/types';
 import type { QrLoginController, QrLoginState } from '../auth/qr-login';
+import { ApprovalsPage } from '../pages/ApprovalsPage';
 import { AppShell } from '../components/layout/AppShell';
 import { InlineError } from '../components/status/InlineError';
 import { SyncStatus } from '../components/status/SyncStatus';
 import type { CreateTaskHandler } from '../components/tasks/TaskComposer';
+import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
 import { AllTasksPage } from '../pages/AllTasksPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
 import type { WebSocketFactory } from '../realtime/workspace-socket';
 import type { WebSessionViewApi } from '../ui/web-session-view';
 import { WorkspaceView } from '../ui/workspace-view';
+import type { TaskDetailActions } from '../ui/task-detail-view';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
 import { navigate, parseHash, type Route } from './routes';
 import type { PrimaryRoute } from '../components/layout/TopNav';
@@ -33,9 +36,13 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const [screen, setScreen] = useState<AppScreen>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(() => parseHash(typeof window === 'undefined' ? '' : window.location.hash));
+  const [taskListRoute, setTaskListRoute] = useState<'today' | 'tasks'>('tasks');
+  const [taskActivity, setTaskActivity] = useState<ActivityEvent[]>([]);
   const legacyRootRef = useRef<HTMLDivElement>(null);
   const legacyViewCleanupRef = useRef<(() => void) | undefined>(undefined);
   const legacySessionRef = useRef<LegacySyncBridge | undefined>(undefined);
+  const taskListRouteRef = useRef<'today' | 'tasks'>('tasks');
+  const taskFocusRef = useRef<{ taskId: string; element: HTMLElement | null } | null>(null);
   const activeRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const loggingOutRef = useRef(false);
@@ -43,10 +50,18 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const authRecoveryRef = useRef(false);
   const previousLoginKindRef = useRef<QrLoginState['kind']>(loginState.kind);
   const canUseLegacyViews = typeof sync.subscribe === 'function' && typeof login.subscribe === 'function';
-  const useReactWorkbench = route.kind === 'today' || route.kind === 'tasks';
+  const useReactWorkbench = route.kind === 'today'
+    || route.kind === 'tasks'
+    || route.kind === 'approvals'
+    || route.kind === 'task';
   const workspaceId = screen === 'workspace' && !workspaceState.authRequired
     ? workspaceState.snapshot?.workspace_id ?? null
     : null;
+  const workspaceReady = screen === 'workspace' && Boolean(workspaceState.snapshot) && !workspaceState.authRequired;
+  const taskId = route.kind === 'task' ? route.id : null;
+  const selectedTask = taskId === null
+    ? null
+    : workspaceState.snapshot?.tasks.find((item) => item.id === taskId) ?? null;
   const stopRealtime = useWorkspaceRealtime(sync, workspaceId, { socketFactory });
 
   const disposeLegacyView = useCallback((): void => {
@@ -195,6 +210,17 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   }, []);
 
   useEffect(() => {
+    if (route.kind === 'task') return;
+    const pendingFocus = taskFocusRef.current;
+    if (!pendingFocus) return;
+    taskFocusRef.current = null;
+    const target = pendingFocus.element?.isConnected
+      ? pendingFocus.element
+      : findTaskFocusTarget(pendingFocus.taskId);
+    target?.focus();
+  }, [route.kind]);
+
+  useEffect(() => {
     if (workspaceState.authRequired) recoverAuthRequired();
   }, [recoverAuthRequired, workspaceState.authRequired]);
 
@@ -209,6 +235,33 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
       loadWorkspace(true);
     }
   }, [loadWorkspace, loginState.kind]);
+
+  useEffect(() => {
+    if (!workspaceReady || taskId === null || selectedTask === null || typeof api.getTaskActivity !== 'function') {
+      setTaskActivity([]);
+      return undefined;
+    }
+
+    let active = true;
+    setTaskActivity([]);
+    let request: Promise<ActivityEvent[]>;
+    try {
+      request = api.getTaskActivity(taskId);
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    void request
+      .then((events) => {
+        if (active) setTaskActivity(events);
+      })
+      .catch(() => {
+        if (active) setTaskActivity([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [api, selectedTask !== null, taskId, workspaceId, workspaceReady]);
 
   useEffect(() => {
     const root = legacyRootRef.current;
@@ -252,15 +305,44 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     legacyRootRef.current?.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.focus();
   }, []);
   const onNavigate = useCallback((nextRoute: PrimaryRoute): void => {
+    taskFocusRef.current = null;
+    if (nextRoute.kind === 'today' || nextRoute.kind === 'tasks') {
+      taskListRouteRef.current = nextRoute.kind;
+      setTaskListRoute(nextRoute.kind);
+    }
     navigate(nextRoute);
   }, []);
   const openTask = useCallback((task: TaskItem): void => {
+    const backgroundRoute = route.kind === 'today' || route.kind === 'tasks' ? route.kind : taskListRouteRef.current;
+    taskListRouteRef.current = backgroundRoute;
+    setTaskListRoute(backgroundRoute);
+    const activeElement = typeof document !== 'undefined'
+      && document.activeElement instanceof HTMLElement
+      && document.activeElement !== document.body
+      ? document.activeElement
+      : findTaskFocusTarget(task.id);
+    taskFocusRef.current = { taskId: task.id, element: activeElement };
     navigate({ kind: 'task', id: task.id });
+  }, [route.kind]);
+  const closeTask = useCallback((): void => {
+    navigate(taskListRouteRef.current);
   }, []);
   const createTask = useCallback<CreateTaskHandler>((title: string, description: string, quadrant: TaskQuadrant, labels: string[]): Promise<void> => {
     return sync.createTask(title, description, quadrant, labels);
   }, [sync]);
-  const workspaceReady = screen === 'workspace' && Boolean(workspaceState.snapshot) && !workspaceState.authRequired;
+  const taskActions: TaskDetailActions | undefined = selectedTask ? {
+    onTransition: (status, payload) => sync.transitionTask(selectedTask.id, status, payload),
+    onComment: (body) => sync.addComment(selectedTask.id, body),
+    onDelay: (date, reason, note) => sync.addDelay(selectedTask.id, date, reason, note),
+    onSave: (changes) => sync.patchTask(selectedTask.id, changes),
+    onDeleteComment: (commentId, baseVersion) => sync.deleteTaskComment(selectedTask.id, commentId, baseVersion),
+    onResolveConflict: (conflictId, resolution) => sync.resolveConflict(selectedTask.id, conflictId, resolution),
+    currentUserId: workspaceState.snapshot?.viewer_user_id ?? undefined,
+    canWrite: !workspaceState.loading && !workspaceState.stale && !workspaceState.authRequired,
+  } : undefined;
+  const taskBackground = taskListRoute === 'today'
+    ? <TodayPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
+    : <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />;
 
   return (
     <div data-testid="muyu-app" data-route={routeKey}>
@@ -278,6 +360,25 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
               <TodayPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
             ) : route.kind === 'tasks' ? (
               <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
+            ) : route.kind === 'approvals' ? (
+              <ApprovalsPage sync={sync} />
+            ) : route.kind === 'task' ? (
+              <>
+                {taskBackground}
+                {selectedTask && taskActions ? (
+                  <TaskDetailPanel
+                    key={selectedTask.id}
+                    task={selectedTask}
+                    members={workspaceState.snapshot?.members ?? []}
+                    syncState={workspaceState}
+                    actions={taskActions}
+                    activity={taskActivity}
+                    onClose={closeTask}
+                  />
+                ) : (
+                  <InlineError message="任务不存在，请刷新后重试。" />
+                )}
+              </>
             ) : (
               <>
                 <SyncStatus loading={workspaceState.loading} stale={workspaceState.stale} error={workspaceState.error} />
@@ -289,6 +390,15 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
       {screen !== 'login' && !workspaceReady ? placeholder(screen, loadError ?? workspaceState.error, () => loadWorkspace()) : null}
     </div>
   );
+}
+
+function findTaskFocusTarget(taskId: string): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  for (const row of document.querySelectorAll<HTMLElement>('[data-task-row]')) {
+    if (row.getAttribute('data-task-row') !== taskId) continue;
+    return row.querySelector<HTMLElement>('[role="button"]');
+  }
+  return null;
 }
 
 function placeholder(screen: AppScreen, error: string | null, onRetry: () => void): JSX.Element {

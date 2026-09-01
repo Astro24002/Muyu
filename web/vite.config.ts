@@ -9,5 +9,10 @@ export default defineConfig({
   plugins: [react()],
   resolve: { alias: { '@': resolve(rootDir, 'src') } },
   server: { proxy: { '/api': { target: 'http://localhost:8080', ws: true } } },
-  test: { environment: 'jsdom', setupFiles: './test/setup.ts' },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './test/setup.ts',
+    include: ['test/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    exclude: ['e2e/**'],
+  },
 });

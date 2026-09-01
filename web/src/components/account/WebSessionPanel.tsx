@@ -28,6 +28,7 @@ export function WebSessionPanel({ api, onAuthRequired, now = defaultNow, classNa
   const mountedRef = useRef(false);
   const generationRef = useRef(0);
   const busyRef = useRef<BusyAction>(null);
+  const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   nowRef.current = now;
 
@@ -37,6 +38,10 @@ export function WebSessionPanel({ api, onAuthRequired, now = defaultNow, classNa
       mountedRef.current = false;
       generationRef.current += 1;
       busyRef.current = null;
+      if (expiryTimerRef.current !== null) {
+        clearTimeout(expiryTimerRef.current);
+        expiryTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -58,8 +63,38 @@ export function WebSessionPanel({ api, onAuthRequired, now = defaultNow, classNa
     load();
     return () => {
       generationRef.current += 1;
+      busyRef.current = null;
+      if (mountedRef.current) setBusy(null);
     };
   }, [load]);
+
+  useEffect(() => {
+    if (expiryTimerRef.current !== null) {
+      clearTimeout(expiryTimerRef.current);
+      expiryTimerRef.current = null;
+    }
+
+    const nextExpiry = state.sessions.reduce<number | null>((earliest, session) => {
+      const expiresAt = Date.parse(session.expires_at);
+      if (!Number.isFinite(expiresAt)) return earliest;
+      return earliest === null ? expiresAt : Math.min(earliest, expiresAt);
+    }, null);
+    if (nextExpiry === null) return undefined;
+
+    const timer = setTimeout(() => {
+      expiryTimerRef.current = null;
+      setState((current) => {
+        const sessions = activeSessions(current.sessions, nowRef.current());
+        return sessions.length === current.sessions.length ? current : { ...current, sessions };
+      });
+    }, Math.max(0, nextExpiry - nowRef.current()));
+    expiryTimerRef.current = timer;
+
+    return () => {
+      clearTimeout(timer);
+      if (expiryTimerRef.current === timer) expiryTimerRef.current = null;
+    };
+  }, [now, state.sessions]);
 
   const revoke = useCallback(async (id: string): Promise<void> => {
     if (!mountedRef.current || busyRef.current !== null) return;

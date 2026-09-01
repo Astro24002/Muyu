@@ -15,9 +15,12 @@ export function UserMenu({ onLogout = () => undefined, sessionApi, onAuthRequire
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return undefined;
+
+    popoverRef.current?.focus();
 
     const closeOnOutsideClick = (event: MouseEvent): void => {
       if (event.target instanceof Node && !menuRef.current?.contains(event.target)) closeMenu();
@@ -50,15 +53,24 @@ export function UserMenu({ onLogout = () => undefined, sessionApi, onAuthRequire
         label="用户菜单"
         icon={<UserRound aria-hidden="true" size={18} strokeWidth={1.8} />}
         aria-expanded={open}
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
+        aria-controls="muyu-user-menu-popover"
         onClick={() => {
           if (open) closeMenu();
           else setOpen(true);
         }}
       />
       {open ? (
-        <div className="user-menu__popover" role="menu" aria-label="用户菜单">
-          <p className="user-menu__label">当前用户</p>
+        <div
+          ref={popoverRef}
+          id="muyu-user-menu-popover"
+          className="user-menu__popover"
+          role="dialog"
+          aria-labelledby="muyu-user-menu-title"
+          aria-modal="false"
+          tabIndex={-1}
+        >
+          <p id="muyu-user-menu-title" className="user-menu__label">用户菜单</p>
           {sessionApi ? <WebSessionPanel api={sessionApi} onAuthRequired={onAuthRequired} now={now} /> : null}
           <button type="button" className="user-menu__item" onClick={logout}>
             退出登录

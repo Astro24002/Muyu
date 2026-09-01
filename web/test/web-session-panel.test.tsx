@@ -1,5 +1,5 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/client';
 import type { WebSessionSummary } from '../src/api/types';
 import { WebSessionPanel, type WebSessionPanelApi } from '../src/components/account/WebSessionPanel';
@@ -24,6 +24,10 @@ function apiStub(sessions: WebSessionSummary[] = [active, expired, revoked]): We
     revokeAllWebSessions: vi.fn().mockResolvedValue({ revoked_count: sessions.length }),
   };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('WebSessionPanel', () => {
   it('shows a loading state while the initial session list is pending', () => {
@@ -66,6 +70,28 @@ describe('WebSessionPanel', () => {
     expect(document.body.textContent).not.toMatch(/token-secret|cookie-secret|proof-secret|digest-secret|token|cookie|proof|digest/i);
   });
 
+  it('removes a session when the injected clock crosses its expiry', async () => {
+    vi.useFakeTimers();
+    let currentNow = Date.parse('2026-09-01T12:00:00Z');
+    const expiring = { ...active, expires_at: '2026-09-01T12:00:10Z' };
+    const api = apiStub([expiring]);
+
+    render(<WebSessionPanel api={api} now={() => currentNow} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('web-session-item-session-active')).toBeInTheDocument();
+    currentNow = Date.parse(expiring.expires_at);
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(screen.queryByTestId('web-session-item-session-active')).not.toBeInTheDocument();
+    expect(screen.getByText('没有有效的网页登录会话')).toBeInTheDocument();
+  });
+
   it('revokes one session and preserves the rest', async () => {
     const second = { ...active, id: 'session-second', origin: 'https://second.example' };
     const api = apiStub([active, second]);
@@ -104,6 +130,29 @@ describe('WebSessionPanel', () => {
     expect(revoke).toBeDisabled();
     release();
     await waitFor(() => expect(screen.queryByTestId('web-session-item-session-active')).not.toBeInTheDocument());
+  });
+
+  it('releases busy state when a new session API replaces one with a pending revoke', async () => {
+    let releaseOld!: () => void;
+    const oldApi = apiStub([active]);
+    vi.mocked(oldApi.revokeWebSession).mockReturnValueOnce(new Promise<void>((resolve) => { releaseOld = resolve; }));
+    const newSession = { ...active, id: 'session-new', origin: 'https://new.example' };
+    const newApi = apiStub([newSession]);
+    const view = render(<WebSessionPanel api={oldApi} now={() => now} />);
+
+    await waitFor(() => expect(screen.getByTestId('web-session-item-session-active')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    expect(screen.getByRole('button', { name: '撤销' })).toBeDisabled();
+
+    view.rerender(<WebSessionPanel api={newApi} now={() => now} />);
+    await waitFor(() => expect(screen.getByTestId('web-session-item-session-new')).toBeInTheDocument());
+
+    const newRevoke = within(screen.getByTestId('web-session-item-session-new')).getByRole('button', { name: '撤销' });
+    expect(newRevoke).not.toBeDisabled();
+    fireEvent.click(newRevoke);
+    await waitFor(() => expect(newApi.revokeWebSession).toHaveBeenCalledWith(newSession.id));
+    releaseOld();
+    await waitFor(() => expect(screen.queryByTestId('web-session-item-session-new')).not.toBeInTheDocument());
   });
 
   it('revokes all active sessions', async () => {
@@ -171,18 +220,25 @@ describe('UserMenu session integration', () => {
     render(<UserMenu sessionApi={api} now={() => now} onLogout={onLogout} />);
 
     const trigger = screen.getByRole('button', { name: '用户菜单' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
     fireEvent.click(trigger);
     await waitFor(() => expect(screen.getByText('网页登录会话')).toBeInTheDocument());
+    const surface = screen.getByRole('dialog', { name: '用户菜单' });
+    expect(surface).toHaveAttribute('aria-labelledby', 'muyu-user-menu-title');
+    expect(surface).toHaveAttribute('aria-modal', 'false');
+    expect(surface).toHaveFocus();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '用户菜单' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
 
     fireEvent.click(trigger);
     fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '用户菜单' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
 
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
     expect(onLogout).toHaveBeenCalledOnce();
+    expect(trigger).toHaveFocus();
   });
 });

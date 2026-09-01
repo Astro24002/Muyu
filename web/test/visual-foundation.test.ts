@@ -34,6 +34,20 @@ describe('visual foundation', () => {
     }
   });
 
+  it('keeps every non-root React selector out of the legacy bridge subtree', () => {
+    const reactSelectorLines = globalCss
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith(primitiveScopeSelector))
+      .filter((line) => line !== `${primitiveScopeSelector} {`);
+
+    expect(reactSelectorLines.length).toBeGreaterThan(0);
+    for (const selector of reactSelectorLines) {
+      expect(selector).toContain(legacyRootSelector);
+      expect(selector).toContain(legacyDescendantSelector);
+    }
+  });
+
   it('keeps light color scheme and cursor states inside the non-legacy React root', () => {
     const colorSchemeRules = cssRules().filter(({ body }) => body.includes('color-scheme: light;'));
     expect(colorSchemeRules).toHaveLength(1);

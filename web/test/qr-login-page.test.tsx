@@ -1,11 +1,12 @@
 import { fireEvent, screen } from '@testing-library/react';
 import { act } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import QRCode from 'qrcode';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QrLoginController, QrLoginState } from '../src/auth/qr-login';
 import { QrLoginPage } from '../src/pages/QrLoginPage';
 import { render } from './react-test-helpers';
 
-vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn() } }));
 
 const challenge = {
   challenge_id: 'challenge-1',
@@ -16,6 +17,20 @@ const challenge = {
 };
 
 describe('QrLoginPage', () => {
+  beforeEach(() => {
+    vi.mocked(QRCode.toCanvas).mockReset();
+    vi.mocked(QRCode.toCanvas).mockImplementation((() => (
+      Promise.resolve(document.createElement('canvas'))
+    )) as unknown as typeof QRCode.toCanvas);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      { drawImage: vi.fn() } as unknown as CanvasRenderingContext2D,
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders the safe QR challenge details and exposes poll and regenerate actions', async () => {
     const login = fakeLogin({ kind: 'waiting_for_approval', challenge });
 
@@ -66,6 +81,38 @@ describe('QrLoginPage', () => {
     expect(screen.getByText('请生成二维码登录。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新生成二维码' })).toBeEnabled();
     expect(document.body).not.toHaveTextContent('AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA');
+  });
+
+  it('ignores a late QR render after its visible canvas has been removed', async () => {
+    const pendingRenders: Array<{ canvas: HTMLCanvasElement; complete: () => void }> = [];
+    vi.mocked(QRCode.toCanvas).mockImplementation(((firstArgument: string | HTMLCanvasElement) => {
+      const canvas = firstArgument instanceof HTMLCanvasElement
+        ? firstArgument
+        : document.createElement('canvas');
+      return new Promise<HTMLCanvasElement>((resolve) => {
+        pendingRenders.push({
+          canvas,
+          complete: () => {
+            canvas.dataset.rendered = 'late';
+            resolve(canvas);
+          },
+        });
+      });
+    }) as typeof QRCode.toCanvas);
+
+    const login = fakeLogin({ kind: 'waiting_for_approval', challenge });
+    const { rerender } = render(<QrLoginPage controller={login} state={{ kind: 'waiting_for_approval', challenge }} />);
+    const canvas = screen.getByRole('img', { name: '登录二维码' });
+
+    expect(pendingRenders).toHaveLength(1);
+    rerender(<QrLoginPage controller={login} state={{ kind: 'signed_out' }} />);
+
+    await act(async () => {
+      pendingRenders[0].complete();
+      await Promise.resolve();
+    });
+
+    expect(canvas).not.toHaveAttribute('data-rendered', 'late');
   });
 });
 

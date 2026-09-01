@@ -33,9 +33,19 @@ export function TopNav({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
+  const searchWasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
+    if (searchOpen) {
+      searchWasOpenRef.current = true;
+      searchInputRef.current?.focus();
+      return;
+    }
+    if (searchWasOpenRef.current) {
+      searchWasOpenRef.current = false;
+      if (searchTriggerRef.current?.isConnected) searchTriggerRef.current.focus();
+    }
   }, [searchOpen]);
 
   useEffect(() => {
@@ -102,11 +112,15 @@ export function TopNav({
 
         <div className="top-nav__actions">
           <IconButton
+            ref={searchTriggerRef}
             label="搜索"
             icon={<Search aria-hidden="true" size={18} strokeWidth={1.8} />}
             aria-expanded={searchOpen}
             aria-controls="muyu-search-dialog"
-            onClick={() => setSearchOpen((value) => !value)}
+            onClick={() => {
+              if (searchOpen) closeSearch();
+              else setSearchOpen(true);
+            }}
           />
           <IconButton
             label="新建任务"
@@ -117,7 +131,7 @@ export function TopNav({
         </div>
 
         {searchOpen ? (
-          <div id="muyu-search-dialog" className="top-nav__search" role="dialog" aria-label="搜索">
+          <div id="muyu-search-dialog" className="top-nav__search" role="dialog" aria-label="搜索" aria-modal="true">
             <form onSubmit={submitSearch}>
               <label htmlFor="muyu-search-input">搜索任务</label>
               <div className="top-nav__search-row">

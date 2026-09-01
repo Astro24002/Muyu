@@ -100,18 +100,48 @@ function ChallengeState({
   controller: QrLoginController;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderGenerationRef = useRef(0);
   const { challenge } = state;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
+    const generation = ++renderGenerationRef.current;
     let active = true;
-    void QRCode.toCanvas(canvas, challenge.qr_payload, { margin: 1, width: 240 }).catch(() => {
-      if (active) canvas.dataset.renderError = 'true';
-    });
-    return () => {
+
+    const isCurrent = (): boolean => (
+      active
+      && generation === renderGenerationRef.current
+      && canvasRef.current === canvas
+      && canvas.isConnected
+    );
+    const invalidate = (): void => {
       active = false;
+      if (renderGenerationRef.current === generation) renderGenerationRef.current += 1;
     };
+
+    let renderPromise: Promise<HTMLCanvasElement>;
+    try {
+      renderPromise = QRCode.toCanvas(challenge.qr_payload, { margin: 1, width: 240 });
+    } catch {
+      if (isCurrent()) canvas.dataset.renderError = 'true';
+      return invalidate;
+    }
+
+    void renderPromise
+      .then((renderedCanvas) => {
+        if (!isCurrent()) return;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('QR canvas context unavailable');
+        canvas.width = renderedCanvas.width;
+        canvas.height = renderedCanvas.height;
+        context.drawImage(renderedCanvas, 0, 0);
+      })
+      .catch(() => {
+        if (isCurrent()) canvas.dataset.renderError = 'true';
+      });
+
+    return invalidate;
   }, [challenge.challenge_id, challenge.qr_payload]);
 
   const exchanging = state.kind === 'exchanging';

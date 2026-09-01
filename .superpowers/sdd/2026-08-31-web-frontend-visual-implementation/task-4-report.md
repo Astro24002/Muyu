@@ -47,6 +47,37 @@ The full Web suite was not rerun for this task. The baseline recorded by Task 3 
 - QR canvas rendering errors are contained to the canvas effect; the controller's existing poll, expiry, exchange, generation, and raw-proof cleanup semantics remain authoritative.
 - Visual verification was limited to CSS/build validation and jsdom behavior in this task; Playwright screenshot coverage belongs to the later visual acceptance work.
 
+## Fix Round 1
+
+Date: 2026-09-01
+
+- Hardened `global.css` so every non-root React selector, including base, responsive, and reduced-motion rules, excludes `data-testid="legacy-app-root"` and all descendants. Added a static selector-boundary regression assertion.
+- Updated `QrLoginPage` to render QR codes through the supported detached-canvas overload and copy only from the current render generation into a still-connected visible canvas. Added a deferred-render regression for removed canvases.
+- Added `aria-modal="true"` to the search dialog and restored focus to its trigger after Escape, close-button, and toggle dismissal. `IconButton` now forwards button refs; focus behavior is covered by TopNav tests.
+- Preserved the legacy runtime bridge and Task 5+ scope. The documented `workspace-actions` baseline remains two failures: zero mocked `createTask` calls and an enabled create control during loading.
+
+### Fix Round 1 Verification
+
+```text
+npm test -- --run test/visual-foundation.test.ts test/top-nav.test.tsx test/qr-login-page.test.tsx
+3 test files passed, 12 tests passed
+
+npm test -- --run test/app-shell.test.tsx test/app-lifecycle.test.tsx test/app-session-isolation.test.ts test/qr-login.test.ts
+4 test files passed, 34 tests passed
+
+npm run typecheck
+passed (tsc --noEmit)
+
+npm run build
+passed (Vite 8.2.2, 1,629 modules transformed)
+
+npm test -- --run test/workspace-actions.test.ts
+2 documented baseline failures, 3 tests passed
+
+git diff --check
+passed
+```
+
 ## Files
 
 - `web/src/components/layout/AppShell.tsx`

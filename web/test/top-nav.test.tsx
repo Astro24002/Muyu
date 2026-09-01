@@ -60,6 +60,7 @@ describe('TopNav', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     const searchDialog = screen.getByRole('dialog', { name: '搜索' });
+    expect(searchDialog).toHaveAttribute('aria-modal', 'true');
     expect(within(searchDialog).getByRole('searchbox', { name: '搜索任务' })).toBeVisible();
     fireEvent.change(within(searchDialog).getByRole('searchbox', { name: '搜索任务' }), { target: { value: '周报' } });
     expect(within(searchDialog).getByRole('searchbox', { name: '搜索任务' })).toHaveValue('周报');
@@ -67,5 +68,27 @@ describe('TopNav', () => {
     fireEvent.click(screen.getByRole('button', { name: '用户菜单' }));
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
     expect(onLogout).toHaveBeenCalledOnce();
+  });
+
+  it('restores focus to the search trigger after Escape and close-button dismissal', () => {
+    render(
+      <TopNav
+        route={{ kind: 'today' }}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    const searchTrigger = screen.getByRole('button', { name: '搜索' });
+    fireEvent.click(searchTrigger);
+    expect(screen.getByRole('searchbox', { name: '搜索任务' })).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: '搜索' })).toBeNull();
+    expect(searchTrigger).toHaveFocus();
+
+    fireEvent.click(searchTrigger);
+    fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }));
+    expect(screen.queryByRole('dialog', { name: '搜索' })).toBeNull();
+    expect(searchTrigger).toHaveFocus();
   });
 });

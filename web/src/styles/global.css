@@ -7,7 +7,7 @@
   min-height: 100%;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   box-sizing: border-box;
   min-height: 100%;
   background: var(--color-page);
@@ -19,37 +19,37 @@
   letter-spacing: 0;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *,
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::before,
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::after {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::before,
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::after {
   box-sizing: inherit;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(button, input, select, textarea),
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(button, input, select, textarea) {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(button, input, select, textarea):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(button, input, select, textarea):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   font: inherit;
   letter-spacing: inherit;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(a),
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(a) {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(a):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(a):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-brand);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(a, button, input, select, textarea):focus-visible,
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(a, button, input, select, textarea):focus-visible {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(a, button, input, select, textarea):focus-visible:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(a, button, input, select, textarea):focus-visible:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   outline: 2px solid var(--color-brand-interactive);
   outline-offset: 2px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(img, svg, canvas),
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(img, svg, canvas) {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) :where(img, svg, canvas):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]):where(img, svg, canvas):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: block;
   max-width: 100%;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content,
-.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content {
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   width: min(calc(100% - (var(--space-8) * 2)), var(--content-max-width));
   margin-inline: auto;
 }
@@ -184,23 +184,23 @@
 }
 
 @media (max-width: 1023px) {
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content,
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content {
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     width: min(calc(100% - (var(--space-6) * 2)), var(--content-max-width));
   }
 }
 
 @media (max-width: 640px) {
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content,
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content {
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) .app-content:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]).app-content:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     width: calc(100% - (var(--space-4) * 2));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *,
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::before,
-  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *::after {
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::before,
+  .muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"]) *:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
@@ -208,13 +208,13 @@
   }
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .app-shell {
+.muyu-react-root > [data-testid="muyu-app"] .app-shell:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   min-height: 100vh;
   background: var(--color-page);
   color: var(--color-body);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   position: relative;
   z-index: 2;
   height: 58px;
@@ -222,7 +222,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__inner {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__inner:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   position: relative;
   display: grid;
   grid-template-columns: minmax(128px, 1fr) auto minmax(128px, 1fr);
@@ -233,7 +233,7 @@
   margin-inline: auto;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: inline-flex;
   align-items: baseline;
   gap: var(--space-2);
@@ -242,27 +242,27 @@
   text-decoration: none;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-name {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-name:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   font-size: 16px;
   font-weight: 700;
   line-height: 20px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-mark {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-mark:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-muted);
   font-size: 10px;
   font-weight: 700;
   line-height: 16px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__links {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__links:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   align-self: stretch;
   display: flex;
   align-items: stretch;
   gap: var(--space-1);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__link {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -277,7 +277,7 @@
   white-space: nowrap;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__link::after {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::after {
   position: absolute;
   right: var(--space-3);
   bottom: -1px;
@@ -287,16 +287,16 @@
   content: "";
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__link:hover,
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__link--active {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link:hover:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link--active:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-brand-interactive);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__link--active::after {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__link--active:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::after {
   background: var(--color-brand-interactive);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__badge {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__badge:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -311,14 +311,14 @@
   line-height: 16px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__actions {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__actions:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-1);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__search {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   position: absolute;
   top: calc(100% + var(--space-2));
   right: 0;
@@ -331,7 +331,7 @@
   box-shadow: 0 8px 24px rgba(29, 45, 41, 0.1);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__search label {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search label:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: block;
   margin-bottom: var(--space-2);
   color: var(--color-text);
@@ -339,13 +339,13 @@
   font-weight: 700;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__search-row {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search-row:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__search input {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search input:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   min-width: 0;
   flex: 1;
   height: 36px;
@@ -356,17 +356,17 @@
   background: var(--color-surface);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .top-nav__search-query {
+.muyu-react-root > [data-testid="muyu-app"] .top-nav__search-query:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   margin: var(--space-2) 0 0;
   color: var(--color-muted);
   font-size: 12px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .user-menu {
+.muyu-react-root > [data-testid="muyu-app"] .user-menu:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   position: relative;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .user-menu__popover {
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__popover:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   position: absolute;
   top: calc(100% + var(--space-2));
   right: 0;
@@ -379,13 +379,13 @@
   box-shadow: 0 8px 24px rgba(29, 45, 41, 0.1);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .user-menu__label {
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__label:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   margin: var(--space-1) var(--space-2) var(--space-2);
   color: var(--color-muted);
   font-size: 11px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .user-menu__item {
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__item:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: block;
   width: 100%;
   min-height: 34px;
@@ -398,16 +398,16 @@
   cursor: pointer;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .user-menu__item:hover {
+.muyu-react-root > [data-testid="muyu-app"] .user-menu__item:hover:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   background: var(--color-focus-surface);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .app-shell__body {
+.muyu-react-root > [data-testid="muyu-app"] .app-shell__body:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   min-height: calc(100vh - 58px);
   padding: var(--space-8) 0 var(--space-10);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .sync-status {
+.muyu-react-root > [data-testid="muyu-app"] .sync-status:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -418,41 +418,41 @@
   line-height: 16px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .sync-status--normal {
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--normal:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-sync);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .sync-status--stale {
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--stale:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-coral);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .sync-status--error {
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--error:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-error);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .sync-status__dot {
+.muyu-react-root > [data-testid="muyu-app"] .sync-status__dot:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--color-coral);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .sync-status--normal .sync-status__dot {
+.muyu-react-root > [data-testid="muyu-app"] .sync-status--normal .sync-status__dot:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   background: var(--color-sync);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .inline-error {
+.muyu-react-root > [data-testid="muyu-app"] .inline-error:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-error);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .inline-error > span {
+.muyu-react-root > [data-testid="muyu-app"] .inline-error > span:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   flex: 1;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-page {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: grid;
   min-height: 100vh;
   place-items: center;
@@ -460,7 +460,7 @@
   background: var(--color-page);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__panel {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__panel:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   width: min(100%, 420px);
   padding: var(--space-8);
   border: 1px solid var(--color-border);
@@ -468,7 +468,7 @@
   background: var(--color-surface);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__brand {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__brand:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   margin-bottom: var(--space-4);
   color: var(--color-brand);
   font-size: 11px;
@@ -476,7 +476,7 @@
   line-height: 16px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-page h1 {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page h1:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   margin: 0;
   color: var(--color-text);
   font-size: 28px;
@@ -484,21 +484,21 @@
   line-height: 34px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__intro {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-page__intro:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   margin: var(--space-2) 0 var(--space-6);
   color: var(--color-muted);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-state {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-state:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: grid;
   gap: var(--space-4);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-state--challenge {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-state--challenge:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   justify-items: start;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__canvas {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__canvas:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   width: 240px;
   height: 240px;
   border: 1px solid var(--color-border);
@@ -506,14 +506,14 @@
   background: var(--color-surface);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__details {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: grid;
   gap: var(--space-2);
   width: 100%;
   margin: 0;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__details > div {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details > div:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
   gap: var(--space-3);
@@ -521,12 +521,12 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__details dt {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details dt:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-muted);
   font-size: 12px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__details dd {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details dd:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
@@ -534,13 +534,13 @@
   font-size: 12px;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__details code {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__details code:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-brand);
   font-size: 14px;
   font-weight: 700;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-status {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-status:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -548,59 +548,59 @@
   color: var(--color-body);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-status--loading {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-status--loading:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-muted);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login-status--success {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login-status--success:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   color: var(--color-brand);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .qr-login__actions {
+.muyu-react-root > [data-testid="muyu-app"] .qr-login__actions:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
 @media (max-width: 1023px) {
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__inner {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__inner:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     width: min(calc(100% - (var(--space-6) * 2)), var(--content-max-width));
   }
 }
 
 @media (max-width: 760px) {
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__inner {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__inner:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: var(--space-2);
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-mark {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__brand-mark:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     display: none;
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__links {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__links:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     justify-content: center;
     overflow-x: auto;
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__link {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__link:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     padding-inline: var(--space-2);
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__link::after {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__link:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *)::after {
     right: var(--space-2);
     left: var(--space-2);
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .top-nav__actions {
+  .muyu-react-root > [data-testid="muyu-app"] .top-nav__actions:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     gap: 0;
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .app-shell__body {
+  .muyu-react-root > [data-testid="muyu-app"] .app-shell__body:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     padding-top: var(--space-6);
   }
 
-  .muyu-react-root > [data-testid="muyu-app"] .qr-login-page__panel {
+  .muyu-react-root > [data-testid="muyu-app"] .qr-login-page__panel:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
     padding: var(--space-6);
   }
 }

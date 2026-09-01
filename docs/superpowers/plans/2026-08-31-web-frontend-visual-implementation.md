@@ -92,7 +92,7 @@ export function App({ api, login, sync }: AppProps): JSX.Element {
 
 - [ ] **Step 4: Run the focused test and typecheck**
 
-Run: `cd web && npm test -- --run web/test/app-shell.test.tsx && npm run typecheck`
+Run: `cd web && npm test -- --run test/app-shell.test.tsx && npm run typecheck`
 
 Expected: 测试为 PASS，TypeScript 无错误。
 
@@ -158,7 +158,7 @@ git commit -m "feat(web): bootstrap React application"
 
 - [ ] **Step 4: Run primitive tests and inspect computed styles**
 
-Run: `cd web && npm test -- --run web/test/ui-primitives.test.tsx && npm run typecheck`
+Run: `cd web && npm test -- --run test/ui-primitives.test.tsx && npm run typecheck`
 
 Expected: PASS；jsdom 中所有控件都有可访问名称，CSS 文件可被 Vite 正常解析。
 
@@ -225,7 +225,7 @@ App 启动时调用一次 `sync.loadSnapshot()`；有快照时创建 `WorkspaceS
 
 - [ ] **Step 5: Run lifecycle tests**
 
-Run: `cd web && npm test -- --run web/test/routes.test.ts web/test/use-external-state.test.tsx web/test/app-lifecycle.test.tsx && npm run typecheck`
+Run: `cd web && npm test -- --run test/routes.test.ts test/use-external-state.test.tsx test/app-lifecycle.test.tsx && npm run typecheck`
 
 Expected: PASS；socket、定时器和订阅均在卸载或登出时清理。
 
@@ -273,7 +273,7 @@ git commit -m "feat(web): add React app lifecycle and routing"
 
 - [ ] **Step 5: Run focused UI tests**
 
-Run: `cd web && npm test -- --run web/test/top-nav.test.tsx web/test/qr-login-page.test.tsx && npm run typecheck`
+Run: `cd web && npm test -- --run test/top-nav.test.tsx test/qr-login-page.test.tsx && npm run typecheck`
 
 Expected: PASS；登录状态与工作区状态切换不泄漏旧 DOM。
 
@@ -339,7 +339,7 @@ export function deriveTodayModel(
 
 - [ ] **Step 5: Run model and component tests**
 
-Run: `cd web && npm test -- --run web/test/today-view-model.test.ts web/test/task-row.test.tsx && npm run typecheck`
+Run: `cd web && npm test -- --run test/today-view-model.test.ts test/task-row.test.tsx && npm run typecheck`
 
 Expected: PASS；selector 是纯函数，组件操作不会改变任务对象。
 
@@ -392,7 +392,7 @@ git commit -m "feat(web): add linear task workbench primitives"
 
 - [ ] **Step 6: Run page tests**
 
-Run: `cd web && npm test -- --run web/test/today-page.test.tsx web/test/all-tasks-page.test.tsx web/test/task-composer.test.tsx && npm run typecheck`
+Run: `cd web && npm test -- --run test/today-page.test.tsx test/all-tasks-page.test.tsx test/task-composer.test.tsx && npm run typecheck`
 
 Expected: PASS；默认路由为“今天”，页面没有看板、KPI 卡片或无意义右侧栏。
 
@@ -467,7 +467,7 @@ export type ActivityEvent = {
 
 - [ ] **Step 6: Run detail and approval tests**
 
-Run: `cd web && npm test -- --run web/test/approvals-page.test.tsx web/test/task-detail-panel.test.tsx web/test/conflict-panel.test.tsx web/test/approval-view.test.ts web/test/task-detail-view.test.ts && npm run typecheck`
+Run: `cd web && npm test -- --run test/approvals-page.test.tsx test/task-detail-panel.test.tsx test/conflict-panel.test.tsx test/approval-view.test.ts test/task-detail-view.test.ts && npm run typecheck`
 
 Expected: 新 React 视图和旧行为测试均 PASS；并发冲突、审批和错误状态没有被 UI 迁移丢失。
 
@@ -512,7 +512,7 @@ git commit -m "feat(web): add approvals and task detail surfaces"
 
 - [ ] **Step 4: Run activity and session tests**
 
-Run: `cd web && npm test -- --run web/test/activity-view-model.test.ts web/test/activity-page.test.tsx web/test/web-session-panel.test.tsx web/test/web-session-view.test.ts && npm run typecheck`
+Run: `cd web && npm test -- --run test/activity-view-model.test.ts test/activity-page.test.tsx test/web-session-panel.test.tsx test/web-session-view.test.ts && npm run typecheck`
 
 Expected: PASS；动态页按需加载，用户菜单不会把敏感凭据渲染到 DOM。
 
@@ -580,6 +580,7 @@ git commit -m "test(web): add visual and accessibility verification"
 ### Task 10: 删除旧 DOM 视图并完成交付验收
 
 **Files:**
+- Delete: `web/src/main.ts`
 - Delete: `web/src/app.ts`
 - Delete: `web/src/styles.css`
 - Delete: `web/src/ui/qr-login-view.ts`

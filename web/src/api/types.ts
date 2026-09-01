@@ -51,6 +51,22 @@ export interface TaskComment {
   created_at: string | null;
 }
 
+export interface ActivityEvent {
+  kind: 'operation' | 'comment' | 'delay' | string;
+  id: string;
+  created_at: string;
+  operation_type?: string;
+  body?: string;
+  author_user_id?: string;
+  actor_user_id?: string;
+  reason?: string;
+  note?: string;
+  new_due_at?: string;
+  delay_duration_minutes?: number;
+  request_id?: string;
+  [key: string]: unknown;
+}
+
 export interface TaskApprovalRequest {
   id: string;
   workspace_id: string;

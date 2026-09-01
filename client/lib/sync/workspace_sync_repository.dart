@@ -18,7 +18,6 @@ abstract class WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
@@ -147,7 +146,6 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
@@ -166,9 +164,6 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     }
     if (parentTaskId != null) {
       body['parent_task_id'] = parentTaskId;
-    }
-    if (assigneeIds != null) {
-      body['assignee_ids'] = assigneeIds;
     }
     if (plannedStartAt != null) {
       body['planned_start_at'] = plannedStartAt;

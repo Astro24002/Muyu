@@ -29,7 +29,6 @@ class TaskItem implements TaskMutationResult {
     required this.statusVersion,
     required this.createdAt,
     required this.updatedAt,
-    required this.assigneeIds,
     this.delayCount = 0,
     this.totalDelayMinutes = 0,
     this.fieldVersions = const {},
@@ -70,7 +69,6 @@ class TaskItem implements TaskMutationResult {
   final int statusVersion;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final List<String> assigneeIds;
   final int delayCount;
   final int totalDelayMinutes;
   final Map<String, int> fieldVersions;
@@ -107,7 +105,6 @@ class TaskItem implements TaskMutationResult {
       statusVersion: json['status_version'] as int,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
-      assigneeIds: (json['assignee_ids'] as List<dynamic>).cast<String>(),
       delayCount: json['delay_count'] as int? ?? 0,
       totalDelayMinutes: json['total_delay_minutes'] as int? ?? 0,
       fieldVersions:
@@ -156,7 +153,6 @@ class TaskItem implements TaskMutationResult {
     statusVersion: statusVersion,
     createdAt: createdAt,
     updatedAt: updatedAt,
-    assigneeIds: assigneeIds,
     delayCount: delayCount,
     totalDelayMinutes: totalDelayMinutes,
     fieldVersions: fieldVersions ?? this.fieldVersions,
@@ -188,7 +184,6 @@ class TaskItem implements TaskMutationResult {
     'status_version': statusVersion,
     'created_at': createdAt.toUtc().toIso8601String(),
     'updated_at': updatedAt.toUtc().toIso8601String(),
-    'assignee_ids': assigneeIds,
     'delay_count': delayCount,
     'total_delay_minutes': totalDelayMinutes,
     'field_versions': fieldVersions,

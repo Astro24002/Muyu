@@ -210,7 +210,6 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     'TASK_DELETE' => '删除任务',
     'TASK_RESTORE' => '恢复任务',
     'COMMENT_DELETE' => '删除评论',
-    'ASSIGNEE_UPDATE' => '协作者修改',
     'HANDLER_TRANSFER' => '负责人转移',
     _ => type,
   };

@@ -31,7 +31,6 @@ TaskItem sampleTask({String quadrant = 'Q1', List<String> labels = const []}) =>
       statusVersion: 1,
       createdAt: DateTime.utc(2026, 8, 31),
       updatedAt: DateTime.utc(2026, 8, 31),
-      assigneeIds: const ['user-1'],
     );
 
 class LabelRecordingRepository implements WorkspaceSyncRepository {
@@ -67,7 +66,6 @@ class LabelRecordingRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,

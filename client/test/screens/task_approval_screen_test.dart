@@ -26,29 +26,32 @@ TaskItem task() => TaskItem(
   statusVersion: 1,
   createdAt: DateTime.utc(2026, 8, 28),
   updatedAt: DateTime.utc(2026, 8, 28),
-  assigneeIds: const ['user-a', 'user-b'],
   labels: const [],
 );
 
-TaskApprovalRequest approval(String id, String requester, String approver) =>
-    TaskApprovalRequest.fromJson({
-      'id': id,
-      'workspace_id': 'workspace-1',
-      'task_id': 'task-1',
-      'comment_id': null,
-      'requester_id': requester,
-      'approver_id': approver,
-      'request_type': 'TASK_UPDATE',
-      'proposed_changes': {'title': 'New title'},
-      'base_field_versions': {'title': 1},
-      'request_id': 'request-$id',
-      'status': 'PENDING',
-      'created_at': '2026-08-28T00:00:00Z',
-      'reviewed_at': null,
-      'reviewed_by': null,
-      'rejection_reason': null,
-      'resolved_cursor': null,
-    });
+TaskApprovalRequest approval(
+  String id,
+  String requester,
+  String approver, {
+  String requestType = 'TASK_UPDATE',
+}) => TaskApprovalRequest.fromJson({
+  'id': id,
+  'workspace_id': 'workspace-1',
+  'task_id': 'task-1',
+  'comment_id': null,
+  'requester_id': requester,
+  'approver_id': approver,
+  'request_type': requestType,
+  'proposed_changes': {'title': 'New title'},
+  'base_field_versions': {'title': 1},
+  'request_id': 'request-$id',
+  'status': 'PENDING',
+  'created_at': '2026-08-28T00:00:00Z',
+  'reviewed_at': null,
+  'reviewed_by': null,
+  'rejection_reason': null,
+  'resolved_cursor': null,
+});
 
 class ApprovalScreenRepository implements WorkspaceSyncRepository {
   ApprovalScreenRepository(this.approvals);
@@ -83,7 +86,6 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
@@ -248,5 +250,23 @@ void main() {
     );
     expect(find.byKey(const Key('approval-read-only-banner')), findsOneWidget);
     expect(find.byKey(const Key('approval-approve-incoming')), findsNothing);
+  });
+
+  testWidgets('retired participant approval types are not given a label', (
+    tester,
+  ) async {
+    final repository = ApprovalScreenRepository([
+      approval('legacy', 'user-b', 'user-a', requestType: 'ASSIGNEE_UPDATE'),
+    ]);
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskApprovalScreen(sync: sync, currentUserId: 'user-a'),
+      ),
+    );
+
+    expect(find.text('ASSIGNEE_UPDATE · PENDING'), findsOneWidget);
+    expect(find.textContaining('协作者'), findsNothing);
   });
 }

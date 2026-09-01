@@ -33,7 +33,6 @@ class CloudTaskRepository {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
     String? requestId,
@@ -48,7 +47,6 @@ class CloudTaskRepository {
     if (description != null) body['description'] = description;
     if (dueAt != null) body['due_at'] = dueAt;
     if (parentTaskId != null) body['parent_task_id'] = parentTaskId;
-    if (assigneeIds != null) body['assignee_ids'] = assigneeIds;
     if (plannedStartAt != null) body['planned_start_at'] = plannedStartAt;
     if (estimatedMinutes != null) body['estimated_minutes'] = estimatedMinutes;
     return _taskRequest('POST', '/api/v1/tasks', body, id);

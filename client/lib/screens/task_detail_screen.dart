@@ -28,7 +28,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _estimatedMinutes;
   final _label = TextEditingController();
   final _comment = TextEditingController();
-  late Set<String> _selectedAssignees;
   late String _selectedQuadrant;
   late List<String> _selectedLabels;
   String? _labelError;
@@ -50,7 +49,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       text: widget.task.estimatedMinutes?.toString() ?? '',
     );
     _selectedLabels = _normalizeLabels(widget.task.labels);
-    _selectedAssignees = widget.task.assigneeIds.toSet();
     _selectedQuadrant = widget.task.quadrant;
     _selectedProgress = widget.task.progress;
   }
@@ -174,8 +172,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (current.status == 'IN_PROGRESS' &&
           _selectedProgress != current.progress)
         'progress': _selectedProgress,
-      if (!_sameIds(_selectedAssignees, current.assigneeIds))
-        'assignee_ids': _selectedAssignees.toList(),
     };
     if (fields.isEmpty) return;
     setState(() => _saving = true);
@@ -389,9 +385,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     return parsed?.toUtc().toIso8601String();
   }
 
-  static bool _sameIds(Set<String> selected, List<String> current) =>
-      selected.length == current.length && selected.containsAll(current);
-
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.sync,
@@ -424,18 +417,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       final handlerIds = members
           .map((member) => member['user_id'] as String?)
           .whereType<String>()
-          .where(task.assigneeIds.contains)
           .toSet()
           .toList();
-      if (handlerIds.isEmpty) handlerIds.addAll(task.assigneeIds);
-      final assigneeOptions = members
-          .map((member) => member['user_id'] as String?)
-          .whereType<String>()
-          .toSet()
-          .toList();
-      for (final id in task.assigneeIds) {
-        if (!assigneeOptions.contains(id)) assigneeOptions.add(id);
-      }
       return Scaffold(
         appBar: AppBar(
           title: Text(task.title),
@@ -587,38 +570,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '预计工时（分钟）'),
             ),
-            if (assigneeOptions.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              const Text('协作者（最多 2 人）'),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final id in assigneeOptions)
-                    FilterChip(
-                      key: Key('task-assignee-$id'),
-                      label: Text(id),
-                      selected: _selectedAssignees.contains(id),
-                      onSelected: !widget.canWrite || task.deletedAt != null
-                          ? null
-                          : (selected) {
-                              if (!selected && _selectedAssignees.length <= 1) {
-                                return;
-                              }
-                              if (selected && _selectedAssignees.length >= 2) {
-                                return;
-                              }
-                              setState(() {
-                                if (selected) {
-                                  _selectedAssignees.add(id);
-                                } else {
-                                  _selectedAssignees.remove(id);
-                                }
-                              });
-                            },
-                    ),
-                ],
-              ),
-            ],
             const SizedBox(height: 16),
             Text('状态：${task.status}'),
             if (task.status == 'IN_PROGRESS')

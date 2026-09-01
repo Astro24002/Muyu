@@ -195,7 +195,6 @@ class WorkspaceSyncController extends ChangeNotifier {
     String? description,
     String? dueAt,
     String? parentTaskId,
-    List<String>? assigneeIds,
     String? plannedStartAt,
     int? estimatedMinutes,
   }) async {
@@ -211,7 +210,6 @@ class WorkspaceSyncController extends ChangeNotifier {
         description: description,
         dueAt: dueAt,
         parentTaskId: parentTaskId,
-        assigneeIds: assigneeIds,
         plannedStartAt: plannedStartAt,
         estimatedMinutes: estimatedMinutes,
         requestId: _requestId(),

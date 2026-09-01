@@ -37,13 +37,7 @@ class TaskView {
   static const quadrants = <String>['Q1', 'Q2', 'Q3', 'Q4'];
 
   static List<TaskItem> mine(Iterable<TaskItem> tasks, String userId) =>
-      List.unmodifiable(
-        tasks.where(
-          (task) =>
-              task.currentHandlerId == userId ||
-              task.assigneeIds.contains(userId),
-        ),
-      );
+      List.unmodifiable(tasks.where((task) => task.currentHandlerId == userId));
 
   static Map<String, List<TaskItem>> byStatus(Iterable<TaskItem> tasks) {
     final source = tasks.toList(growable: false);

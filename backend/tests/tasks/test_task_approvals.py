@@ -412,6 +412,9 @@ def test_handler_transfer_approval_changes_task_handler_to_other_active_member(d
         assert request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER
         assert request.proposed_changes == {"current_handler_id": str(requester.id)}
 
+        # Intentional red state for Task 1: the target contract permits transfer
+        # to any other active Workspace member, while the pre-Task-2 service
+        # still rejects this change during approval.
         result = service.approve(workspace.id, owner.id, request.id, uuid4())
 
         assert result.request.status == TaskApprovalRequestStatus.APPROVED

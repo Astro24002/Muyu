@@ -187,3 +187,8 @@ WebSocket 只发送 Workspace 有新 cursor 的通知；Android 和 Web 随后�
 - 所有结果都有操作记录、活动记录和连续 Workspace cursor；
 - 不新增 Project、Team、RBAC、群组审批、投票或离线事实源。
 
+---
+
+## 历史决策说明（2026-09-01）
+
+本文保留当时的设计正文；其中关于参与人和 `ASSIGNEE_UPDATE` 审批类型的决定已被[移除任务参与人模型设计](./2026-09-01-remove-task-participants-design.md)取代。当前审批仍由两位 Workspace 成员按既有对方审批规则执行，但任务只保留 `current_handler_id`；本文不再作为当前实现依据。

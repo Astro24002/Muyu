@@ -2,7 +2,7 @@
 
 ## 当前路线：云端协调架构（2026-08-24）
 
-后续实现以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为唯一依据：PostgreSQL 保存明文协作事实，FastAPI 以 REST 增量同步和通知型 WebSocket 协调 Android 与 Web。首版交付 Android APK/AAB 与 Web 静态构建；iOS 仅保留协议扩展空间，不进入当前构建、发布或验收。
+后续实现以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为架构依据，并以 [移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md) 作为当前任务模型、读取范围、写入审批、Android 概览、迁移和缓存规则的权威：PostgreSQL 保存明文协作事实，FastAPI 以 REST 增量同步和通知型 WebSocket 协调 Android 与 Web。首版交付 Android APK/AAB 与 Web 静态构建；iOS 仅保留协议扩展空间，不进入当前构建、发布或验收。
 
 新系统从空 Workspace 与新 PostgreSQL 模型开始，不迁移旧数据，也不保留 P2P、固定密码后端或旧 API 兼容路径。旧 P2P 运行时和旧后端代码将在后续经审阅的实施计划中受控删除。详细实施顺序尚未创建，必须在规格复核后另行编写。
 
@@ -61,9 +61,10 @@
 ## Phase 2：Task 和子任务
 
 - 创建、查看、编辑、取消任务；
-- 单人或双人参与；
+- 每项任务只有一个 `current_handler_id`；
+- 同一 Workspace 的两位 ACTIVE 成员可读取全部未删除任务和子任务；
+- 当前负责人可直接写入，另一位成员的受保护写入继续走对方审批；
 - 用户独立任务排序；
-- 当前负责人；
 - 转交负责人；
 - 开始、完成、重开；
 - 一层子任务；
@@ -75,12 +76,11 @@
 
 ```text
 创建
-  -> 分配参与人
-  -> 指定当前负责人
+  -> 确定当前负责人（默认是创建者）
   -> 开始
   -> 转交
   -> 完成
-  -> 双方刷新看到同一状态
+  -> 双方刷新看到同一状态；非负责人写入须经对方审批
 ```
 
 ## Phase 3：延期和阻塞
@@ -168,6 +168,7 @@ RecurringTask
 - 到期提醒；
 - 重要事件倒计时；
 - 未处理冲突数量。
+- Android“我的”账户概览：统计当前用户负责的全部未删除父任务和子任务，并汇总完成、未完成和延期数据；匹配对象头像打开对方的同口径概览。
 
 首页默认展示用户排序中的前 5 条开放任务，不显示系统优先级。
 
@@ -187,6 +188,8 @@ RecurringTask
 - 共同任务拖延率。
 
 第一版统计实时计算，不保存汇总缓存。
+
+Android“我的”中的账户概览是从现有 Workspace snapshot 派生的紧凑视图，不属于独立的数据分析子系统；不新增 analytics API、统计表或统计缓存。
 
 ## Phase 9：反拖延优化
 

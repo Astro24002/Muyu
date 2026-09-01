@@ -97,3 +97,9 @@ PUT    /api/me/tasks/order
 ## 兼容与迁移
 
 新增迁移只创建新表，不修改现有 `users` 和 `sessions` 数据。现有认证 API 和客户端登录流程保持兼容。API CORS 方法增加 `PUT` 和 `DELETE`。
+
+---
+
+## 历史决策说明（2026-09-01）
+
+本文保留当时的设计正文；其中关于任务参与人、`task_assignees`、`assignee_ids` 及参与人约束的决定已被[移除任务参与人模型设计](./2026-09-01-remove-task-participants-design.md)取代。当前实现只保留 `current_handler_id` 作为唯一负责人，本文不再作为当前实现依据。

@@ -154,3 +154,9 @@ total_delay_minutes
 ## 8. 兼容和迁移
 
 `0003_delay_blocking` 只新增 `delay_records` 表；Phase 2 已存在的任务阻塞字段直接启用，不修改 users、sessions 或既有任务数据。既有任务 API 字段保持兼容，仅在响应中追加可空阻塞字段和非负延期统计字段。
+
+---
+
+## 历史决策说明（2026-09-01）
+
+本文保留当时的设计正文；其中把 `resume_handler_id` 或等待用户约束为任务参与人的决定已被[移除任务参与人模型设计](./2026-09-01-remove-task-participants-design.md)取代。当前只校验同一 Workspace 的 ACTIVE 成员，本文不再作为当前实现依据。

@@ -66,7 +66,7 @@
 
 **Files:**
 
-- Add `backend/alembic/versions/0005_remove_task_assignees.py` with `down_revision = "0004_required_quadrant_task_labels"`.
+- Add `backend/alembic/versions/0005_remove_task_assignees.py` with `down_revision = "0004_task_labels_quadrant"`.
 - Modify `backend/tests/db/test_cloud_schema.py`, `backend/tests/db/test_task_approval_schema.py`, and add `backend/tests/db/test_remove_task_participants_migration.py`.
 - Modify `client/lib/sync/workspace_cache.dart` and its cache tests.
 

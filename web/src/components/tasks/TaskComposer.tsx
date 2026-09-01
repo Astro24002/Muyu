@@ -111,7 +111,12 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
 
   return (
     <div className="task-composer task-composer--expanded" data-task-composer>
-      <form className="task-composer__form" onSubmit={(event) => void submit(event)} aria-busy={submitting ? 'true' : undefined}>
+      <form
+        className="task-composer__form"
+        onSubmit={(event) => void submit(event)}
+        aria-busy={submitting ? 'true' : undefined}
+        aria-live={submitting ? 'polite' : undefined}
+      >
         <div className="task-composer__field">
           <label htmlFor={titleId}>任务标题</label>
           <input

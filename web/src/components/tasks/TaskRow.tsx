@@ -17,7 +17,7 @@ export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.E
   const metaId = useId();
   const completeDisabled = busy || task.status === 'DONE' || task.status === 'CANCELLED';
 
-  const openFromKeyboard = (event: KeyboardEvent<HTMLElement>): void => {
+  const openFromKeyboard = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -29,12 +29,6 @@ export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.E
     <article
       className="task-row"
       data-task-row={task.id}
-      role="button"
-      tabIndex={0}
-      aria-labelledby={titleId}
-      aria-describedby={metaId}
-      onClick={() => onOpen(task)}
-      onKeyDown={openFromKeyboard}
     >
       <Button
         className="task-row__complete"
@@ -51,9 +45,19 @@ export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.E
         <span>完成</span>
       </Button>
 
-      <div className="task-row__body" id={metaId}>
+      <div
+        className="task-row__open task-row__body"
+        role="button"
+        tabIndex={0}
+        aria-labelledby={titleId}
+        aria-describedby={metaId}
+        onClick={() => onOpen(task)}
+        onKeyDown={openFromKeyboard}
+      >
         <h3 className="task-row__title" id={titleId}>{task.title}</h3>
-        <TaskMeta task={task} />
+        <div id={metaId}>
+          <TaskMeta task={task} />
+        </div>
       </div>
 
       <div className="task-row__status" aria-label={`任务状态：${taskStatusText(task.status)}`}>

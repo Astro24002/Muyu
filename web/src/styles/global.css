@@ -618,7 +618,6 @@
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-body);
-  cursor: pointer;
 }
 
 .muyu-react-root > [data-testid="muyu-app"] .task-row:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *):hover {
@@ -628,6 +627,21 @@
 .muyu-react-root > [data-testid="muyu-app"] .task-row__complete:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
   flex-shrink: 0;
   min-width: 72px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-row__open:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-row__open:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *):focus-visible {
+  outline: 2px solid var(--color-brand-interactive);
+  outline-offset: 2px;
 }
 
 .muyu-react-root > [data-testid="muyu-app"] .task-row__body:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {

@@ -54,17 +54,26 @@ describe('TaskRow', () => {
     expect(screen.getByRole('button', { name: '完成' })).toBeEnabled();
   });
 
-  it('opens from the row but stops completion from opening it', () => {
+  it('keeps completion outside row semantics while the open control handles actions', () => {
     const task = makeTask();
     const onOpen = vi.fn();
     const onComplete = vi.fn();
 
     render(<TaskRow task={task} onOpen={onOpen} onComplete={onComplete} busy={false} />);
 
-    fireEvent.click(document.querySelector('[data-task-row]')!);
+    const row = document.querySelector('[data-task-row]')!;
+    const openControl = screen.getByRole('button', { name: task.title });
+    const completeControl = screen.getByRole('button', { name: '完成' });
+
+    expect(openControl).not.toBe(row);
+    expect(row).not.toHaveAttribute('role');
+    expect(row).not.toHaveAttribute('tabindex');
+    expect(completeControl.closest('[role="button"]')).toBeNull();
+
+    fireEvent.click(openControl);
     expect(onOpen).toHaveBeenCalledWith(task);
 
-    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    fireEvent.click(completeControl);
     expect(onComplete).toHaveBeenCalledWith(task);
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(task.status).toBe('TODO');
@@ -75,10 +84,13 @@ describe('TaskRow', () => {
     render(<TaskRow task={makeTask()} onOpen={onOpen} onComplete={vi.fn()} busy />);
 
     const row = document.querySelector('[data-task-row]')!;
-    expect(row).toHaveAttribute('role', 'button');
-    expect(row).toHaveAttribute('tabindex', '0');
-    fireEvent.keyDown(row, { key: 'Enter' });
-    fireEvent.keyDown(row, { key: ' ' });
+    const openControl = screen.getByRole('button', { name: '准备周末晚餐' });
+    expect(row).not.toHaveAttribute('role');
+    expect(row).not.toHaveAttribute('tabindex');
+    expect(openControl).toHaveAttribute('role', 'button');
+    expect(openControl).toHaveAttribute('tabindex', '0');
+    fireEvent.keyDown(openControl, { key: 'Enter' });
+    fireEvent.keyDown(openControl, { key: ' ' });
     expect(onOpen).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('button', { name: '完成' })).toBeDisabled();
   });
@@ -122,7 +134,7 @@ describe('TaskList and FocusTask', () => {
     expect(screen.getByText('今天没有需要处理的任务')).toBeInTheDocument();
 
     rerender(<TaskList tasks={[task]} emptyMessage="空" onOpen={onOpen} onComplete={onComplete} busy={false} />);
-    fireEvent.click(document.querySelector('[data-task-row]')!);
+    fireEvent.click(screen.getByRole('button', { name: task.title }));
     expect(onOpen).toHaveBeenCalledWith(task);
   });
 

@@ -50,3 +50,12 @@ Total                          14 tests passed
 ## Residual Risk
 
 Task primitives are intentionally not connected to a page until Task 6, so browser-level page screenshots and complete-action integration are not part of this change. Relative due-state labels in the components read the component render time; the pure today selector remains independent of the clock and receives `now` explicitly.
+
+## Fix Round 1
+
+Date: 2026-09-01
+
+- Root cause: `TaskRow` put `role="button"` and `tabIndex` on the article that contains the completion button, creating nested interactive semantics.
+- The article is now non-interactive. Its task body is a separate keyboard-accessible open control with visible focus styling; completion remains a sibling and retains busy/terminal disabling and event isolation.
+- The regression covers the semantic split, keyboard opening, completion non-bubbling, stable row/title/meta/status hooks, long titles, and unchanged task data.
+- Verification: `cd web && npm test -- --run test/task-row.test.tsx` passed (8/8 tests).

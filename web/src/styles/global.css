@@ -799,3 +799,198 @@
     align-self: flex-start;
   }
 }
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .all-tasks-page:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  gap: var(--space-6);
+  padding-top: var(--space-1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page__intro:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .all-tasks-page__intro:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page__intro h1:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .all-tasks-page__intro h1:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 34px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page__date:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .today-page__copy:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .all-tasks-page__intro p:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page__date:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  font-weight: 600;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page__section:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .all-tasks-page__section:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .today-page__empty:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .task-list__empty:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .all-tasks-page__sync:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  margin-bottom: calc(var(--space-2) * -1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  min-width: 0;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer--collapsed:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__trigger:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 44px;
+  padding-inline: var(--space-3);
+  color: var(--color-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer--expanded:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__form:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__field:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__field label:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .task-filters__field > span:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .task-filters__mine span:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__field :where(input, textarea, select):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .task-filters__field :where(input, select):not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__field textarea:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-composer__error:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-filters:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-block: 1px solid var(--color-border);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-filters__mine:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-filters__mine input:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-brand-interactive);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-block: 1px solid var(--color-border);
+  color: var(--color-coral);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice p:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice strong:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+.muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice span:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  overflow-wrap: anywhere;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice span:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+  color: var(--color-body);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .muyu-react-root > [data-testid="muyu-app"] .today-page:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+  .muyu-react-root > [data-testid="muyu-app"] .all-tasks-page:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+    gap: var(--space-4);
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .today-page__intro h1:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *),
+  .muyu-react-root > [data-testid="muyu-app"] .all-tasks-page__intro h1:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .task-filters:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+    grid-template-columns: 1fr;
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .muyu-react-root > [data-testid="muyu-app"] .inline-approval-notice .ui-button:not([data-testid="legacy-app-root"]):not([data-testid="legacy-app-root"] *) {
+    margin-left: calc(17px + var(--space-3));
+  }
+}

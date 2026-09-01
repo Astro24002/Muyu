@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { ApiError, type ApiClient } from '../api/client';
+import type { TaskItem, TaskQuadrant } from '../api/types';
 import type { QrLoginController, QrLoginState } from '../auth/qr-login';
 import { AppShell } from '../components/layout/AppShell';
 import { InlineError } from '../components/status/InlineError';
 import { SyncStatus } from '../components/status/SyncStatus';
+import type { CreateTaskHandler } from '../components/tasks/TaskComposer';
+import { AllTasksPage } from '../pages/AllTasksPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
+import { TodayPage } from '../pages/TodayPage';
 import type { WebSocketFactory } from '../realtime/workspace-socket';
 import type { WebSessionViewApi } from '../ui/web-session-view';
 import { WorkspaceView } from '../ui/workspace-view';
@@ -39,6 +43,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const authRecoveryRef = useRef(false);
   const previousLoginKindRef = useRef<QrLoginState['kind']>(loginState.kind);
   const canUseLegacyViews = typeof sync.subscribe === 'function' && typeof login.subscribe === 'function';
+  const useReactWorkbench = route.kind === 'today' || route.kind === 'tasks';
   const workspaceId = screen === 'workspace' && !workspaceState.authRequired
     ? workspaceState.snapshot?.workspace_id ?? null
     : null;
@@ -207,8 +212,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
 
   useEffect(() => {
     const root = legacyRootRef.current;
-    if (!root) return;
-    if (!canUseLegacyViews) {
+    if (!root || !canUseLegacyViews || useReactWorkbench) {
       disposeLegacyView();
       return;
     }
@@ -235,32 +239,52 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }
 
     disposeLegacyView();
-  }, [api, canUseLegacyViews, disposeLegacyView, login, logout, recoverAuthRequired, screen, sync, workspaceState.snapshot?.workspace_id]);
+  }, [api, canUseLegacyViews, disposeLegacyView, login, logout, recoverAuthRequired, screen, sync, useReactWorkbench, workspaceState.snapshot?.workspace_id]);
 
   const routeKey = route.kind === 'task' ? `task:${route.id}` : route.kind;
   const focusNewTask = useCallback((): void => {
+    const composerTrigger = document.querySelector<HTMLButtonElement>('[data-task-composer-trigger]');
+    if (composerTrigger) {
+      composerTrigger.focus();
+      composerTrigger.click();
+      return;
+    }
     legacyRootRef.current?.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.focus();
   }, []);
   const onNavigate = useCallback((nextRoute: PrimaryRoute): void => {
     navigate(nextRoute);
   }, []);
-  const workspaceReady = screen === 'workspace' && Boolean(workspaceState.snapshot) && !workspaceState.authRequired && canUseLegacyViews;
+  const openTask = useCallback((task: TaskItem): void => {
+    navigate({ kind: 'task', id: task.id });
+  }, []);
+  const createTask = useCallback<CreateTaskHandler>((title: string, description: string, quadrant: TaskQuadrant, labels: string[]): Promise<void> => {
+    return sync.createTask(title, description, quadrant, labels);
+  }, [sync]);
+  const workspaceReady = screen === 'workspace' && Boolean(workspaceState.snapshot) && !workspaceState.authRequired;
 
   return (
     <div data-testid="muyu-app" data-route={routeKey}>
       <div data-testid="react-route" data-route={routeKey} aria-live="polite" />
       {screen === 'login' ? <QrLoginPage controller={login} state={loginState} /> : null}
       {workspaceReady ? (
-        <AppShell
+          <AppShell
           route={route}
           onNavigate={onNavigate}
           onLogout={logout}
           onCreateTask={focusNewTask}
-          pendingApprovalCount={pendingApprovalCount(workspaceState)}
-        >
-          <SyncStatus loading={workspaceState.loading} stale={workspaceState.stale} error={workspaceState.error} />
-          <div ref={legacyRootRef} data-testid="legacy-app-root" />
-        </AppShell>
+            pendingApprovalCount={pendingApprovalCount(workspaceState)}
+          >
+            {route.kind === 'today' ? (
+              <TodayPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
+            ) : route.kind === 'tasks' ? (
+              <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
+            ) : (
+              <>
+                <SyncStatus loading={workspaceState.loading} stale={workspaceState.stale} error={workspaceState.error} />
+                <div ref={legacyRootRef} data-testid="legacy-app-root" />
+              </>
+            )}
+          </AppShell>
       ) : null}
       {screen !== 'login' && !workspaceReady ? placeholder(screen, loadError ?? workspaceState.error, () => loadWorkspace()) : null}
     </div>

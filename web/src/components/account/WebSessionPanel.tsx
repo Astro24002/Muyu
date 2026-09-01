@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import { ApiError } from '../../api/client';
 import type { WebSessionSummary } from '../../api/types';
-import type { WebSessionViewApi } from '../../ui/web-session-view';
+import type { WebSessionApi } from './web-session-api';
 
-export type WebSessionPanelApi = WebSessionViewApi;
+export type WebSessionPanelApi = WebSessionApi;
 
 export interface WebSessionPanelProps {
   api: WebSessionPanelApi;

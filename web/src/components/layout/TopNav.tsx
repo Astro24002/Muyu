@@ -1,7 +1,7 @@
 import { Plus, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { Route } from '../../app/routes';
-import type { WebSessionViewApi } from '../../ui/web-session-view';
+import type { WebSessionApi } from '../account/web-session-api';
 import { IconButton } from '../ui/IconButton';
 import { UserMenu } from './UserMenu';
 
@@ -13,7 +13,7 @@ export interface TopNavProps {
   onLogout?: () => void;
   onCreateTask?: () => void;
   onSearch?: (query: string) => void;
-  sessionApi?: WebSessionViewApi;
+  sessionApi?: WebSessionApi;
   onAuthRequired?: () => void;
   pendingApprovalCount?: number;
 }

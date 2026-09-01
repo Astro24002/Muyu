@@ -193,6 +193,7 @@ describe('React app lifecycle', () => {
     );
     await settle();
 
+    fireEvent.click(getByRole('button', { name: '用户菜单' }));
     fireEvent.click(getByRole('button', { name: '退出登录' }));
     await settle();
 
@@ -204,29 +205,29 @@ describe('React app lifecycle', () => {
     expect(login.start).toHaveBeenCalledOnce();
   });
 
-  it('ignores a late legacy create completion after logout replaces the workspace with QR login', async () => {
+  it('ignores a late create completion after logout replaces the workspace with QR login', async () => {
     const lateCreate = deferred<void>();
     const login = new FakeLogin();
     const fake = createFakeSync(workspaceState());
     const createTask = vi.fn(() => lateCreate.promise);
     (fake.sync as unknown as { createTask: typeof createTask }).createTask = createTask;
     const logoutWebSession = vi.fn().mockResolvedValue(undefined);
-    const { container, getByRole, getByPlaceholderText, getByLabelText } = render(
+    const { container, getByRole, getByLabelText } = render(
       <App api={{ logoutWebSession } as unknown as ApiClient} login={login as never} sync={fake.sync} />,
     );
 
     await settle();
-    const title = getByPlaceholderText('新任务标题') as HTMLInputElement;
-    const labels = getByPlaceholderText('任务标签（逗号分隔）') as HTMLInputElement;
-    const quadrant = getByLabelText('新任务四象限') as HTMLSelectElement;
-    title.value = 'late task';
-    labels.value = 'late';
-    quadrant.value = 'Q1';
-    title.dispatchEvent(new Event('input', { bubbles: true }));
-    labels.dispatchEvent(new Event('input', { bubbles: true }));
+    fireEvent.click(getByRole('button', { name: '记下一件事' }));
+    const title = getByLabelText('任务标题') as HTMLInputElement;
+    const labels = getByLabelText('标签') as HTMLInputElement;
+    const quadrant = getByLabelText('四象限') as HTMLSelectElement;
+    fireEvent.change(title, { target: { value: 'late task' } });
+    fireEvent.change(labels, { target: { value: 'late' } });
+    fireEvent.change(quadrant, { target: { value: 'Q1' } });
     (getByRole('button', { name: '创建任务' }).closest('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(createTask).toHaveBeenCalledOnce();
 
+    fireEvent.click(getByRole('button', { name: '用户菜单' }));
     fireEvent.click(getByRole('button', { name: '退出登录' }));
     await settle();
     expect(container).toHaveTextContent('二维码登录');
@@ -239,7 +240,7 @@ describe('React app lifecycle', () => {
     expect(container.querySelector('input[placeholder="新任务标题"]')).toBeNull();
   });
 
-  it('ignores stale legacy task handlers after logout replaces the workspace with QR login', async () => {
+  it('ignores stale task handlers after logout replaces the workspace with QR login', async () => {
     const login = new FakeLogin();
     const fake = createFakeSync({
       ...workspaceState(),
@@ -253,6 +254,7 @@ describe('React app lifecycle', () => {
     const staleTaskRow = container.querySelector<HTMLElement>('.task-row');
     expect(staleTaskRow).not.toBeNull();
 
+    fireEvent.click(getByRole('button', { name: '用户菜单' }));
     fireEvent.click(getByRole('button', { name: '退出登录' }));
     await settle();
     expect(container).toHaveTextContent('二维码登录');
@@ -275,6 +277,7 @@ describe('React app lifecycle', () => {
     await settle();
     fake.setState({ ...workspaceState(), authRequired: true, error: '登录已失效。' });
     fake.emit();
+    await settle();
 
     expect(login.start).toHaveBeenCalledOnce();
     expect(logoutWebSession).toHaveBeenCalledOnce();
@@ -316,6 +319,7 @@ describe('React app lifecycle', () => {
     await settle();
     expect(container).toHaveTextContent('old-session-task');
 
+    fireEvent.click(getByRole('button', { name: '用户菜单' }));
     fireEvent.click(getByRole('button', { name: '退出登录' }));
     await settle();
     fireEvent.click(getByRole('button', { name: '重新生成二维码' }));

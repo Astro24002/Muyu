@@ -51,7 +51,6 @@ describe('AllTasksPage', () => {
     render(<AllTasksPage sync={sync} onOpenTask={vi.fn()} onCreateTask={vi.fn()} />);
 
     expect(document.querySelectorAll('[data-task-row]')).toHaveLength(3);
-    expect(document.querySelector('[data-task-board]')).toBeNull();
     expect(document.querySelectorAll('[data-task-row]')[0]).toHaveTextContent('写工作计划');
 
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'IN_PROGRESS' } });

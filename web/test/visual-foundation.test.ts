@@ -6,16 +6,13 @@ import { describe, expect, it } from 'vitest';
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const globalCss = readFileSync(resolve(testDirectory, '../src/styles/global.css'), 'utf8');
 const tokensCss = readFileSync(resolve(testDirectory, '../src/styles/tokens.css'), 'utf8');
-const legacyRootSelector = ':not([data-testid="legacy-app-root"])';
-const legacyDescendantSelector = ':not([data-testid="legacy-app-root"] *)';
 const primitiveScopeSelector = '.muyu-react-root > [data-testid="muyu-app"]';
-const nonLegacyReactRootSelector = '.muyu-react-root > [data-testid="muyu-app"] > :not([data-testid="legacy-app-root"])';
+const reactRootSelector = '.muyu-react-root > [data-testid="muyu-app"]';
 
 describe('visual foundation', () => {
-  it('scopes React defaults away from the legacy bridge subtree', () => {
+  it('scopes React defaults to the application root', () => {
     expect(globalCss).toContain('.muyu-react-root');
-    expect(globalCss).toContain('[data-testid="legacy-app-root"]');
-    expect(globalCss).toMatch(/\.muyu-react-root\s*>\s*\[data-testid="muyu-app"\]\s*>\s*:not\(\[data-testid="legacy-app-root"\]\)/);
+    expect(globalCss).toMatch(/\.muyu-react-root\s*>\s*\[data-testid="muyu-app"\]/);
 
     expect(globalCss).not.toMatch(/^body\s*\{/m);
     expect(globalCss).not.toMatch(/^button\s*\{/m);
@@ -23,18 +20,16 @@ describe('visual foundation', () => {
     expect(globalCss).not.toMatch(/^:where\(a,/m);
   });
 
-  it('scopes every primitive selector away from the legacy bridge subtree', () => {
+  it('scopes every primitive selector to the application root', () => {
     const primitiveRules = cssRules().filter(({ selector }) => /\.ui-(button|icon-button|status-badge|section-heading)/.test(selector));
 
     expect(primitiveRules.length).toBeGreaterThan(0);
     for (const { selector } of primitiveRules) {
       expect(selector).toContain(primitiveScopeSelector);
-      expect(selector).toContain(legacyRootSelector);
-      expect(selector).toContain(legacyDescendantSelector);
     }
   });
 
-  it('keeps every non-root React selector out of the legacy bridge subtree', () => {
+  it('keeps every application selector inside the React root', () => {
     const reactSelectorLines = globalCss
       .split('\n')
       .map((line) => line.trim())
@@ -43,15 +38,14 @@ describe('visual foundation', () => {
 
     expect(reactSelectorLines.length).toBeGreaterThan(0);
     for (const selector of reactSelectorLines) {
-      expect(selector).toContain(legacyRootSelector);
-      expect(selector).toContain(legacyDescendantSelector);
+      expect(selector).toContain(primitiveScopeSelector);
     }
   });
 
-  it('keeps light color scheme and cursor states inside the non-legacy React root', () => {
+  it('keeps light color scheme and cursor states inside the React root', () => {
     const colorSchemeRules = cssRules().filter(({ body }) => body.includes('color-scheme: light;'));
     expect(colorSchemeRules).toHaveLength(1);
-    expect(colorSchemeRules[0].selector).toContain(nonLegacyReactRootSelector);
+    expect(colorSchemeRules[0].selector).toContain(reactRootSelector);
     expect(colorSchemeRules[0].selector).not.toBe('.muyu-react-root');
     expect(tokensCss).not.toContain('color-scheme:');
 
@@ -62,8 +56,6 @@ describe('visual foundation', () => {
     ]));
     for (const { selector } of cursorRules) {
       expect(selector).toContain(primitiveScopeSelector);
-      expect(selector).toContain(legacyRootSelector);
-      expect(selector).toContain(legacyDescendantSelector);
     }
   });
 

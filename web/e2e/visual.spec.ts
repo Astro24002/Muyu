@@ -93,14 +93,30 @@ test.describe('行动工作台视觉工作流', () => {
     await expect(page.getByRole('button', { name: '保留当前' })).toBeVisible();
     await expect(page.getByRole('button', { name: '采用提议' })).toBeVisible();
     await expect(page.getByText('已更新任务信息')).toBeVisible();
-    await expect(page.locator('[data-testid="muyu-app"] [data-testid="legacy-app-root"]')).toHaveCount(0);
     await expect(page.locator('[data-all-tasks-page]')).toBeVisible();
 
     const viewport = page.viewportSize();
     if (viewport && viewport.width < 1024) {
       await expect(panel).toHaveAttribute('data-panel-mode', 'bottom-sheet');
+      const sheetLayout = await panel.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          position: style.position,
+          width: rect.width,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          bottom: style.bottom,
+          maxHeight: style.maxHeight,
+        };
+      });
+      expect(sheetLayout.position).toBe('fixed');
+      expect(sheetLayout.width).toBe(sheetLayout.viewportWidth);
+      expect(sheetLayout.bottom).toBe('0px');
+      expect(Number.parseFloat(sheetLayout.maxHeight)).toBeLessThanOrEqual(sheetLayout.viewportHeight * 0.88 + 1);
     } else {
       await expect(panel).toHaveAttribute('data-panel-mode', 'drawer');
+      await expect(panel).toHaveCSS('position', 'fixed');
     }
     if (viewport && viewport.width < 640) {
       const stacked = await page.locator('.task-edit-form__secondary .task-detail-field').evaluateAll((fields) => {
@@ -149,8 +165,6 @@ async function assertMigratedSurface(page: Page): Promise<void> {
   await expect(page.locator('.app-shell')).toBeVisible();
   await expect(page.locator('header.top-nav')).toBeVisible();
   await expect(page.locator('nav[aria-label="主导航"]')).toBeVisible();
-  await expect(page.locator('[data-testid="legacy-app-root"]')).toHaveCount(0);
-  await expect(page.locator('.task-board')).toHaveCount(0);
   await assertNoHorizontalOverflow(page);
   const darkSidebars = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('*')).filter((element) => {
     const style = getComputedStyle(element);

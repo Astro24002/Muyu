@@ -1,6 +1,6 @@
 import type { ReactNode, JSX } from 'react';
 import type { Route } from '../../app/routes';
-import type { WebSessionViewApi } from '../../ui/web-session-view';
+import type { WebSessionApi } from '../account/web-session-api';
 import { TopNav, type PrimaryRoute } from './TopNav';
 
 export interface AppShellProps {
@@ -8,7 +8,7 @@ export interface AppShellProps {
   onNavigate: (route: PrimaryRoute) => void;
   onLogout: () => void;
   onCreateTask?: () => void;
-  sessionApi?: WebSessionViewApi;
+  sessionApi?: WebSessionApi;
   onAuthRequired?: () => void;
   pendingApprovalCount: number;
   children: ReactNode;

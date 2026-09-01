@@ -5,18 +5,16 @@ import type { QrLoginController, QrLoginState } from '../auth/qr-login';
 import { ApprovalsPage } from '../pages/ApprovalsPage';
 import { AppShell } from '../components/layout/AppShell';
 import { InlineError } from '../components/status/InlineError';
-import { SyncStatus } from '../components/status/SyncStatus';
 import type { CreateTaskHandler } from '../components/tasks/TaskComposer';
 import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
 import type { TaskActivityState } from '../components/tasks/TaskTimeline';
+import type { WebSessionApi } from '../components/account/web-session-api';
 import { ActivityPage } from '../pages/ActivityPage';
 import { AllTasksPage } from '../pages/AllTasksPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
 import type { WebSocketFactory } from '../realtime/workspace-socket';
-import type { WebSessionViewApi } from '../ui/web-session-view';
-import { WorkspaceView } from '../ui/workspace-view';
-import type { TaskDetailActions } from '../ui/task-detail-view';
+import type { TaskDetailActions } from '../tasks/task-detail-actions';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
 import { navigate, parseHash, type Route } from './routes';
 import type { PrimaryRoute } from '../components/layout/TopNav';
@@ -41,9 +39,6 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const [taskListRoute, setTaskListRoute] = useState<'today' | 'tasks'>('tasks');
   const [taskActivity, setTaskActivity] = useState<TaskActivityState>({ status: 'idle', events: [] });
   const [taskActivityRetry, setTaskActivityRetry] = useState(0);
-  const legacyRootRef = useRef<HTMLDivElement>(null);
-  const legacyViewCleanupRef = useRef<(() => void) | undefined>(undefined);
-  const legacySessionRef = useRef<LegacySyncBridge | undefined>(undefined);
   const taskListRouteRef = useRef<'today' | 'tasks'>('tasks');
   const taskFocusRef = useRef<{ taskId: string; element: HTMLElement | null } | null>(null);
   const taskActivityRequestSequenceRef = useRef(0);
@@ -53,12 +48,6 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const logoutRequestRef = useRef(0);
   const authRecoveryRef = useRef(false);
   const previousLoginKindRef = useRef<QrLoginState['kind']>(loginState.kind);
-  const canUseLegacyViews = typeof sync.subscribe === 'function' && typeof login.subscribe === 'function';
-  const useReactWorkbench = route.kind === 'today'
-    || route.kind === 'tasks'
-    || route.kind === 'approvals'
-    || route.kind === 'activity'
-    || route.kind === 'task';
   const workspaceId = screen === 'workspace' && !workspaceState.authRequired
     ? workspaceState.snapshot?.workspace_id ?? null
     : null;
@@ -69,18 +58,9 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     : workspaceState.snapshot?.tasks.find((item) => item.id === taskId) ?? null;
   const stopRealtime = useWorkspaceRealtime(sync, workspaceId, { socketFactory });
 
-  const disposeLegacyView = useCallback((): void => {
-    legacySessionRef.current?.invalidate();
-    legacySessionRef.current = undefined;
-    legacyViewCleanupRef.current?.();
-    legacyViewCleanupRef.current = undefined;
-    legacyRootRef.current?.replaceChildren();
-  }, []);
-
   const stopLocalWorkspace = useCallback((): void => {
     stopRealtime();
-    disposeLegacyView();
-  }, [disposeLegacyView, stopRealtime]);
+  }, [stopRealtime]);
 
   const startLogin = useCallback((allowDuringLogout = false): void => {
     if (!activeRef.current || (!allowDuringLogout && loggingOutRef.current) || typeof login.start !== 'function') return;
@@ -292,37 +272,6 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     };
   }, [api, selectedTask !== null, taskActivityRetry, taskId, workspaceId, workspaceReady]);
 
-  useEffect(() => {
-    const root = legacyRootRef.current;
-    if (!root || !canUseLegacyViews || useReactWorkbench) {
-      disposeLegacyView();
-      return;
-    }
-
-    if (screen === 'workspace' && workspaceState.snapshot) {
-      root.replaceChildren();
-      const legacySession = createLegacySyncBridge(sync);
-      legacySessionRef.current = legacySession;
-      const onLegacyLogout = (): void => {
-        if (!legacySession.isActive()) return;
-        if (sync.state.authRequired) recoverAuthRequired();
-        else logout();
-      };
-      const cleanup = WorkspaceView.mount(root, legacySession.sync, onLegacyLogout, webSessionApi(api), recoverAuthRequired);
-      legacyViewCleanupRef.current = cleanup;
-      return () => {
-        if (legacyViewCleanupRef.current !== cleanup) return;
-        legacyViewCleanupRef.current = undefined;
-        if (legacySessionRef.current === legacySession) legacySessionRef.current = undefined;
-        legacySession.invalidate();
-        cleanup();
-        root.replaceChildren();
-      };
-    }
-
-    disposeLegacyView();
-  }, [api, canUseLegacyViews, disposeLegacyView, login, logout, recoverAuthRequired, screen, sync, useReactWorkbench, workspaceState.snapshot?.workspace_id]);
-
   const routeKey = route.kind === 'task' ? `task:${route.id}` : route.kind;
   const focusNewTask = useCallback((): void => {
     const composerTrigger = document.querySelector<HTMLButtonElement>('[data-task-composer-trigger]');
@@ -331,7 +280,6 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
       composerTrigger.click();
       return;
     }
-    legacyRootRef.current?.querySelector<HTMLInputElement>('input[placeholder="新任务标题"]')?.focus();
   }, []);
   const onNavigate = useCallback((nextRoute: PrimaryRoute): void => {
     taskFocusRef.current = null;
@@ -417,12 +365,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
                   <InlineError message="任务不存在，请刷新后重试。" />
                 )}
               </>
-            ) : (
-              <>
-                <SyncStatus loading={workspaceState.loading} stale={workspaceState.stale} error={workspaceState.error} />
-                <div ref={legacyRootRef} data-testid="legacy-app-root" />
-              </>
-            )}
+            ) : null}
           </AppShell>
       ) : null}
       {screen !== 'login' && !workspaceReady ? placeholder(screen, loadError ?? workspaceState.error, () => loadWorkspace()) : null}
@@ -457,11 +400,11 @@ function placeholder(screen: AppScreen, error: string | null, onRetry: () => voi
   );
 }
 
-function webSessionApi(api: AppProps['api']): WebSessionViewApi | undefined {
+function webSessionApi(api: AppProps['api']): WebSessionApi | undefined {
   if (typeof api.listWebSessions !== 'function'
     || typeof api.revokeWebSession !== 'function'
     || typeof api.revokeAllWebSessions !== 'function') return undefined;
-  return api as WebSessionViewApi;
+  return api as WebSessionApi;
 }
 
 function errorMessage(error: unknown): string {
@@ -488,37 +431,4 @@ function pendingApprovalCount(state: WorkspaceSyncState): number {
   const approvals = state.approvals ?? state.snapshot?.approval_requests ?? [];
   const viewerId = state.snapshot?.viewer_user_id;
   return approvals.filter((approval) => approval.status === 'PENDING' && (!viewerId || approval.approver_id === viewerId)).length;
-}
-
-interface LegacySyncBridge {
-  sync: WorkspaceSyncController;
-  invalidate: () => void;
-  isActive: () => boolean;
-}
-
-const INACTIVE_LEGACY_STATE: WorkspaceSyncState = {
-  snapshot: null,
-  cursor: 0,
-  loading: false,
-  stale: false,
-  error: null,
-  conflicts: [],
-  authRequired: true,
-};
-
-function createLegacySyncBridge(sync: WorkspaceSyncController): LegacySyncBridge {
-  let active = true;
-  const bridgedSync = new Proxy(sync, {
-    get(target, property) {
-      if (property === 'state') return active ? target.state : INACTIVE_LEGACY_STATE;
-      const value = Reflect.get(target, property, target);
-      if (typeof value !== 'function') return value;
-      return (...args: unknown[]) => active ? Reflect.apply(value, target, args) : Promise.resolve(undefined);
-    },
-  });
-  return {
-    sync: bridgedSync,
-    invalidate: () => { active = false; },
-    isActive: () => active,
-  };
 }

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/client';
 import { QrLoginController, type QrLoginOptions } from '../src/auth/qr-login';
 import { isSessionExpiredError } from '../src/auth/web-session';
-import { QrLoginView } from '../src/ui/qr-login-view';
 
 vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn().mockResolvedValue(undefined) } }));
 
@@ -201,45 +200,6 @@ describe('web session errors', () => {
   it('recognizes session expiration without reading browser cookies', () => {
     expect(isSessionExpiredError(new ApiError(401, 'web_session_expired', 'expired'))).toBe(true);
     expect(isSessionExpiredError(new ApiError(401, 'other', 'expired'))).toBe(false);
-  });
-});
-
-describe('QrLoginView', () => {
-  it('renders safe challenge details and starts a new challenge from retry', async () => {
-    const root = document.createElement('main');
-    const start = vi.fn();
-    const poll = vi.fn();
-    const subscribe = vi.fn(() => () => undefined);
-    QrLoginView.mount(root, { state: { kind: 'waiting_for_approval', challenge }, start, poll, subscribe } as unknown as QrLoginController, vi.fn());
-    await Promise.resolve();
-
-    expect(root.textContent).toContain('安全码');
-    expect(root.textContent).toContain('123456');
-    expect(root.textContent).toContain('https://app.test');
-    expect(root.querySelector('canvas')).not.toBeNull();
-    expect(root.textContent).not.toContain('AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA');
-    root.querySelector<HTMLButtonElement>('button[data-action="retry"]')!.click();
-    expect(start).toHaveBeenCalledOnce();
-    root.querySelector<HTMLButtonElement>('button[data-action="poll"]')!.click();
-    expect(poll).toHaveBeenCalledOnce();
-  });
-
-  it('renders signed-in content before a synchronous signed-in remount', () => {
-    const root = document.createElement('main');
-    const subscribe = vi.fn(() => () => undefined);
-    let signedInContentWasRendered = false;
-
-    QrLoginView.mount(
-      root,
-      { state: { kind: 'signed_in', expiresAt: '2026-08-26T12:00:00.000Z' }, start: vi.fn(), poll: vi.fn(), subscribe } as unknown as QrLoginController,
-      () => {
-        signedInContentWasRendered = root.textContent === '二维码登录登录成功。';
-        root.replaceChildren(document.createTextNode('app remounted'));
-      },
-    );
-
-    expect(signedInContentWasRendered).toBe(true);
-    expect(root.textContent).toBe('app remounted');
   });
 });
 

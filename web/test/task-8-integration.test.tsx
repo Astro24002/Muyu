@@ -87,7 +87,7 @@ describe('Task 8 App integration', () => {
     expect(await screen.findByText('已更新')).toBeInTheDocument();
     expect(screen.getByText(task.title)).toBeInTheDocument();
     expect(screen.getByTestId('muyu-app')).toHaveAttribute('data-route', 'activity');
-    expect(screen.queryByTestId('legacy-app-root')).not.toBeInTheDocument();
+    expect(screen.getByTestId('react-route')).toHaveAttribute('data-route', 'activity');
   });
 
   it('routes a session 401 through the App QR-login recovery lifecycle', async () => {
@@ -102,6 +102,6 @@ describe('Task 8 App integration', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '用户菜单' }));
     await waitFor(() => expect(screen.getByTestId('qr-login-page')).toBeInTheDocument());
-    expect(screen.queryByTestId('legacy-app-root')).not.toBeInTheDocument();
+    expect(screen.getByTestId('react-route')).toHaveAttribute('data-route', 'today');
   });
 });

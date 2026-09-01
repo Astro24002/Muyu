@@ -85,7 +85,7 @@
 
 ## 当前状态
 
-当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。Android 只构建 APK/AAB，独立 TypeScript + Vite 应用构建 `web/dist`，Caddy 负责静态文件和 API/WebSocket 反向代理。实现计划 Tasks 1-8 已完成；剩余工作是使用新的空数据库、真实 Android 设备和短信供应商执行部署验收。Phase 0-3 的实现记录和旧架构文档均为历史基线，不可作为新系统验收依据。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。Android 只构建 APK/AAB，独立 TypeScript + Vite 应用构建 `web/dist`，Caddy 负责静态文件和 API/WebSocket 反向代理。Web 前端视觉重构实施计划 Tasks 1-10 已完成；剩余工作是使用新的空数据库、真实 Android 设备和短信供应商执行部署验收。Phase 0-3 的实现记录和旧架构文档均为历史基线，不可作为新系统验收依据。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
 
 ## 历史基线验收
 

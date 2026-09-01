@@ -6,10 +6,10 @@ import type { WorkspaceSyncController, WorkspaceSyncState } from '../src/sync/wo
 import { cleanup, render } from './react-test-helpers';
 
 describe('React app shell', () => {
-  it('renders the React shell and leaves the legacy app root empty after cleanup', async () => {
-    const legacyRoot = document.createElement('div');
-    legacyRoot.id = 'app';
-    document.body.append(legacyRoot);
+  it('renders the React shell inside the browser root and cleans up', async () => {
+    const appRoot = document.createElement('div');
+    appRoot.id = 'app';
+    document.body.append(appRoot);
     const loadSnapshot = vi.fn().mockResolvedValue(undefined);
     const loginDispose = vi.fn();
     const syncDispose = vi.fn();
@@ -20,10 +20,10 @@ describe('React app shell', () => {
         login={{ dispose: loginDispose } as unknown as QrLoginController}
         sync={{ loadSnapshot, state: emptySyncState(), dispose: syncDispose } as unknown as WorkspaceSyncController}
       />,
-      { container: legacyRoot },
+      { container: appRoot },
     );
 
-    const shell = legacyRoot.querySelector('[data-testid="muyu-app"]');
+    const shell = appRoot.querySelector('[data-testid="muyu-app"]');
     expect(shell).toBeInTheDocument();
     expect(shell?.tagName).toBe('DIV');
 
@@ -33,15 +33,15 @@ describe('React app shell', () => {
 
     cleanup();
 
-    expect(legacyRoot).toBeEmptyDOMElement();
-    legacyRoot.remove();
-    expect(document.body.contains(legacyRoot)).toBe(false);
+    expect(appRoot).toBeEmptyDOMElement();
+    appRoot.remove();
+    expect(document.body.contains(appRoot)).toBe(false);
   });
 
-  it('keeps the legacy runtime mounted and disposes it with the React shell', () => {
-    const legacyRoot = document.createElement('div');
-    legacyRoot.id = 'app';
-    document.body.append(legacyRoot);
+  it('disposes the login and sync dependencies with the React shell', () => {
+    const appRoot = document.createElement('div');
+    appRoot.id = 'app';
+    document.body.append(appRoot);
     const loadSnapshot = vi.fn().mockResolvedValue(undefined);
     const loginDispose = vi.fn();
     const syncDispose = vi.fn();
@@ -51,7 +51,7 @@ describe('React app shell', () => {
         login={{ dispose: loginDispose } as unknown as QrLoginController}
         sync={{ loadSnapshot, state: emptySyncState(), dispose: syncDispose } as unknown as WorkspaceSyncController}
       />,
-      { container: legacyRoot },
+      { container: appRoot },
     );
 
     expect(loadSnapshot).toHaveBeenCalledTimes(1);
@@ -60,8 +60,8 @@ describe('React app shell', () => {
 
     expect(loginDispose).toHaveBeenCalledTimes(1);
     expect(syncDispose).toHaveBeenCalledTimes(1);
-    expect(legacyRoot).toBeEmptyDOMElement();
-    legacyRoot.remove();
+    expect(appRoot).toBeEmptyDOMElement();
+    appRoot.remove();
   });
 });
 

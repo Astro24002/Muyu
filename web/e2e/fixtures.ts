@@ -37,25 +37,32 @@ export const test = base.extend<{ workbench: WorkbenchFixture }>({
     const state = createFixtureState();
 
     await page.addInitScript(() => {
-      class DeterministicWebSocket {
+      class DeterministicWebSocket extends EventTarget {
         static readonly CONNECTING = 0;
         static readonly OPEN = 1;
         static readonly CLOSING = 2;
         static readonly CLOSED = 3;
 
         readonly url: string;
+        readonly protocol = '';
+        readonly extensions = '';
+        readonly bufferedAmount = 0;
+        binaryType: BinaryType = 'blob';
         readyState = DeterministicWebSocket.CONNECTING;
         onopen: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
         onerror: ((event: Event) => void) | null = null;
         onmessage: ((event: MessageEvent) => void) | null = null;
 
-        constructor(url: string) {
+        constructor(url: string, _protocols?: string | string[]) {
+          super();
           this.url = url;
           queueMicrotask(() => {
             if (this.readyState !== DeterministicWebSocket.CONNECTING) return;
             this.readyState = DeterministicWebSocket.OPEN;
-            this.onopen?.(new Event('open'));
+            const event = new Event('open');
+            this.onopen?.(event);
+            this.dispatchEvent(event);
           });
         }
 
@@ -67,7 +74,9 @@ export const test = base.extend<{ workbench: WorkbenchFixture }>({
           if (this.readyState === DeterministicWebSocket.CLOSED) return;
           this.readyState = DeterministicWebSocket.CLOSING;
           this.readyState = DeterministicWebSocket.CLOSED;
-          this.onclose?.(new CloseEvent('close'));
+          const event = new CloseEvent('close');
+          this.onclose?.(event);
+          this.dispatchEvent(event);
         }
       }
 

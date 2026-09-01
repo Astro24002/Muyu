@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 import type { TaskApprovalRequest, TaskComment, TaskItem } from '../../api/types';
 import type { WorkspaceSyncState } from '../../sync/workspace-sync';
 import type { TaskConflict } from '../../tasks/task-model';
-import type { TaskDetailActions } from '../../ui/task-detail-view';
+import type { TaskDetailActions } from '../../tasks/task-detail-actions';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { TaskTimeline, type ActivityEvent, type TaskActivityState } from './TaskTimeline';

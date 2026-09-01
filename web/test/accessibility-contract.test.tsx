@@ -17,7 +17,7 @@ import { ConflictPanel } from '../src/components/conflicts/ConflictPanel';
 import { TopNav } from '../src/components/layout/TopNav';
 import { UserMenu } from '../src/components/layout/UserMenu';
 import { TaskComposer } from '../src/components/tasks/TaskComposer';
-import type { TaskDetailActions } from '../src/ui/task-detail-view';
+import type { TaskDetailActions } from '../src/tasks/task-detail-actions';
 import type { TaskConflict } from '../src/tasks/task-model';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../src/sync/workspace-sync';
 import { render } from './react-test-helpers';

@@ -80,7 +80,7 @@ afterEach(() => {
 });
 
 describe('Task 7 App integration', () => {
-  it('renders the React approvals route without mounting the legacy root', async () => {
+  it('renders the React approvals route', async () => {
     window.location.hash = '#/approvals';
     const { sync, login } = makeApp();
     render(<App api={{} as ApiClient} login={login} sync={sync} />);
@@ -88,7 +88,7 @@ describe('Task 7 App integration', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: '审批' })).toBeInTheDocument());
 
     expect(screen.getByTestId('muyu-app')).toHaveAttribute('data-route', 'approvals');
-    expect(screen.getByTestId('muyu-app').querySelector('[data-testid="legacy-app-root"]')).toBeNull();
+    expect(screen.getByTestId('react-route')).toHaveAttribute('data-route', 'approvals');
   });
 
   it.each(['today', 'tasks'] as const)('opens and closes a React task panel while preserving the %s list context', async (listRoute) => {

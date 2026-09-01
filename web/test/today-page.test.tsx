@@ -78,7 +78,6 @@ describe('TodayPage', () => {
     expect(screen.getByRole('heading', { name: '等待中' })).toBeInTheDocument();
     expect(screen.getByText('有 1 个变更等你确认')).toBeInTheDocument();
     expect(screen.getByText('不用清空列表，完成真正重要的一步就好')).toBeInTheDocument();
-    expect(document.querySelector('[data-task-board]')).toBeNull();
     expect(document.querySelector('[data-kpi-card]')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '去处理' }));

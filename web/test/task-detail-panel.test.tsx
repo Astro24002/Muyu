@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PendingApproval, TaskApprovalRequest, TaskComment, TaskItem } from '../src/api/types';
 import type { TaskConflict } from '../src/tasks/task-model';
-import type { TaskDetailActions } from '../src/ui/task-detail-view';
+import type { TaskDetailActions } from '../src/tasks/task-detail-actions';
 import type { WorkspaceSyncState } from '../src/sync/workspace-sync';
 import { TaskDetailPanel } from '../src/components/tasks/TaskDetailPanel';
 import { render } from './react-test-helpers';

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { AppliedTaskWriteResult } from '../../api/client';
 import type { TaskItem, TaskStatus } from '../../api/types';
-import type { TaskDetailActions } from '../../ui/task-detail-view';
+import type { TaskDetailActions } from '../../tasks/task-detail-actions';
 import { isTaskQuadrant, parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
 import { Button } from '../ui/Button';
 

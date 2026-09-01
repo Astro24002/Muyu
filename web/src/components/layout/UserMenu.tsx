@@ -1,12 +1,12 @@
 import { UserRound } from 'lucide-react';
 import { useEffect, useRef, useState, type JSX } from 'react';
-import type { WebSessionViewApi } from '../../ui/web-session-view';
+import type { WebSessionApi } from '../account/web-session-api';
 import { WebSessionPanel } from '../account/WebSessionPanel';
 import { IconButton } from '../ui/IconButton';
 
 export interface UserMenuProps {
   onLogout?: () => void;
-  sessionApi?: WebSessionViewApi;
+  sessionApi?: WebSessionApi;
   onAuthRequired?: () => void;
   now?: () => number;
 }

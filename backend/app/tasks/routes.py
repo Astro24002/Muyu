@@ -127,8 +127,6 @@ def _patch_approval_type(changes: dict[str, object]) -> TaskApprovalRequestType:
     fields = set(changes)
     if fields == {"quadrant"}:
         return TaskApprovalRequestType.QUADRANT_UPDATE
-    if fields == {"assignee_ids"}:
-        return TaskApprovalRequestType.ASSIGNEE_UPDATE
     if fields == {"current_handler_id"}:
         return TaskApprovalRequestType.HANDLER_TRANSFER
     return TaskApprovalRequestType.TASK_UPDATE
@@ -140,7 +138,19 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
         due_at = datetime.fromisoformat(body.due_at) if body.due_at else None
         service = TaskService(session)
         planned_start_at = datetime.fromisoformat(body.planned_start_at) if body.planned_start_at else None
-        task = service.create(actor.workspace_id, actor.user_id, body.request_id, body.title, body.description, due_at, body.parent_task_id, body.assignee_ids, planned_start_at, body.estimated_minutes, body.quadrant, body.labels)
+        task = service.create(
+            actor.workspace_id,
+            actor.user_id,
+            body.request_id,
+            body.title,
+            body.description,
+            due_at,
+            body.parent_task_id,
+            planned_start_at,
+            body.estimated_minutes,
+            body.quadrant,
+            body.labels,
+        )
         session.commit()
     except (ValueError, TaskConflictError) as error:
         session.rollback()

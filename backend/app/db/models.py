@@ -323,12 +323,6 @@ class Task(Base):
     updated_at = _created()
 
 
-class TaskAssignee(Base):
-    __tablename__ = "task_assignees"
-    task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
-    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-
-
 class TaskUserPosition(Base):
     __tablename__ = "task_user_positions"
     user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)

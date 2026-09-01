@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, PUBLIC_TASK_STATUS, Resolution, TaskQuadrant, TaskStatus
@@ -13,7 +13,6 @@ from app.db.models import (
     DelayRecord,
     ActivityEvent,
     Task,
-    TaskAssignee,
     TaskComment,
     TaskConflict,
     TaskOperation,
@@ -27,7 +26,7 @@ from app.tasks.operations import request_fingerprint
 from app.tasks.numbering import TaskNumberAllocator
 
 
-MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "assignee_ids", "quadrant", "progress", "labels"}
+MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "quadrant", "progress", "labels"}
 ALLOWED_PROGRESS = {20, 40, 60, 80}
 MAX_TASK_LABELS = 10
 MAX_TASK_LABEL_LENGTH = 32
@@ -84,12 +83,13 @@ class TaskService:
         self.now = now
         self.last_cursor: int | None = None
 
-    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, assignee_ids: list[UUID] | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None, quadrant: str | None = None, labels: list[str] | None = None) -> Task:
+    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None, quadrant: str | None = None, labels: list[str] | None = None) -> Task:
         title = title.strip()
         if not title:
             raise TaskConflictError("invalid_request", "title is required")
         if quadrant not in {item.value for item in TaskQuadrant}:
             raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
+        self._validated_member(workspace_id, actor_user_id)
         normalized_labels = normalize_task_labels([] if labels is None else labels)
         if parent_task_id is not None:
             parent = self.session.scalar(select(Task).where(Task.id == parent_task_id, Task.workspace_id == workspace_id))
@@ -97,17 +97,9 @@ class TaskService:
                 raise TaskConflictError("not_found", "parent task not found")
             if parent.parent_task_id is not None:
                 raise TaskConflictError("nested_task_not_allowed", "subtasks cannot have subtasks")
-        assignees = list(dict.fromkeys(assignee_ids or [actor_user_id]))
-        if len(assignees) not in (1, 2):
-            raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
-        if actor_user_id not in assignees:
-            raise TaskConflictError("invalid_request", "current handler must be an assignee")
-        members = set(self.session.scalars(select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.status == MembershipStatus.ACTIVE, WorkspaceMembership.user_id.in_(assignees))).all())
-        if members != set(assignees):
-            raise TaskConflictError("invalid_request", "assignees must be active workspace members")
         fingerprint = request_fingerprint(
             "/api/v1/tasks",
-            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "assignee_ids": [str(item) for item in assignees], "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels},
+            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels},
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
@@ -132,11 +124,9 @@ class TaskService:
             current_handler_id=actor_user_id,
             status=TaskStatus.TODO,
             created_by=actor_user_id,
-            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "assignee_ids": 1, "quadrant": 1, "progress": 1, "labels": 1},
+            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "quadrant": 1, "progress": 1, "labels": 1},
         )
         self.session.add(task)
-        self.session.flush()
-        self.session.add_all([TaskAssignee(task_id=task.id, user_id=user_id) for user_id in assignees])
         self.session.flush()
         cursor = self._cursor(workspace_id, task, ChangeAction.CREATED, request_id)
         self._operation(
@@ -159,17 +149,8 @@ class TaskService:
         unknown = set(changes) - MUTABLE_FIELDS
         if unknown:
             raise TaskConflictError("invalid_request", f"unknown task fields: {sorted(unknown)}")
-        if "assignee_ids" in changes:
-            changes = dict(changes)
-            try:
-                changes["assignee_ids"] = [UUID(str(item)) for item in (changes["assignee_ids"] or [])]
-            except (TypeError, ValueError) as exc:
-                raise TaskConflictError("invalid_request", "invalid assignee id") from exc
-        if "current_handler_id" in changes and changes["current_handler_id"] is not None:
-            try:
-                changes["current_handler_id"] = UUID(str(changes["current_handler_id"]))
-            except (TypeError, ValueError) as exc:
-                raise TaskConflictError("invalid_request", "invalid handler id") from exc
+        if "current_handler_id" in changes:
+            changes["current_handler_id"] = self._validated_member(workspace_id, changes["current_handler_id"])
         if "quadrant" in changes:
             quadrant = changes["quadrant"]
             if quadrant not in {item.value for item in TaskQuadrant}:
@@ -198,6 +179,7 @@ class TaskService:
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")
         current_versions = dict(task.field_versions or {})
+        current_versions.pop("assignee_ids", None)
         conflicts: list[TaskConflict] = []
         before = self.snapshot(task)
         for field, value in changes.items():
@@ -211,8 +193,8 @@ class TaskService:
                     task_id=task.id,
                     target=field,
                     base_value=before.get(field),
-                    current_value=[str(item) for item in self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all()] if field == "assignee_ids" else (str(getattr(task, field)) if isinstance(getattr(task, field), UUID) else getattr(task, field).value if isinstance(getattr(task, field), TaskQuadrant) else getattr(task, field)),
-                    proposed_value=[str(item) for item in value] if field == "assignee_ids" else (str(value) if isinstance(value, UUID) else value.value if isinstance(value, TaskQuadrant) else value),
+                    current_value=str(getattr(task, field)) if isinstance(getattr(task, field), UUID) else getattr(task, field).value if isinstance(getattr(task, field), TaskQuadrant) else getattr(task, field),
+                    proposed_value=str(value) if isinstance(value, UUID) else value.value if isinstance(value, TaskQuadrant) else value,
                     base_version=base,
                     current_version=current,
                     request_id=request_id,
@@ -235,30 +217,7 @@ class TaskService:
                 base_versions={"fingerprint": fingerprint},
             )
             raise TaskConflictError("field_conflict", "one or more task fields changed", conflicts)
-        if "assignee_ids" in changes:
-            values = list(dict.fromkeys(changes["assignee_ids"] or []))
-            if len(values) not in (1, 2):
-                raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
-            members = set(self.session.scalars(select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.status == MembershipStatus.ACTIVE, WorkspaceMembership.user_id.in_(values))).all())
-            if members != set(values):
-                raise TaskConflictError("invalid_request", "assignees must be active workspace members")
-            if changes.get("current_handler_id") is not None and changes["current_handler_id"] not in values:
-                raise TaskConflictError("invalid_request", "current handler must be an assignee")
-            if changes.get("current_handler_id") is None and task.current_handler_id is not None and task.current_handler_id not in values:
-                raise TaskConflictError("invalid_request", "current handler must be an assignee")
-        elif "current_handler_id" in changes:
-            handler = changes["current_handler_id"]
-            existing_assignees = set(self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all())
-            if handler is not None and handler not in existing_assignees:
-                raise TaskConflictError("invalid_request", "current handler must be an assignee")
-            if handler is not None and self.session.scalar(select(WorkspaceMembership.id).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.user_id == handler, WorkspaceMembership.status == MembershipStatus.ACTIVE)) is None:
-                raise TaskConflictError("invalid_request", "current handler must be an active workspace member")
         for field, value in changes.items():
-            if field == "assignee_ids":
-                self.session.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
-                self.session.add_all([TaskAssignee(task_id=task.id, user_id=user_id) for user_id in value])
-                current_versions[field] = int(current_versions.get(field, 1)) + 1
-                continue
             setattr(task, field, value)
             current_versions[field] = int(current_versions.get(field, 1)) + 1
         task.field_versions = current_versions
@@ -356,7 +315,7 @@ class TaskService:
         if target_status == "WAITING":
             if not blocked_reason or resume_handler_id is None:
                 raise TaskConflictError("invalid_request", "blocked_reason and resume_handler_id are required")
-            resume_handler_id = self._validated_assignee_handler(workspace_id, task, resume_handler_id)
+            resume_handler_id = self._validated_member(workspace_id, resume_handler_id)
             if waiting_for_user_id is not None:
                 waiting_for_user_id = self._validated_member(workspace_id, waiting_for_user_id)
             task.blocked_reason = blocked_reason
@@ -371,7 +330,7 @@ class TaskService:
         elif current_public == "WAITING" or target_status == "IN_PROGRESS":
             task.blocked_reason = task.blocked_since = task.resume_handler_id = task.waiting_for_user_id = None
             if resume_handler_id is not None:
-                task.current_handler_id = self._validated_assignee_handler(workspace_id, task, resume_handler_id)
+                task.current_handler_id = self._validated_member(workspace_id, resume_handler_id)
         task.lifecycle_version += 1
         task.status_version += 1
         task.version += 1
@@ -470,38 +429,17 @@ class TaskService:
             current_version = int(versions.get(conflict.target, 1))
             if current_version != conflict.current_version:
                 raise TaskConflictError("field_conflict", "task field changed since conflict creation", [conflict])
-            if conflict.target == "assignee_ids":
+            if conflict.target == "current_handler_id":
                 try:
-                    values = list(dict.fromkeys(UUID(str(item)) for item in (conflict.proposed_value or [])))
-                except (TypeError, ValueError) as exc:
-                    raise TaskConflictError("invalid_request", "invalid proposed assignee id") from exc
-                if len(values) not in (1, 2):
-                    raise TaskConflictError("invalid_request", "assignee_ids must contain one or two users")
-                members = set(
-                    self.session.scalars(
-                        select(WorkspaceMembership.user_id).where(
-                            WorkspaceMembership.workspace_id == workspace_id,
-                            WorkspaceMembership.status == MembershipStatus.ACTIVE,
-                            WorkspaceMembership.user_id.in_(values),
-                        )
-                    ).all()
-                )
-                if members != set(values):
-                    raise TaskConflictError("invalid_request", "assignees must be active workspace members")
-                if task.current_handler_id is not None and task.current_handler_id not in values:
-                    raise TaskConflictError("invalid_request", "current handler must be an assignee")
-                self.session.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
-                self.session.add_all(TaskAssignee(task_id=task.id, user_id=value) for value in values)
-            elif conflict.target == "current_handler_id":
-                try:
-                    value = UUID(str(conflict.proposed_value)) if conflict.proposed_value is not None else None
+                    value = self._validated_member(workspace_id, conflict.proposed_value)
                 except (TypeError, ValueError) as exc:
                     raise TaskConflictError("invalid_request", "invalid proposed handler id") from exc
-                if value is not None:
-                    value = self._validated_assignee_handler(workspace_id, task, value)
                 task.current_handler_id = value
+            elif conflict.target not in MUTABLE_FIELDS:
+                raise TaskConflictError("invalid_request", "invalid task conflict field")
             else:
                 setattr(task, conflict.target, conflict.proposed_value)
+            versions.pop("assignee_ids", None)
             versions[conflict.target] = current_version + 1
             task.field_versions = versions
             task.version += 1
@@ -636,11 +574,12 @@ class TaskService:
             "created_by": str(task.created_by),
             "created_at": task.created_at.isoformat() if task.created_at else self.now().isoformat(),
             "updated_at": task.updated_at.isoformat() if task.updated_at else self.now().isoformat(),
-            "assignee_ids": [str(item) for item in self.session.scalars(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task.id)).all()],
             "delay_count": int(self.session.scalar(select(func.count(DelayRecord.id)).where(DelayRecord.task_id == task.id)) or 0),
             "total_delay_minutes": int(self.session.scalar(select(func.coalesce(func.sum(DelayRecord.delay_duration_minutes), 0)).where(DelayRecord.task_id == task.id)) or 0),
             "version": task.version,
-            "field_versions": dict(task.field_versions or {}),
+            "field_versions": {
+                key: value for key, value in (task.field_versions or {}).items() if key != "assignee_ids"
+            },
             "lifecycle_version": task.lifecycle_version,
             "status_version": task.status_version,
             "deleted_at": task.deleted_at.isoformat() if task.deleted_at else None,
@@ -670,18 +609,6 @@ class TaskService:
         )
         if member is None:
             raise TaskConflictError("invalid_request", "handler must be an active workspace member")
-        return normalized
-
-    def _validated_assignee_handler(self, workspace_id: UUID, task: Task, user_id: UUID | str) -> UUID:
-        normalized = self._validated_member(workspace_id, user_id)
-        assigned = self.session.scalar(
-            select(TaskAssignee.user_id).where(
-                TaskAssignee.task_id == task.id,
-                TaskAssignee.user_id == normalized,
-            )
-        )
-        if assigned is None:
-            raise TaskConflictError("invalid_request", "handler must be a task assignee")
         return normalized
 
     def _existing_operation(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID) -> TaskOperation | None:

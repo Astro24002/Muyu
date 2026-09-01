@@ -34,7 +34,7 @@ from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import MUTABLE_FIELDS, TaskService, normalize_task_labels
 
 
-TASK_UPDATE_FIELDS = MUTABLE_FIELDS - {"quadrant", "assignee_ids", "current_handler_id"}
+TASK_UPDATE_FIELDS = MUTABLE_FIELDS - {"quadrant", "current_handler_id"}
 STATUS_CHANGE_FIELDS = {
     "target_status",
     "blocked_reason",
@@ -448,8 +448,6 @@ class TaskApprovalService:
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
         if request_type == TaskApprovalRequestType.QUADRANT_UPDATE:
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
-        if request_type == TaskApprovalRequestType.ASSIGNEE_UPDATE:
-            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
         if request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
         if request_type == TaskApprovalRequestType.STATUS_UPDATE:
@@ -792,26 +790,12 @@ class TaskApprovalService:
         elif request_type == TaskApprovalRequestType.COMMENT_DELETE:
             if comment_id is None or changes or set(versions) not in ({"version"}, {"comment_version"}):
                 raise TaskApprovalError("approval_not_allowed", "comment deletion requires the comment version")
-        elif request_type == TaskApprovalRequestType.ASSIGNEE_UPDATE:
-            if set(changes) != {"assignee_ids"} or set(versions) != {"assignee_ids"}:
-                raise TaskApprovalError("approval_not_allowed", "assignee update requires assignee_ids")
-            self._validate_assignee_values(changes["assignee_ids"])
         elif request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
             if set(changes) != {"current_handler_id"} or set(versions) != {"current_handler_id"}:
                 raise TaskApprovalError("approval_not_allowed", "handler transfer requires current_handler_id")
             self._uuid(changes["current_handler_id"], "current_handler_id")
         if request_type != TaskApprovalRequestType.COMMENT_DELETE and comment_id is not None:
             raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
-
-    def _validate_assignee_values(self, values: Any) -> None:
-        if not isinstance(values, list) or len(values) not in (1, 2):
-            raise TaskApprovalError("approval_not_allowed", "assignee_ids must contain one or two users")
-        try:
-            normalized = [self._uuid(value, "assignee_id") for value in values]
-        except TaskApprovalError:
-            raise
-        if len(set(normalized)) != len(normalized):
-            raise TaskApprovalError("approval_not_allowed", "assignee_ids must be unique")
 
     def _same_request(
         self,
@@ -889,9 +873,6 @@ class TaskApprovalService:
                     decoded[field] = datetime.fromisoformat(decoded[field])
                 except ValueError as error:
                     raise TaskApprovalError("approval_not_allowed", f"invalid {field}") from error
-        if "assignee_ids" in decoded:
-            self._validate_assignee_values(decoded["assignee_ids"])
-            decoded["assignee_ids"] = [self._uuid(value, "assignee_id") for value in decoded["assignee_ids"]]
         if "current_handler_id" in decoded and decoded["current_handler_id"] is not None:
             decoded["current_handler_id"] = self._uuid(decoded["current_handler_id"], "current_handler_id")
         if "labels" in decoded:

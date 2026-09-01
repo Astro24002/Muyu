@@ -32,7 +32,6 @@ class ApprovalRequestCreate(BaseModel):
         if self.request_type in {
             TaskApprovalRequestType.TASK_UPDATE,
             TaskApprovalRequestType.QUADRANT_UPDATE,
-            TaskApprovalRequestType.ASSIGNEE_UPDATE,
             TaskApprovalRequestType.HANDLER_TRANSFER,
         } and set(self.proposed_changes) != set(self.base_field_versions):
             raise ValueError("base versions must match changed fields")

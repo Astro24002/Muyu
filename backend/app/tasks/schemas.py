@@ -14,7 +14,6 @@ class CreateTaskRequest(BaseModel):
     description: str = Field(default="", max_length=10000)
     due_at: str | None = None
     parent_task_id: UUID | None = None
-    assignee_ids: list[UUID] | None = None
     planned_start_at: str | None = None
     estimated_minutes: int | None = Field(default=None, ge=0)
     # Keep the wire field nullable here so the domain can return the stable
@@ -32,6 +31,8 @@ class PatchTaskRequest(BaseModel):
 
     @model_validator(mode="after")
     def versions_match_changed_fields(self) -> "PatchTaskRequest":
+        if "assignee_ids" in self.changes:
+            raise ValueError("assignee_ids is no longer supported")
         if set(self.changes) != set(self.base_field_versions):
             raise ValueError("base versions must match changed fields")
         return self

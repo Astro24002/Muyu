@@ -65,8 +65,9 @@ class WebSessionStatus(StrEnum):
 class TaskStatus(StrEnum):
     TODO = "TODO"
     IN_PROGRESS = "IN_PROGRESS"
-    WAITING = "WAITING"
-    COMPLETED = "COMPLETED"
+    BLOCKED = "BLOCKED"
+    REVIEW = "REVIEW"
+    DONE = "DONE"
     CANCELLED = "CANCELLED"
 
 
@@ -95,14 +96,8 @@ class TaskApprovalRequestStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
-# Public API keeps DONE while the persisted enum remains COMPLETED for compatibility.
-PUBLIC_TASK_STATUS = {
-    TaskStatus.TODO: "TODO",
-    TaskStatus.IN_PROGRESS: "IN_PROGRESS",
-    TaskStatus.WAITING: "WAITING",
-    TaskStatus.COMPLETED: "DONE",
-    TaskStatus.CANCELLED: "CANCELLED",
-}
+# The public status names are the canonical persisted status names.
+PUBLIC_TASK_STATUS = {status: status.value for status in TaskStatus}
 
 
 class ChangeAction(StrEnum):

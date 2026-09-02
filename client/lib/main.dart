@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'auth/mobile_auth_repository.dart';
@@ -8,6 +9,7 @@ import 'core/api_client.dart';
 import 'core/config.dart';
 import 'platform/api_http_client.dart';
 import 'platform/device_signing_key_android.dart';
+import 'sync/workspace_cache.dart';
 import 'workspace/workspace_bootstrap_repository.dart';
 
 Future<void> main() async {
@@ -26,6 +28,8 @@ Future<void> main() async {
     publicKey: signingKey.getOrCreatePublicKey,
   );
   await loginController.restore();
+  final preferences = await SharedPreferences.getInstance();
+  final workspaceCache = SharedPreferencesWorkspaceCache(preferences);
   final workspaceBootstrapRepository = HttpWorkspaceBootstrapRepository(
     apiClient,
   );
@@ -35,6 +39,7 @@ Future<void> main() async {
       deviceSigningKey: signingKey,
       mobileLoginController: loginController,
       workspaceBootstrapRepository: workspaceBootstrapRepository,
+      workspaceCache: workspaceCache,
     ),
   );
 }

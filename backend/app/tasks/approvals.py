@@ -153,6 +153,8 @@ class TaskApprovalService:
         )
         if task is None:
             raise TaskApprovalError("approval_not_allowed", "task does not belong to the workspace")
+        if request_type == TaskApprovalRequestType.STATUS_UPDATE:
+            changes = self._validate_status_proposal(task, changes, member_ids)
 
         comment: TaskComment | None = None
         if comment_id is not None:
@@ -267,6 +269,20 @@ class TaskApprovalService:
         self._require_pending(request)
 
         task, comment = self._lock_target(request)
+        if request.request_type == TaskApprovalRequestType.STATUS_UPDATE:
+            changes = self._normalize_changes(request.proposed_changes or {})
+            versions = self._normalize_versions(request.base_field_versions or {})
+            self._validate_request_shape(
+                request.request_type,
+                changes,
+                versions,
+                request.comment_id,
+            )
+            self._validate_status_proposal(
+                task,
+                changes,
+                {member.user_id for member in self._active_members(request.workspace_id)},
+            )
         self._check_freshness(request, task, comment, action_request_id)
         target_actor = comment.author_user_id if request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment else task.current_handler_id
         if target_actor is None or target_actor != request.approver_id:
@@ -796,6 +812,73 @@ class TaskApprovalService:
             self._uuid(changes["current_handler_id"], "current_handler_id")
         if request_type != TaskApprovalRequestType.COMMENT_DELETE and comment_id is not None:
             raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
+
+    def _validate_status_proposal(
+        self,
+        task: Task,
+        changes: dict[str, Any],
+        active_member_ids: set[UUID],
+    ) -> dict[str, Any]:
+        normalized = dict(changes)
+        target_status = str(normalized["target_status"])
+        blocked_reason = normalized.get("blocked_reason")
+        if "blocked_reason" in normalized:
+            if not isinstance(blocked_reason, str) or not blocked_reason.strip():
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "blocked_reason must be a non-empty string",
+                )
+            normalized["blocked_reason"] = blocked_reason.strip()
+
+        for field in ("resume_handler_id", "waiting_for_user_id"):
+            if field not in normalized or normalized[field] is None:
+                continue
+            normalized[field] = str(
+                self._validated_status_member(
+                    normalized[field], field, active_member_ids
+                )
+            )
+
+        if target_status == "WAITING":
+            if "blocked_reason" not in normalized:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "blocked_reason is required for WAITING",
+                )
+            if normalized.get("resume_handler_id") is None:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "resume_handler_id is required for WAITING",
+                )
+        elif target_status == "IN_PROGRESS" and task.status.value == "WAITING":
+            stored_resume_handler_id = task.resume_handler_id
+            if "resume_handler_id" not in normalized or normalized["resume_handler_id"] is None:
+                if stored_resume_handler_id is None:
+                    raise TaskApprovalError(
+                        "approval_not_allowed",
+                        "waiting task has no active resume handler",
+                    )
+                self._validated_status_member(
+                    stored_resume_handler_id,
+                    "resume_handler_id",
+                    active_member_ids,
+                )
+
+        return normalized
+
+    def _validated_status_member(
+        self,
+        value: Any,
+        field: str,
+        active_member_ids: set[UUID],
+    ) -> UUID:
+        normalized = self._uuid(value, field)
+        if normalized not in active_member_ids:
+            raise TaskApprovalError(
+                "approval_not_allowed",
+                f"{field} must be an active workspace member",
+            )
+        return normalized
 
     def _same_request(
         self,

@@ -31,6 +31,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late String _selectedQuadrant;
   late List<String> _selectedLabels;
   String? _labelError;
+  String? _handlerError;
+  String? _selectedResumeHandlerId;
   int? _selectedProgress;
   bool _saving = false;
   bool _commenting = false;
@@ -50,6 +52,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     );
     _selectedLabels = _normalizeLabels(widget.task.labels);
     _selectedQuadrant = widget.task.quadrant;
+    _selectedResumeHandlerId =
+        widget.task.resumeHandlerId ?? widget.task.currentHandlerId;
     _selectedProgress = widget.task.progress;
   }
 
@@ -104,6 +108,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
     return true;
   }
+
+  static Set<String> _activeHandlerIds(Iterable<Map<String, dynamic>> members) {
+    final ids = <String>{};
+    for (final member in members) {
+      final status = member['membership_status'] ?? member['status'];
+      if (status is String && status != 'ACTIVE') continue;
+      final userId = member['user_id'];
+      if (userId is String && userId.isNotEmpty) ids.add(userId);
+    }
+    return ids;
+  }
+
+  static List<String> _handlerOptionIds(
+    Set<String> activeHandlerIds,
+    String storedHandlerId,
+  ) => [
+    ...activeHandlerIds,
+    if (!activeHandlerIds.contains(storedHandlerId)) storedHandlerId,
+  ];
 
   void _addLabel() {
     final label = _label.text.trim();
@@ -304,6 +327,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Future<void> _transition(String status) async {
     if (!widget.canWrite) return;
+    final task = _current;
+    final members = widget.sync.state.snapshot?.members ?? const [];
+    final activeHandlerIds = _activeHandlerIds(members);
+    final selectedResumeHandlerId =
+        _selectedResumeHandlerId ??
+        task.resumeHandlerId ??
+        task.currentHandlerId;
+    final isWaitingRecovery =
+        task.status == 'WAITING' && status == 'IN_PROGRESS';
+    if ((status == 'WAITING' || isWaitingRecovery) &&
+        !activeHandlerIds.contains(selectedResumeHandlerId)) {
+      setState(() => _handlerError = '恢复负责人已不可用，请选择有效成员');
+      return;
+    }
+    setState(() => _handlerError = null);
     String? blockedReason;
     if (status == 'WAITING') {
       blockedReason = await showDialog<String>(
@@ -344,12 +382,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (blockedReason == null) return;
     }
     try {
-      final task = _current;
       final result = await widget.sync.transition(
         task.id,
         status,
         blockedReason: blockedReason,
-        resumeHandlerId: status == 'WAITING' ? task.currentHandlerId : null,
+        resumeHandlerId: status == 'WAITING'
+            ? selectedResumeHandlerId
+            : isWaitingRecovery &&
+                  selectedResumeHandlerId != task.resumeHandlerId
+            ? selectedResumeHandlerId
+            : null,
       );
       if (result is PendingApproval && mounted) {
         setState(() => _pendingMessage = '等待负责人审批');
@@ -362,6 +404,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<void> _changeHandler(String? handlerId) async {
     if (!widget.canWrite) return;
     if (handlerId == null || handlerId == _current.currentHandlerId) return;
+    final members = widget.sync.state.snapshot?.members ?? const [];
+    if (!_activeHandlerIds(members).contains(handlerId)) {
+      setState(() => _handlerError = '负责人已不可用，请选择有效成员');
+      return;
+    }
+    setState(() => _handlerError = null);
     try {
       final result = await widget.sync.update(
         _current.id,
@@ -373,6 +421,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     } catch (_) {
       // Keep the error in the sync banner.
     }
+  }
+
+  void _changeResumeHandler(String? handlerId) {
+    if (!widget.canWrite || handlerId == null) return;
+    final members = widget.sync.state.snapshot?.members ?? const [];
+    if (!_activeHandlerIds(members).contains(handlerId)) {
+      setState(() => _handlerError = '恢复负责人已不可用，请选择有效成员');
+      return;
+    }
+    setState(() {
+      _selectedResumeHandlerId = handlerId;
+      _handlerError = null;
+    });
   }
 
   static String _dateText(DateTime? value) =>
@@ -414,11 +475,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
                   ),
             );
-      final handlerIds = members
-          .map((member) => member['user_id'] as String?)
-          .whereType<String>()
-          .toSet()
-          .toList();
+      final activeHandlerIds = _activeHandlerIds(members);
+      final handlerIds = _handlerOptionIds(
+        activeHandlerIds,
+        task.currentHandlerId,
+      );
+      final selectedResumeHandlerId =
+          _selectedResumeHandlerId ??
+          task.resumeHandlerId ??
+          task.currentHandlerId;
+      final resumeHandlerIds = _handlerOptionIds(
+        activeHandlerIds,
+        selectedResumeHandlerId,
+      );
       return Scaffold(
         appBar: AppBar(
           title: Text(task.title),
@@ -447,6 +516,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 widget.sync.state.errorMessage!,
                 key: const Key('task-error'),
               ),
+            if (_handlerError != null)
+              Text(_handlerError!, key: const Key('task-handler-error')),
             Text(
               task.taskNumber.isEmpty ? '任务' : '任务编号：${task.taskNumber}',
               key: const Key('task-number'),
@@ -596,14 +667,38 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 key: const Key('task-handler-select'),
                 initialValue: handlerIds.contains(task.currentHandlerId)
                     ? task.currentHandlerId
-                    : handlerIds.first,
+                    : task.currentHandlerId,
                 decoration: const InputDecoration(labelText: '负责人'),
                 items: handlerIds
-                    .map((id) => DropdownMenuItem(value: id, child: Text(id)))
+                    .map(
+                      (id) => DropdownMenuItem(
+                        value: id,
+                        enabled: activeHandlerIds.contains(id),
+                        child: Text(id),
+                      ),
+                    )
                     .toList(),
                 onChanged: !widget.canWrite || task.deletedAt != null
                     ? null
                     : _changeHandler,
+              ),
+            if (task.status == 'WAITING')
+              DropdownButtonFormField<String>(
+                key: const Key('task-resume-handler-select'),
+                initialValue: selectedResumeHandlerId,
+                decoration: const InputDecoration(labelText: '恢复负责人'),
+                items: resumeHandlerIds
+                    .map(
+                      (id) => DropdownMenuItem(
+                        value: id,
+                        enabled: activeHandlerIds.contains(id),
+                        child: Text(id),
+                      ),
+                    )
+                    .toList(),
+                onChanged: !widget.canWrite || task.deletedAt != null
+                    ? null
+                    : _changeResumeHandler,
               ),
             const SizedBox(height: 8),
             Wrap(

@@ -277,4 +277,97 @@ describe('TaskDetailPanel', () => {
     expect(screen.getByRole('button', { name: '保留当前' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '采用提议' })).toBeDisabled();
   });
+
+  it('keeps a revoked current handler visible as a disabled option', () => {
+    const revokedTask = { ...task, current_handler_id: 'revoked-user' };
+    const state = makeState({
+      snapshot: {
+        ...makeState().snapshot!,
+        members: [...makeState().snapshot!.members, { user_id: 'revoked-user', member_slot: 3, membership_status: 'REVOKED' }],
+        tasks: [revokedTask],
+      },
+    });
+
+    render(<TaskDetailPanel task={revokedTask} members={state.snapshot!.members} syncState={state} actions={makeActions()} onClose={vi.fn()} />);
+
+    expect(screen.getByLabelText('负责人')).toHaveValue('revoked-user');
+    for (const option of screen.getAllByRole('option', { name: 'revoked-user' })) {
+      expect(option).toBeDisabled();
+    }
+    expect(screen.getByRole('option', { name: 'viewer' })).not.toBeDisabled();
+  });
+
+  it('blocks recovery while the stored resume handler is no longer active', () => {
+    const waitingTask = {
+      ...task,
+      status: 'WAITING' as const,
+      resume_handler_id: 'revoked-user',
+      blocked_reason: '等待确认',
+    };
+    const onTransition = vi.fn().mockResolvedValue(undefined);
+    const actions = { ...makeActions(), onTransition };
+    const state = makeState({
+      snapshot: {
+        ...makeState().snapshot!,
+        members: [...makeState().snapshot!.members, { user_id: 'revoked-user', member_slot: 3, membership_status: 'REVOKED' }],
+        tasks: [waitingTask],
+      },
+    });
+
+    render(<TaskDetailPanel task={waitingTask} members={state.snapshot!.members} syncState={state} actions={actions} onClose={vi.fn()} />);
+
+    expect(screen.getByLabelText('恢复负责人')).toHaveValue('revoked-user');
+    for (const option of screen.getAllByRole('option', { name: 'revoked-user' })) {
+      expect(option).toBeDisabled();
+    }
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'IN_PROGRESS' } });
+    fireEvent.click(screen.getByRole('button', { name: '更新状态' }));
+
+    expect(onTransition).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('请选择有效的恢复负责人');
+  });
+
+  it('does not submit a dirty current handler after that member is revoked', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const actions = makeActions(onSave);
+    const state = makeState();
+    const { rerender } = render(
+      <TaskDetailPanel
+        task={task}
+        members={state.snapshot!.members}
+        syncState={state}
+        actions={actions}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('负责人'), { target: { value: 'partner' } });
+    const revokedTask = { ...task, version: 4 };
+    const revokedState = makeState({
+      snapshot: {
+        ...state.snapshot!,
+        members: [
+          { user_id: 'viewer', member_slot: 1 },
+          { user_id: 'partner', member_slot: 2, membership_status: 'REVOKED' },
+        ],
+        tasks: [revokedTask],
+      },
+    });
+    rerender(
+      <TaskDetailPanel
+        task={revokedTask}
+        members={revokedState.snapshot!.members}
+        syncState={revokedState}
+        actions={actions}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('负责人')).toHaveValue('partner');
+    expect(screen.getByRole('option', { name: 'partner' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('请选择有效的负责人'));
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });

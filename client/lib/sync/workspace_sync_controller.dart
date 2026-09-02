@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'dart:async';
 import 'dart:math';
 
@@ -44,12 +46,22 @@ class WorkspaceSyncState {
 }
 
 class WorkspaceSyncController extends ChangeNotifier {
-  WorkspaceSyncController(this._repository, {this._cache});
+  // Keep public constructor aliases while retaining private controller state.
+  WorkspaceSyncController(
+    this._repository, {
+    WorkspaceCache? cache,
+    String? workspaceId,
+  }) : _cache = cache,
+       _workspaceId = workspaceId;
 
-  WorkspaceSyncController.unavailable() : _repository = null, _cache = null;
+  WorkspaceSyncController.unavailable()
+    : _repository = null,
+      _cache = null,
+      _workspaceId = null;
 
   final WorkspaceSyncRepository? _repository;
   final WorkspaceCache? _cache;
+  final String? _workspaceId;
   WorkspaceSyncState state = const WorkspaceSyncState();
   final List<Object> inFlightMutations = [];
   StreamSubscription? _hintsSubscription;
@@ -60,6 +72,7 @@ class WorkspaceSyncController extends ChangeNotifier {
 
   Future<void> start() async {
     if (_repository == null) return;
+    await _restoreCachedSnapshot();
     await refresh();
     scheduleMicrotask(() {
       _hintsSubscription = _repository.openWorkspaceHints().listen((hint) {
@@ -84,8 +97,8 @@ class WorkspaceSyncController extends ChangeNotifier {
     _setLoading();
     try {
       final snapshot = await _repository.snapshot();
-      await _cache?.write(snapshot);
       state = WorkspaceSyncState(snapshot: snapshot, isStale: false);
+      await _writeCache(snapshot);
     } catch (error) {
       state = state.copyWith(isStale: true, errorMessage: '$error');
     }
@@ -138,7 +151,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         ),
         isStale: false,
       );
-      await _cache?.write(state.snapshot!);
+      await _writeCache(state.snapshot!);
       notifyListeners();
     } catch (error) {
       state = state.copyWith(isStale: true, errorMessage: '$error');
@@ -591,6 +604,28 @@ class WorkspaceSyncController extends ChangeNotifier {
   void _setError(Object error) {
     state = state.copyWith(errorMessage: '$error');
     notifyListeners();
+  }
+
+  Future<void> _restoreCachedSnapshot() async {
+    final cache = _cache;
+    final workspaceId = _workspaceId;
+    if (cache == null || workspaceId == null || workspaceId.isEmpty) return;
+    try {
+      final snapshot = await cache.read(workspaceId);
+      if (snapshot == null || snapshot.workspaceId != workspaceId) return;
+      state = WorkspaceSyncState(snapshot: snapshot, isStale: true);
+      notifyListeners();
+    } catch (_) {
+      // A cache is an optimization; network sync remains authoritative.
+    }
+  }
+
+  Future<void> _writeCache(WorkspaceSnapshot snapshot) async {
+    try {
+      await _cache?.write(snapshot);
+    } catch (_) {
+      // A persistence failure must not discard a fresh network snapshot.
+    }
   }
 
   static String _requestId() {

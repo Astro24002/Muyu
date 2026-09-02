@@ -15,6 +15,7 @@ from app.db.models import (
     Task,
     TaskComment,
     TaskConflict,
+    TaskHandlerHistory,
     TaskOperation,
     TaskStatusHistory,
     WorkspaceChangeLog,
@@ -187,6 +188,7 @@ class TaskService:
         current_versions.pop("assignee_ids", None)
         conflicts: list[TaskConflict] = []
         before = self.snapshot(task)
+        previous_handler_id = task.current_handler_id
         for field, value in changes.items():
             if field not in base_field_versions:
                 raise TaskConflictError("invalid_request", f"missing base version for {field}")
@@ -225,6 +227,7 @@ class TaskService:
         for field, value in changes.items():
             setattr(task, field, value)
             current_versions[field] = int(current_versions.get(field, 1)) + 1
+        self._record_handler_change(task, previous_handler_id, actor_user_id)
         task.field_versions = current_versions
         task.version += 1
         task.updated_at = self.now()
@@ -312,30 +315,44 @@ class TaskService:
         if target_status not in TRANSITIONS[current_public]:
             raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")
         target = TaskStatus.COMPLETED if target_status == "DONE" else TaskStatus(target_status)
-        task.status = target
-        if target == TaskStatus.COMPLETED:
-            task.completed_at = self.now()
-        elif current_public == "DONE":
-            task.completed_at = None
+        previous_handler_id = task.current_handler_id
+        recovery_handler_id: UUID | None = None
         if target_status == "WAITING":
             if not blocked_reason or resume_handler_id is None:
                 raise TaskConflictError("invalid_request", "blocked_reason and resume_handler_id are required")
             resume_handler_id = self._validated_member(workspace_id, resume_handler_id)
             if waiting_for_user_id is not None:
                 waiting_for_user_id = self._validated_member(workspace_id, waiting_for_user_id)
+        elif target_status == "IN_PROGRESS":
+            if current_public == "WAITING":
+                recovery_handler_id = resume_handler_id or task.resume_handler_id
+                if recovery_handler_id is None:
+                    raise TaskConflictError("invalid_request", "waiting task has no active resume handler")
+                recovery_handler_id = self._validated_member(workspace_id, recovery_handler_id)
+            elif resume_handler_id is not None:
+                # Preserve the explicit API accepted by older unblock callers.
+                recovery_handler_id = self._validated_member(workspace_id, resume_handler_id)
+
+        task.status = target
+        if target == TaskStatus.COMPLETED:
+            task.completed_at = self.now()
+        elif current_public == "DONE":
+            task.completed_at = None
+        if target_status == "WAITING":
             task.blocked_reason = blocked_reason
             task.blocked_since = self.now()
             task.resume_handler_id = resume_handler_id
             task.waiting_for_user_id = waiting_for_user_id
-        elif target_status == "IN_PROGRESS" and task.progress is None:
-            task.progress = 20
-            versions = dict(task.field_versions or {})
-            versions["progress"] = int(versions.get("progress", 1)) + 1
-            task.field_versions = versions
         elif current_public == "WAITING" or target_status == "IN_PROGRESS":
             task.blocked_reason = task.blocked_since = task.resume_handler_id = task.waiting_for_user_id = None
-            if resume_handler_id is not None:
-                task.current_handler_id = self._validated_member(workspace_id, resume_handler_id)
+            if recovery_handler_id is not None:
+                task.current_handler_id = recovery_handler_id
+            if target_status == "IN_PROGRESS" and task.progress is None:
+                task.progress = 20
+                versions = dict(task.field_versions or {})
+                versions["progress"] = int(versions.get("progress", 1)) + 1
+                task.field_versions = versions
+        self._record_handler_change(task, previous_handler_id, actor_user_id)
         task.lifecycle_version += 1
         task.status_version += 1
         task.version += 1
@@ -599,6 +616,23 @@ class TaskService:
     def _require_handler(self, task: Task, actor_user_id: UUID) -> None:
         if task.current_handler_id != actor_user_id:
             raise TaskConflictError("approval_required", "task owner approval is required")
+
+    def _record_handler_change(
+        self,
+        task: Task,
+        previous_handler_id: UUID | str | None,
+        changed_by: UUID,
+    ) -> None:
+        if task.current_handler_id == previous_handler_id:
+            return
+        self.session.add(
+            TaskHandlerHistory(
+                task_id=task.id,
+                from_user_id=previous_handler_id,
+                to_user_id=task.current_handler_id,
+                changed_by=changed_by,
+            )
+        )
 
     def _validated_member(self, workspace_id: UUID, user_id: UUID | str) -> UUID:
         try:

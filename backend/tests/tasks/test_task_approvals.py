@@ -18,8 +18,10 @@ from app.db.models import (
     ActivityEvent,
     TaskApprovalRequest,
     TaskComment,
+    TaskHandlerHistory,
     TaskOperation,
     Task,
+    TaskStatusHistory,
     User,
     Workspace,
     WorkspaceChangeLog,
@@ -224,6 +226,128 @@ def test_create_schema_rejects_removed_assignee_approval_type() -> None:
         )
 
 
+@pytest.mark.parametrize("invalid_field", ["blocked_reason", "resume_handler_id", "waiting_for_user_id"])
+def test_invalid_waiting_approval_is_rejected_before_task_or_request_mutation(
+    db_engine, invalid_field: str
+) -> None:
+    with Session(db_engine) as session:
+        [owner, partner], workspace = _workspace(session)
+        task = _task(session, workspace, owner)
+        before = TaskService(session).snapshot(task)
+        request_id = uuid4()
+        changes: dict[str, object] = {
+            "target_status": "WAITING",
+            "blocked_reason": "等待确认",
+            "resume_handler_id": str(partner.id),
+        }
+        if invalid_field == "blocked_reason":
+            changes["blocked_reason"] = "  "
+        elif invalid_field == "resume_handler_id":
+            changes["resume_handler_id"] = "not-a-uuid"
+        else:
+            changes["waiting_for_user_id"] = str(uuid4())
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskApprovalService(session).create(
+                workspace.id,
+                partner.id,
+                request_id,
+                task.id,
+                TaskApprovalRequestType.STATUS_UPDATE,
+                changes,
+                {"status_version": task.status_version},
+            )
+
+        assert error.value.code == "approval_not_allowed"
+        assert TaskService(session).snapshot(task) == before
+        assert task.status == TaskStatus.TODO
+        assert task.status_version == before["status_version"]
+        assert session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all() == []
+        assert session.scalar(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.request_id == request_id)
+        ) is None
+
+
+def test_invalid_persisted_waiting_approval_is_rejected_atomically(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session)
+        task = _task(session, workspace, owner)
+        request = TaskApprovalRequest(
+            workspace_id=workspace.id,
+            task_id=task.id,
+            requester_id=requester.id,
+            approver_id=owner.id,
+            request_type=TaskApprovalRequestType.STATUS_UPDATE,
+            proposed_changes={"target_status": "WAITING", "resume_handler_id": str(requester.id)},
+            base_field_versions={"status_version": task.status_version},
+            request_id=uuid4(),
+            status=TaskApprovalRequestStatus.PENDING,
+        )
+        session.add(request)
+        session.flush()
+        before = TaskService(session).snapshot(task)
+        before_status_history = session.scalars(
+            select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id)
+        ).all()
+        before_handler_history = session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all()
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskApprovalService(session).approve(
+                workspace.id,
+                owner.id,
+                request.id,
+                uuid4(),
+            )
+
+        assert error.value.code == "approval_not_allowed"
+        assert request.status == TaskApprovalRequestStatus.PENDING
+        assert TaskService(session).snapshot(task) == before
+        assert task.status == TaskStatus.TODO
+        assert task.status_version == before["status_version"]
+        assert session.scalars(
+            select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id)
+        ).all() == before_status_history
+        assert session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all() == before_handler_history
+
+
+def test_invalid_persisted_status_target_is_rejected_before_mutation(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session)
+        task = _task(session, workspace, owner)
+        request = TaskApprovalRequest(
+            workspace_id=workspace.id,
+            task_id=task.id,
+            requester_id=requester.id,
+            approver_id=owner.id,
+            request_type=TaskApprovalRequestType.STATUS_UPDATE,
+            proposed_changes={"target_status": "NOT_A_STATUS"},
+            base_field_versions={"status_version": task.status_version},
+            request_id=uuid4(),
+            status=TaskApprovalRequestStatus.PENDING,
+        )
+        session.add(request)
+        session.flush()
+        before = TaskService(session).snapshot(task)
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskApprovalService(session).approve(
+                workspace.id,
+                owner.id,
+                request.id,
+                uuid4(),
+            )
+
+        assert error.value.code == "approval_not_allowed"
+        assert request.status == TaskApprovalRequestStatus.PENDING
+        assert TaskService(session).snapshot(task) == before
+
+
 def test_list_filters_incoming_and_outgoing_boxes(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
@@ -417,6 +541,49 @@ def test_handler_transfer_approval_changes_task_handler_to_other_active_member(d
         assert result.request.status == TaskApprovalRequestStatus.APPROVED
         assert result.task is task
         assert task.current_handler_id == requester.id
+
+
+def test_waiting_recovery_approval_uses_stored_handler_and_records_history(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, resume_handler], workspace = _workspace(session)
+        task = _task(session, workspace, owner)
+        task = TaskService(session).transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "WAITING",
+            task.status_version,
+            blocked_reason="等待确认",
+            resume_handler_id=resume_handler.id,
+        )
+        request = TaskApprovalService(session).create(
+            workspace.id,
+            resume_handler.id,
+            uuid4(),
+            task.id,
+            TaskApprovalRequestType.STATUS_UPDATE,
+            {"target_status": "IN_PROGRESS"},
+            {"status_version": task.status_version},
+        )
+
+        result = TaskApprovalService(session).approve(
+            workspace.id,
+            owner.id,
+            request.id,
+            uuid4(),
+        )
+
+        assert result.task is task
+        assert task.current_handler_id == resume_handler.id
+        assert task.blocked_reason is None
+        assert task.resume_handler_id is None
+        history = session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all()
+        assert len(history) == 1
+        assert history[0].from_user_id == owner.id
+        assert history[0].to_user_id == resume_handler.id
 
 
 def test_specialized_task_approval_types_delegate_to_owner_task_service(db_engine) -> None:

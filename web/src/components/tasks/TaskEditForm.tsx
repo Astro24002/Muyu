@@ -8,6 +8,8 @@ import { Button } from '../ui/Button';
 export interface TaskMember {
   user_id: string;
   member_slot: number;
+  membership_status?: string;
+  status?: string;
 }
 
 export interface TaskEditFormProps {
@@ -77,6 +79,11 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   };
 
   const save = (): void => {
+    const activeHandlerIds = getActiveHandlerIds(members);
+    if (draft.currentHandler !== task.current_handler_id && !activeHandlerIds.has(draft.currentHandler)) {
+      setError('请选择有效的负责人。');
+      return;
+    }
     if (!isTaskQuadrant(draft.quadrant)) {
       setError('请选择有效四象限。');
       return;
@@ -122,14 +129,20 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   };
 
   const transition = (): void => {
+    const activeHandlerIds = getActiveHandlerIds(members);
+    const isWaitingRecovery = task.status === 'WAITING' && draft.status === 'IN_PROGRESS';
     if (draft.status === 'WAITING' && (!draft.blockedReason.trim() || !draft.resumeHandler)) {
       setError('进入等待状态需要阻塞原因和恢复负责人。');
+      return;
+    }
+    if ((draft.status === 'WAITING' || isWaitingRecovery) && !activeHandlerIds.has(draft.resumeHandler)) {
+      setError('请选择有效的恢复负责人。');
       return;
     }
 
     const payload = {
       ...(draft.blockedReason.trim() ? { blockedReason: draft.blockedReason.trim() } : {}),
-      ...(draft.resumeHandler && (draft.status === 'WAITING' || task.status === 'WAITING')
+      ...(draft.resumeHandler && (draft.status === 'WAITING' || isWaitingRecovery)
         ? { resumeHandlerId: draft.resumeHandler }
         : {}),
     };
@@ -157,7 +170,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
     save();
   };
 
-  const handlerOptions = getHandlerOptions(task, members);
+  const handlerOptions = getHandlerOptions(task, members, [draft.currentHandler, draft.resumeHandler]);
   const transitionDisabled = !canWrite || busyAction !== null;
   const showWaitingFields = draft.status === 'WAITING' || task.status === 'WAITING';
   const showProgress = draft.status === 'IN_PROGRESS' || task.status === 'IN_PROGRESS';
@@ -208,7 +221,9 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
             disabled={!canWrite}
             onChange={(event) => updateDraft('currentHandler', event.target.value)}
           >
-            {handlerOptions.map((id) => <option key={id} value={id}>{id}</option>)}
+            {handlerOptions.map((option) => (
+              <option key={option.id} value={option.id} disabled={!option.active}>{option.id}</option>
+            ))}
           </select>
         </label>
 
@@ -271,7 +286,9 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
                 onChange={(event) => updateDraft('resumeHandler', event.target.value)}
               >
                 <option value="">请选择</option>
-                {handlerOptions.map((id) => <option key={id} value={id}>{id}</option>)}
+                {handlerOptions.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.active}>{option.id}</option>
+                ))}
               </select>
             </label>
           </>
@@ -356,10 +373,27 @@ function fieldsForChanges(changes: EditableTaskChanges): DraftField[] {
   return fields;
 }
 
-function getHandlerOptions(task: TaskItem, members: TaskMember[]): string[] {
-  const memberIds = members.map((member) => member.user_id);
-  const candidates = [...memberIds, task.current_handler_id, task.resume_handler_id ?? ''];
-  return [...new Set(candidates.filter(Boolean))];
+interface HandlerOption {
+  id: string;
+  active: boolean;
+}
+
+function getHandlerOptions(task: TaskItem, members: TaskMember[], draftHandlerIds: string[]): HandlerOption[] {
+  const activeIds = [...getActiveHandlerIds(members)];
+  const candidates = [...activeIds, task.current_handler_id, task.resume_handler_id ?? '', ...draftHandlerIds];
+  return [...new Set(candidates.filter(Boolean))].map((id) => ({
+    id,
+    active: activeIds.includes(id),
+  }));
+}
+
+function getActiveHandlerIds(members: TaskMember[]): Set<string> {
+  return new Set(members.filter(isActiveMember).map((member) => member.user_id));
+}
+
+function isActiveMember(member: TaskMember): boolean {
+  const status = member.membership_status ?? member.status;
+  return status === undefined || status === 'ACTIVE';
 }
 
 function safeLabels(value: unknown): string[] {

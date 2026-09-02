@@ -5,6 +5,7 @@ import 'core/api_client.dart';
 import 'platform/device_signing_key.dart';
 import 'screens/mobile_phone_login_screen.dart';
 import 'screens/workspace_gate.dart';
+import 'sync/workspace_cache.dart';
 import 'workspace/workspace_bootstrap_repository.dart';
 
 class MuyuApp extends StatelessWidget {
@@ -14,12 +15,14 @@ class MuyuApp extends StatelessWidget {
     required this.deviceSigningKey,
     required this.mobileLoginController,
     required this.workspaceBootstrapRepository,
+    this.workspaceCache,
   });
 
   final ApiClient apiClient;
   final DeviceSigningKey deviceSigningKey;
   final MobileLoginController mobileLoginController;
   final WorkspaceBootstrapRepository workspaceBootstrapRepository;
+  final WorkspaceCache? workspaceCache;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -50,6 +53,7 @@ class MuyuApp extends StatelessWidget {
       controller: mobileLoginController,
       signingKey: deviceSigningKey,
       workspaceBootstrapRepository: workspaceBootstrapRepository,
+      workspaceCache: workspaceCache,
     ),
   );
 }
@@ -60,12 +64,14 @@ class _AndroidHome extends StatelessWidget {
     required this.controller,
     required this.signingKey,
     required this.workspaceBootstrapRepository,
+    this.workspaceCache,
   });
 
   final ApiClient apiClient;
   final MobileLoginController controller;
   final DeviceSigningKey signingKey;
   final WorkspaceBootstrapRepository workspaceBootstrapRepository;
+  final WorkspaceCache? workspaceCache;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -77,6 +83,7 @@ class _AndroidHome extends StatelessWidget {
             signingKey: signingKey,
             repository: workspaceBootstrapRepository,
             session: controller.currentSession,
+            workspaceCache: workspaceCache,
           )
         : MobilePhoneLoginScreen(controller: controller),
   );

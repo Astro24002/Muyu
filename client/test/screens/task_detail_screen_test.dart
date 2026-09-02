@@ -7,13 +7,17 @@ import 'package:muyu_client/screens/task_detail_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
-TaskItem detailTask() => TaskItem(
+TaskItem detailTask({
+  String status = 'TODO',
+  String currentHandlerId = 'user-1',
+  String? resumeHandlerId,
+}) => TaskItem(
   id: 'task-1',
   parentTaskId: null,
   title: 'Original',
   description: 'Description',
-  status: 'TODO',
-  currentHandlerId: 'user-1',
+  status: status,
+  currentHandlerId: currentHandlerId,
   quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
@@ -26,10 +30,12 @@ TaskItem detailTask() => TaskItem(
   updatedAt: DateTime.utc(2026, 8, 27),
   labels: const [],
   fieldVersions: const {'title': 3, 'description': 2},
+  resumeHandlerId: resumeHandlerId,
 );
 
 class RecordingRepository implements WorkspaceSyncRepository {
   String? transitionedTo;
+  String? transitionResumeHandlerId;
   int? transitionBaseVersion;
   String? comment;
   String? delayReason;
@@ -94,6 +100,7 @@ class RecordingRepository implements WorkspaceSyncRepository {
   }) async {
     transitionedTo = targetStatus;
     transitionBaseVersion = baseStatusVersion;
+    transitionResumeHandlerId = resumeHandlerId;
     return detailTask().copyWith(status: targetStatus);
   }
 
@@ -187,4 +194,85 @@ void main() {
       );
     },
   );
+
+  testWidgets('keeps a revoked current handler visible but disabled', (
+    tester,
+  ) async {
+    final task = detailTask(currentHandlerId: 'revoked-user');
+    final sync = WorkspaceSyncController.unavailable();
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1'},
+          {'user_id': 'user-2'},
+          {'user_id': 'revoked-user', 'membership_status': 'REVOKED'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.pump();
+
+    final select = tester.widget<DropdownButton<String>>(
+      find.descendant(
+        of: find.byKey(const Key('task-handler-select')),
+        matching: find.byType(DropdownButton<String>),
+      ),
+    );
+    final revoked = select.items!.singleWhere(
+      (item) => item.value == 'revoked-user',
+    );
+    expect(revoked.enabled, isFalse);
+    expect(find.text('revoked-user'), findsOneWidget);
+  });
+
+  testWidgets('does not submit a stale resume handler during recovery', (
+    tester,
+  ) async {
+    final task = detailTask(status: 'WAITING', resumeHandlerId: 'revoked-user');
+    final repository = RecordingRepository();
+    final sync = WorkspaceSyncController(repository);
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1'},
+          {'user_id': 'user-2'},
+          {'user_id': 'revoked-user', 'membership_status': 'REVOKED'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('task-status-in_progress')),
+    );
+    await tester.tap(find.byKey(const Key('task-status-in_progress')));
+    await tester.pump();
+    await tester.drag(find.byType(ListView), const Offset(0, 500));
+    await tester.pump();
+
+    expect(repository.transitionedTo, isNull);
+    expect(find.text('恢复负责人已不可用，请选择有效成员'), findsOneWidget);
+  });
 }

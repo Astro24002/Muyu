@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus, TaskStatus
-from app.db.models import TaskComment, User, Workspace, WorkspaceCursor, WorkspaceMembership
+from app.db.models import TaskComment, TaskHandlerHistory, User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.numbering import TaskNumberAllocator
 from app.tasks.service import TaskService
@@ -135,3 +135,91 @@ def test_comment_author_can_soft_delete_comment_and_tombstone_is_retained(db_eng
         assert stored.deleted_at is not None
         with pytest.raises(TaskConflictError, match="already deleted"):
             service.delete_comment(workspace.id, user.id, comment.id, uuid4(), comment.version)
+
+
+def test_waiting_recovery_uses_stored_handler_and_records_history_once(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, resume_handler, workspace = _workspace_with_two_users(session)
+        service = TaskService(session)
+        task = service.create(workspace.id, owner.id, uuid4(), "Task", quadrant="Q1")
+        waiting = service.transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "WAITING",
+            task.status_version,
+            blocked_reason="等待确认",
+            resume_handler_id=resume_handler.id,
+            waiting_for_user_id=resume_handler.id,
+        )
+        recovery_request_id = uuid4()
+        waiting_status_version = waiting.status_version
+
+        recovered = service.transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            recovery_request_id,
+            "IN_PROGRESS",
+            waiting_status_version,
+        )
+
+        assert recovered.current_handler_id == resume_handler.id
+        assert recovered.blocked_reason is None
+        assert recovered.blocked_since is None
+        assert recovered.resume_handler_id is None
+        assert recovered.waiting_for_user_id is None
+        history = session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all()
+        assert len(history) == 1
+        assert history[0].from_user_id == owner.id
+        assert history[0].to_user_id == resume_handler.id
+        assert history[0].changed_by == owner.id
+
+        replay = service.transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            recovery_request_id,
+            "IN_PROGRESS",
+            waiting_status_version,
+        )
+
+        assert replay.current_handler_id == resume_handler.id
+        assert session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all() == history
+
+
+def test_waiting_recovery_honors_explicit_handler_override(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, stored_resume_handler, workspace = _workspace_with_two_users(session)
+        service = TaskService(session)
+        task = service.create(workspace.id, owner.id, uuid4(), "Task", quadrant="Q1")
+        waiting = service.transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "WAITING",
+            task.status_version,
+            blocked_reason="等待确认",
+            resume_handler_id=stored_resume_handler.id,
+        )
+
+        recovered = service.unblock(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            waiting.status_version,
+            resume_handler_id=owner.id,
+        )
+
+        assert recovered.current_handler_id == owner.id
+        assert recovered.resume_handler_id is None
+        assert session.scalars(
+            select(TaskHandlerHistory).where(TaskHandlerHistory.task_id == task.id)
+        ).all() == []

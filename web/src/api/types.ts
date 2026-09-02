@@ -101,7 +101,7 @@ export interface ApprovalActionResult {
 
 export interface WorkspaceSnapshot {
   workspace_id: string; workspace: { id: string; name: string; status: string };
-  members: Array<{ user_id: string; member_slot: number }>; tasks: TaskItem[];
+  members: Array<{ user_id: string; member_slot: number; membership_status?: string; status?: string }>; tasks: TaskItem[];
   conflicts: Array<Record<string, unknown>>; cursor: number;
   viewer_user_id?: string | null;
   comments?: TaskComment[];

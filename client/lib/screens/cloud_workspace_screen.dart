@@ -7,6 +7,7 @@ import '../models/task.dart';
 import '../models/task_view.dart';
 import '../platform/device_signing_key.dart';
 import '../sync/workspace_sync_controller.dart';
+import '../sync/workspace_cache.dart';
 import '../sync/workspace_sync_repository.dart';
 import '../workspace/device_authorization_repository.dart';
 import '../workspace/device_repository.dart';
@@ -41,6 +42,8 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.waitingForPartner = false,
     this.workspaceBootstrapRepository,
     this.authorizationRepository,
+    this.workspaceCache,
+    this.workspaceId,
   });
 
   final ApiClient api;
@@ -51,6 +54,8 @@ class CloudWorkspaceScreen extends StatefulWidget {
   final bool waitingForPartner;
   final WorkspaceBootstrapRepository? workspaceBootstrapRepository;
   final DeviceAuthorizationRepository? authorizationRepository;
+  final WorkspaceCache? workspaceCache;
+  final String? workspaceId;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -75,7 +80,11 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     super.initState();
     _sync =
         widget.syncController ??
-        WorkspaceSyncController(HttpWorkspaceSyncRepository(widget.api));
+        WorkspaceSyncController(
+          HttpWorkspaceSyncRepository(widget.api),
+          cache: widget.workspaceCache,
+          workspaceId: widget.workspaceId,
+        );
     if (widget.syncController == null) _sync.start();
     if (widget.session != null &&
         !widget.canWrite &&

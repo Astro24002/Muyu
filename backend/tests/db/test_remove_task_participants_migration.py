@@ -13,12 +13,13 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from app.db.enums import MembershipStatus, TaskApprovalRequestStatus, TaskQuadrant, TaskStatus
+from app.db.enums import ConflictStatus, MembershipStatus, TaskApprovalRequestStatus, TaskQuadrant, TaskStatus
 from app.db.models import (
     ActivityEvent,
     DelayRecord,
     Task,
     TaskComment,
+    TaskConflict,
     TaskHandlerHistory,
     TaskStatusHistory,
     User,
@@ -118,6 +119,7 @@ def _seed_legacy_schema(engine: Engine) -> dict[str, object]:
             labels=[],
             current_handler_id=owner.id,
             created_by=owner.id,
+            field_versions={"title": 1, "assignee_ids": 7},
         )
         session.add(task)
         session.flush()
@@ -163,7 +165,39 @@ def _seed_legacy_schema(engine: Engine) -> dict[str, object]:
             event_type="MIGRATION_TEST",
             payload={"preserve": True},
         )
-        session.add_all([status_history, handler_history, comment, delay, event])
+        assignee_conflict = TaskConflict(
+            workspace_id=workspace.id,
+            task_id=task.id,
+            target="assignee_ids",
+            base_value=[str(owner.id)],
+            current_value=[str(owner.id)],
+            proposed_value=[str(partner.id)],
+            base_version=1,
+            current_version=2,
+            request_id=uuid4(),
+            status=ConflictStatus.OPEN,
+        )
+        title_conflict = TaskConflict(
+            workspace_id=workspace.id,
+            task_id=task.id,
+            target="title",
+            base_value="Before",
+            current_value="Current",
+            proposed_value="Proposed",
+            base_version=1,
+            current_version=2,
+            request_id=uuid4(),
+            status=ConflictStatus.OPEN,
+        )
+        session.add_all([
+            status_history,
+            handler_history,
+            comment,
+            delay,
+            event,
+            assignee_conflict,
+            title_conflict,
+        ])
         session.flush()
 
         preserved_request_id = uuid4()
@@ -212,6 +246,8 @@ def _seed_legacy_schema(engine: Engine) -> dict[str, object]:
         "comment_id": comment.id,
         "delay_id": delay.id,
         "event_id": event.id,
+        "assignee_conflict_id": assignee_conflict.id,
+        "title_conflict_id": title_conflict.id,
     }
 
 
@@ -274,6 +310,18 @@ def test_upgrade_from_0004_preserves_owner_history_and_non_assignee_approvals(
             ),
             {"request_id": data["deleted_request_id"]},
         ) == 0
+        assert connection.scalar(
+            text("SELECT field_versions FROM tasks WHERE id = :task_id"),
+            {"task_id": data["task_id"]},
+        ) == {"title": 1}
+        assert connection.scalar(
+            text("SELECT count(*) FROM task_conflicts WHERE id = :conflict_id"),
+            {"conflict_id": data["assignee_conflict_id"]},
+        ) == 0
+        assert connection.scalar(
+            text("SELECT count(*) FROM task_conflicts WHERE id = :conflict_id"),
+            {"conflict_id": data["title_conflict_id"]},
+        ) == 1
         for table, key in (
             ("task_status_history", "status_history_id"),
             ("task_handler_history", "handler_history_id"),

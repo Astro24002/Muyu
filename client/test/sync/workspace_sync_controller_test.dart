@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
+import 'package:muyu_client/sync/workspace_cache.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
@@ -130,6 +131,31 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class MemoryWorkspaceCache implements WorkspaceCache {
+  MemoryWorkspaceCache(this.cached);
+
+  WorkspaceSnapshot? cached;
+  final writes = <WorkspaceSnapshot>[];
+  String? readWorkspaceId;
+
+  @override
+  Future<WorkspaceSnapshot?> read(String workspaceId) async {
+    readWorkspaceId = workspaceId;
+    return cached;
+  }
+
+  @override
+  Future<void> write(WorkspaceSnapshot snapshot) async {
+    writes.add(snapshot);
+    cached = snapshot;
+  }
+
+  @override
+  Future<void> clear(String workspaceId) async {
+    cached = null;
+  }
+}
+
 void main() {
   test(
     'a workspace hint pulls REST changes instead of applying hint data',
@@ -238,4 +264,70 @@ void main() {
     expect(controller.state.snapshot!.tasks.single.title, 'Changed title');
     expect(controller.inFlightMutations, isEmpty);
   });
+
+  test(
+    'start restores a cached snapshot before replacing it with network data',
+    () async {
+      final cache = MemoryWorkspaceCache(
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 7,
+          tasks: [task('Cached title')],
+        ),
+      );
+      final repository = FakeSyncRepository()
+        ..snapshotCompleter = Completer<WorkspaceSnapshot>();
+      final controller = WorkspaceSyncController(
+        repository,
+        cache: cache,
+        workspaceId: 'w1',
+      );
+
+      final start = controller.start();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cache.readWorkspaceId, 'w1');
+      expect(controller.state.snapshot?.tasks.single.title, 'Cached title');
+      expect(controller.state.isStale, isTrue);
+      expect(repository.snapshotCalls, 1);
+
+      repository.snapshotCompleter!.complete(
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Fresh title')],
+        ),
+      );
+      await start;
+
+      expect(controller.state.snapshot?.tasks.single.title, 'Fresh title');
+      expect(controller.state.isStale, isFalse);
+      expect(cache.writes.single.cursor, 11);
+    },
+  );
+
+  test(
+    'cached snapshot remains last known good when startup refresh fails',
+    () async {
+      final cached = WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 7,
+        tasks: [task('Last known good')],
+      );
+      final cache = MemoryWorkspaceCache(cached);
+      final repository = FakeSyncRepository()..failSnapshots = true;
+      final controller = WorkspaceSyncController(
+        repository,
+        cache: cache,
+        workspaceId: 'w1',
+      );
+
+      await controller.start();
+
+      expect(controller.state.snapshot?.tasks.single.title, 'Last known good');
+      expect(controller.state.isStale, isTrue);
+      expect(controller.state.errorMessage, contains('snapshot unavailable'));
+      expect(cache.writes, isEmpty);
+    },
+  );
 }

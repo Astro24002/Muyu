@@ -232,6 +232,7 @@ void main() {
   });
 
   test('list groups sort each group by the selected sort mode', () {
+    final now = DateTime(2026, 8, 31, 12);
     final tasks = [
       makeTask(
         'q4',
@@ -252,6 +253,7 @@ void main() {
     expect(
       TaskView.listGroups(
         tasks,
+        now: now,
         sort: TaskListSort.quadrant,
       )[1].tasks.map((item) => item.id),
       ['q1', 'q4'],
@@ -259,6 +261,7 @@ void main() {
     expect(
       TaskView.listGroups(
         tasks,
+        now: now,
         sort: TaskListSort.updatedAt,
       )[1].tasks.map((item) => item.id),
       ['q4', 'q1'],

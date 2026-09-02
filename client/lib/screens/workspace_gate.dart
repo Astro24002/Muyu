@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/api_client.dart';
 import '../auth/mobile_session_store.dart';
 import '../platform/device_signing_key.dart';
+import '../sync/workspace_cache.dart';
 import '../workspace/workspace_bootstrap_controller.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
 import 'cloud_workspace_screen.dart';
@@ -17,12 +18,14 @@ class WorkspaceGate extends StatefulWidget {
     required this.signingKey,
     required this.repository,
     this.session,
+    this.workspaceCache,
   });
 
   final ApiClient api;
   final DeviceSigningKey signingKey;
   final WorkspaceBootstrapRepository repository;
   final MobileSession? session;
+  final WorkspaceCache? workspaceCache;
 
   @override
   State<WorkspaceGate> createState() => _WorkspaceGateState();
@@ -58,6 +61,8 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             session: widget.session,
             canWrite: _controller.state.canWrite,
             workspaceBootstrapRepository: widget.repository,
+            workspaceCache: widget.workspaceCache,
+            workspaceId: _controller.state.workspace!.id,
           );
         case WorkspaceBootstrapStatus.waitingForPartner:
           return CloudWorkspaceScreen(
@@ -68,6 +73,8 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             canWrite: _controller.state.canWrite,
             waitingForPartner: true,
             workspaceBootstrapRepository: widget.repository,
+            workspaceCache: widget.workspaceCache,
+            workspaceId: _controller.state.workspace!.id,
           );
         case WorkspaceBootstrapStatus.loading:
           return const Scaffold(

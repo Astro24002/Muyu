@@ -2,6 +2,11 @@
 
 The downgrade restores only the old database shape for migration tooling. It
 cannot restore participant rows removed by the upgrade.
+
+The upgrade intentionally discards obsolete participant-only conflicts and
+``tasks.field_versions.assignee_ids`` entries. This is acceptable for the
+development migration because the participant contract is being retired;
+unrelated task conflicts and field versions are preserved.
 """
 
 from collections.abc import Sequence
@@ -73,10 +78,23 @@ def _replace_approval_request_type(labels: str) -> None:
     )
 
 
+def _remove_legacy_assignee_state() -> None:
+    bind = op.get_bind()
+    bind.execute(text("DELETE FROM task_conflicts WHERE target = 'assignee_ids'"))
+    bind.execute(
+        text(
+            "UPDATE tasks "
+            "SET field_versions = field_versions - 'assignee_ids' "
+            "WHERE field_versions ? 'assignee_ids'"
+        )
+    )
+
+
 def upgrade() -> None:
     _validate_current_handlers()
 
     bind = op.get_bind()
+    _remove_legacy_assignee_state()
     bind.execute(
         text(
             "DELETE FROM task_approval_requests "

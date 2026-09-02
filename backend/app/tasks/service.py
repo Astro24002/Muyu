@@ -855,17 +855,6 @@ class TaskService:
                 request_id=request_id,
             )
         )
-        if activity_type is not None:
-            self.session.add(
-                ActivityEvent(
-                    workspace_id=workspace_id,
-                    task_id=task.id,
-                    actor_user_id=actor_user_id,
-                    event_type=activity_type,
-                    payload=activity_payload,
-                    request_id=request_id,
-                )
-            )
         operation = TaskOperation(workspace_id=workspace_id, task_id=task.id, actor_user_id=actor_user_id, request_id=request_id, operation_type=operation_type, before_state=before, after_state=after, base_versions=base_versions, resulting_versions=task.field_versions, cursor=cursor)
         self.session.add(operation)
         self.session.flush()

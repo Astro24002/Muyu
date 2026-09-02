@@ -15,6 +15,19 @@ from app.tasks.service import TaskService
 
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
+SIX_STATE_ACTIVITY_METADATA = {
+    "field_versions",
+    "status_version",
+    "lifecycle_version",
+    "reviewer_user_id",
+    "review_submitted_at",
+    "reviewed_at",
+    "review_rejection_reason",
+    "blocked_reason",
+    "blocked_since",
+    "resume_handler_id",
+    "waiting_for_user_id",
+}
 
 
 def _workspace(session: Session) -> tuple[User, User, Workspace]:
@@ -44,6 +57,95 @@ def _workspace(session: Session) -> tuple[User, User, Workspace]:
     )
     session.flush()
     return owner, reviewer, workspace
+
+
+def _assert_single_status_activity(
+    session: Session,
+    task_id,
+    request_id,
+    *,
+    activity_type: str,
+    activity: str,
+    before_status: str,
+    after_status: str,
+    expected: dict[str, object],
+) -> None:
+    events = session.scalars(
+        select(ActivityEvent).where(
+            ActivityEvent.task_id == task_id,
+            ActivityEvent.request_id == request_id,
+        )
+    ).all()
+    assert len(events) == 1
+    event = events[0]
+    assert event.event_type == "STATUS_CHANGED"
+    payload = event.payload
+    assert payload["activity_type"] == activity_type
+    assert payload["activity"] == activity
+    assert payload["before"]["status"] == before_status
+    assert payload["after"]["status"] == after_status
+    assert SIX_STATE_ACTIVITY_METADATA <= payload.keys()
+    for key, value in expected.items():
+        assert payload[key] == value
+
+
+def _transition_and_assert_replay(
+    service: TaskService,
+    session: Session,
+    workspace_id,
+    task_id,
+    actor_user_id,
+    request_id,
+    target_status: str,
+    base_status_version: int,
+    *,
+    activity_type: str,
+    activity: str,
+    before_status: str,
+    after_status: str,
+    expected: dict[str, object],
+    **transition_kwargs,
+):
+    updated = service.transition(
+        workspace_id,
+        actor_user_id,
+        task_id,
+        request_id,
+        target_status,
+        base_status_version,
+        **transition_kwargs,
+    )
+    _assert_single_status_activity(
+        session,
+        task_id,
+        request_id,
+        activity_type=activity_type,
+        activity=activity,
+        before_status=before_status,
+        after_status=after_status,
+        expected=expected,
+    )
+    replayed = service.transition(
+        workspace_id,
+        actor_user_id,
+        task_id,
+        request_id,
+        target_status,
+        base_status_version,
+        **transition_kwargs,
+    )
+    assert replayed.id == updated.id
+    _assert_single_status_activity(
+        session,
+        task_id,
+        request_id,
+        activity_type=activity_type,
+        activity=activity,
+        before_status=before_status,
+        after_status=after_status,
+        expected=expected,
+    )
+    return updated
 
 
 def test_snapshot_and_cursor_changes_preserve_blocked_projection_and_versions(db_engine) -> None:
@@ -95,12 +197,12 @@ def test_snapshot_and_cursor_changes_preserve_blocked_projection_and_versions(db
             "IN_PROGRESS",
             blocked.status_version,
         )
-        event_types = set(
-            session.scalars(
-                select(ActivityEvent.event_type).where(ActivityEvent.task_id == task.id)
-            )
-        )
-        assert {"TASK_BLOCKED", "TASK_UNBLOCKED"} <= event_types
+        activity_types = {
+            event.payload["activity_type"]
+            for event in session.scalars(select(ActivityEvent).where(ActivityEvent.task_id == task.id))
+            if "activity_type" in event.payload
+        }
+        assert activity_types == {"TASK_BLOCKED", "TASK_UNBLOCKED"}
 
 
 def test_snapshot_and_cursor_changes_preserve_review_projection_and_versions(db_engine) -> None:
@@ -159,16 +261,207 @@ def test_snapshot_and_cursor_changes_preserve_review_projection_and_versions(db_
         done = service.transition(workspace.id, reviewer.id, review.id, uuid4(), "DONE", resubmitted.status_version)
         assert done.reviewed_at == NOW
         assert done.review_rejection_reason is None
-        event_types = set(
-            session.scalars(
-                select(ActivityEvent.event_type).where(ActivityEvent.task_id == task.id)
-            )
-        )
-        assert {
+        activity_types = {
+            event.payload["activity_type"]
+            for event in session.scalars(select(ActivityEvent).where(ActivityEvent.task_id == task.id))
+            if "activity_type" in event.payload
+        }
+        assert activity_types == {
             "TASK_REVIEW_SUBMITTED",
             "TASK_REVIEW_ACCEPTED",
             "TASK_REVIEW_RETURNED",
-        } <= event_types
+        }
+
+
+def test_six_state_activities_are_single_append_only_events_and_replays_are_idempotent(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace(session)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "单条活动记录", quadrant="Q1")
+
+        blocked_request_id = uuid4()
+        blocked_base_version = task.status_version
+        blocked_expected = {
+            "status_version": 2,
+            "lifecycle_version": 2,
+            "reviewer_user_id": None,
+            "review_submitted_at": None,
+            "reviewed_at": None,
+            "review_rejection_reason": None,
+            "blocked_reason": "等待外部确认",
+            "blocked_since": NOW.isoformat(),
+            "resume_handler_id": str(owner.id),
+            "waiting_for_user_id": str(reviewer.id),
+        }
+        blocked = _transition_and_assert_replay(
+            service,
+            session,
+            workspace.id,
+            task.id,
+            owner.id,
+            blocked_request_id,
+            "BLOCKED",
+            blocked_base_version,
+            activity_type="TASK_BLOCKED",
+            activity="BLOCKED",
+            before_status="TODO",
+            after_status="BLOCKED",
+            expected=blocked_expected,
+            blocked_reason="等待外部确认",
+            resume_handler_id=owner.id,
+            waiting_for_user_id=reviewer.id,
+        )
+
+        unblocked_request_id = uuid4()
+        unblocked_base_version = blocked.status_version
+        unblocked_expected = {
+            "status_version": 3,
+            "lifecycle_version": 3,
+            "reviewer_user_id": None,
+            "review_submitted_at": None,
+            "reviewed_at": None,
+            "review_rejection_reason": None,
+            "blocked_reason": None,
+            "blocked_since": None,
+            "resume_handler_id": None,
+            "waiting_for_user_id": None,
+        }
+        unblocked = _transition_and_assert_replay(
+            service,
+            session,
+            workspace.id,
+            task.id,
+            owner.id,
+            unblocked_request_id,
+            "IN_PROGRESS",
+            unblocked_base_version,
+            activity_type="TASK_UNBLOCKED",
+            activity="UNBLOCKED",
+            before_status="BLOCKED",
+            after_status="IN_PROGRESS",
+            expected=unblocked_expected,
+        )
+
+        submitted_request_id = uuid4()
+        submitted_base_version = unblocked.status_version
+        submitted_expected = {
+            "status_version": 4,
+            "lifecycle_version": 4,
+            "reviewer_user_id": str(reviewer.id),
+            "review_submitted_at": NOW.isoformat(),
+            "reviewed_at": None,
+            "review_rejection_reason": None,
+            "blocked_reason": None,
+            "blocked_since": None,
+            "resume_handler_id": None,
+            "waiting_for_user_id": None,
+        }
+        submitted = _transition_and_assert_replay(
+            service,
+            session,
+            workspace.id,
+            task.id,
+            owner.id,
+            submitted_request_id,
+            "REVIEW",
+            submitted_base_version,
+            activity_type="TASK_REVIEW_SUBMITTED",
+            activity="REVIEW_SUBMITTED",
+            before_status="IN_PROGRESS",
+            after_status="REVIEW",
+            expected=submitted_expected,
+        )
+
+        returned_request_id = uuid4()
+        returned_base_version = submitted.status_version
+        returned_expected = {
+            "status_version": 5,
+            "lifecycle_version": 5,
+            "reviewer_user_id": str(reviewer.id),
+            "review_submitted_at": NOW.isoformat(),
+            "reviewed_at": NOW.isoformat(),
+            "review_rejection_reason": "补充订单截图",
+            "blocked_reason": None,
+            "blocked_since": None,
+            "resume_handler_id": None,
+            "waiting_for_user_id": None,
+        }
+        returned = _transition_and_assert_replay(
+            service,
+            session,
+            workspace.id,
+            task.id,
+            reviewer.id,
+            returned_request_id,
+            "IN_PROGRESS",
+            returned_base_version,
+            activity_type="TASK_REVIEW_RETURNED",
+            activity="REVIEW_RETURNED",
+            before_status="REVIEW",
+            after_status="IN_PROGRESS",
+            expected=returned_expected,
+            review_rejection_reason="补充订单截图",
+        )
+
+        resubmitted_request_id = uuid4()
+        resubmitted_base_version = returned.status_version
+        resubmitted_expected = {
+            "status_version": 6,
+            "lifecycle_version": 6,
+            "reviewer_user_id": str(reviewer.id),
+            "review_submitted_at": NOW.isoformat(),
+            "reviewed_at": None,
+            "review_rejection_reason": None,
+            "blocked_reason": None,
+            "blocked_since": None,
+            "resume_handler_id": None,
+            "waiting_for_user_id": None,
+        }
+        resubmitted = _transition_and_assert_replay(
+            service,
+            session,
+            workspace.id,
+            task.id,
+            owner.id,
+            resubmitted_request_id,
+            "REVIEW",
+            resubmitted_base_version,
+            activity_type="TASK_REVIEW_SUBMITTED",
+            activity="REVIEW_SUBMITTED",
+            before_status="IN_PROGRESS",
+            after_status="REVIEW",
+            expected=resubmitted_expected,
+        )
+
+        accepted_request_id = uuid4()
+        accepted_base_version = resubmitted.status_version
+        accepted_expected = {
+            "status_version": 7,
+            "lifecycle_version": 7,
+            "reviewer_user_id": str(reviewer.id),
+            "review_submitted_at": NOW.isoformat(),
+            "reviewed_at": NOW.isoformat(),
+            "review_rejection_reason": None,
+            "blocked_reason": None,
+            "blocked_since": None,
+            "resume_handler_id": None,
+            "waiting_for_user_id": None,
+        }
+        _transition_and_assert_replay(
+            service,
+            session,
+            workspace.id,
+            task.id,
+            reviewer.id,
+            accepted_request_id,
+            "DONE",
+            accepted_base_version,
+            activity_type="TASK_REVIEW_ACCEPTED",
+            activity="REVIEW_ACCEPTED",
+            before_status="REVIEW",
+            after_status="DONE",
+            expected=accepted_expected,
+        )
 
 
 def test_stale_review_conflict_preserves_the_complete_transition_payload(db_engine) -> None:

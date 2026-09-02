@@ -5,12 +5,14 @@
 ## 当前状态
 
 - 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除已完成代码与文档收口，后续只剩真实 Android 设备验收和线上数据库迁移。
-- 当前产品和运行时设计：[产品需求](./01-product.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
+- 当前产品和运行时设计：[产品需求](./01-product.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
 - 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入，非当前负责人的成员写入受保护字段时继续提交给对方审批；“我的任务”只按当前负责人筛选。
 - 当前 Android 账户概览：从现有 Workspace snapshot 统计当前用户负责的全部未删除父任务和子任务，并显示任务、完成和延期汇总；匹配对象头像打开另一位 ACTIVE 成员的同口径概览。
-- 当前迁移与缓存：Alembic `0005_remove_task_assignees` 校验非删除任务的 `current_handler_id` 必须是同一 Workspace 的 ACTIVE 成员，拒绝静默改写无效负责人；开发迁移会有意删除旧 `task_assignees` 参与人数据和所有已废弃的 `ASSIGNEE_UPDATE` 记录。Flutter 快照缓存命名空间为 `muyu.workspace.snapshot.v2.$workspaceId`，旧命名空间不会作为当前契约读取。
+- 当前 Android 入口与资料边界：任务审批和 Web 扫码只从“我的”页 AppBar 进入；短信验证成功的每台 Android 设备直接为 `ACTIVE` 且可写；设备管理只能在二次确认后撤销同一账号的其他设备，当前设备不可撤销；个人资料只编辑 `display_name`，头像继续使用默认 `CircleAvatar`。
+- 当前 Workspace bootstrap 契约：只返回 ACTIVE 成员的 `match_status`、成员数量、名称、脱敏手机号和 `is_current`；零或一名成员为 `waiting_partner`，两名成员为 `matched`，未匹配时客户端只显示默认占位头像和“匹配中”，不伪造对方身份。
+- 当前迁移与缓存：Alembic `0005_remove_task_assignees` 校验非删除任务的 `current_handler_id` 必须是同一 Workspace 的 ACTIVE 成员，`0006_trust_sms_devices` 将未撤销的遗留 `PENDING` 设备转为 `ACTIVE` 并使旧设备授权请求过期；开发迁移会有意删除旧 `task_assignees` 参与人数据和所有已废弃的 `ASSIGNEE_UPDATE` 记录。Flutter 快照缓存命名空间为 `muyu.workspace.snapshot.v2.$workspaceId`，旧命名空间不会作为当前契约读取。
 - 历史基线：首轮工程、Phase 2/3、固定密码认证和 Local-first P2P 的规格、计划、实现与验收记录只用于理解待替换资产，不可作为新实现依据。
 - 历史工程规格：[工程基础与双人认证设计规格](./superpowers/specs/2026-08-16-project-foundation-design.md)。
 - 历史实施计划：[Project Foundation And Auth Implementation Plan](./superpowers/plans/2026-08-16-project-foundation-auth.md)。
@@ -21,6 +23,24 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-02 - Android 视觉系统令牌化施工完成
+
+- 类型：工程实施 / 全量客户端验证。
+- 变更：Android 客户端统一使用 Web 视觉基线映射的 Material 3 `ColorScheme` 与 `MuyuThemeExtension`；收敛冷白页面、表面白、深绿主色、浅绿重点、珊瑚提示、独立错误色、4/8/12/16/24/32 间距、最多 8px 圆角和低阴影。清单、四象限、日程共用任务系统顶部栏；任务行、任务详情、新建任务、审批、冲突、扫码、登录、Workspace 引导、资料和设备页面移除旧的散落样式值并改用主题令牌。保留四个底部 Tab、任务字段、同步、审批、资料和设备行为不变。
+- 代码：`05244d2`（`feat(client): finish Android visual token alignment`）。
+- 验证：`dart format --output=none --set-exit-if-changed .` 通过；`flutter analyze` 无问题；Flutter 全量 `123 tests` 通过；旧蓝色/旧种子色扫描仅剩主题文件中的正式令牌定义；APK 通过 `unzip -tq` 完整性检查。
+- 产物：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-05244d2.apk`，大小 `203269394` 字节，SHA-256 为 `374afe28e922907e90293f06152f08fb46814fea93299f4a6b73774fd1b99364`；构建使用线上 API 地址，仅作为 commit 命名调试包，不创建 Release。
+- 下一步：在真实 Android 设备上进行安装和视觉巡检；正式版本继续由 tag/release CI 生成 `Muyu-v<version>.apk`。
+
+### 2026-09-02 - 我的页、可信设备与 bootstrap 匹配契约
+
+- 类型：当前契约收口 / 客户端 helper / 活动文档更新。
+- 变更：任务审批入口固定在 Android“我的”页 AppBar，设备短信验证直接建立 `ACTIVE` 可写设备，设备撤销需要确认且不能撤销当前设备，个人资料仅支持名称编辑；Workspace bootstrap 明确返回 ACTIVE 成员的匹配状态、数量、成员名称、脱敏手机号和当前成员标记。
+- 匹配规则：零或一名 ACTIVE 成员返回 `waiting_partner`；恰好两名 ACTIVE 成员返回 `matched`；客户端只有在服务端状态、数量和两个成员状态同时一致时才返回 partner，否则显示默认头像和“匹配中”，不泄露或伪造占位成员身份。
+- 设备边界：首版不创建设备授权请求；`0006_trust_sms_devices` 负责迁移未撤销的历史 `PENDING` 设备并使遗留请求过期，`REVOKED` 设备、移动会话和审计历史不恢复。未来的任务化设备审批设计记录在[延期说明](./superpowers/superseded/2026-09-02-device-approval-task-design-note.md)。
+- 验证：后端 bootstrap matching contract `9 passed`；Flutter `test/workspace/workspace_bootstrap_repository_test.dart` `7 passed`；两组测试覆盖零/一/二成员、ACTIVE 过滤、当前成员标记和无 phantom partner 的客户端占位行为。
+- 下一步：继续执行 Task 7 的全量后端、Flutter、Web、迁移和 APK 验证；没有连接真实 Android 设备时，不把扫码、安装和短信链路标记为人工通过。
 
 ### 2026-09-01 - 移除任务参与人模型与 Android 账户概览
 
@@ -236,9 +256,9 @@
 ### 2026-08-25 - 云端协调架构 Tasks 1-15 收口
 
 - 类型：实施完成 / 发布前验收
-- 变更：完成 PostgreSQL 权威数据模型、短信验证码移动会话、双人工作区与设备签名审批、设备恢复/撤销、二维码 Web 会话、任务冲突与幂等、评论/延期/循环/重要日期、cursor 同步和通知型 WebSocket；客户端切换为 Android SMS + Web QR；删除旧密码、JWT、P2P 和旧任务运行时。
+- 变更（历史基线，设备策略已由 2026-09-02 契约取代）：完成 PostgreSQL 权威数据模型、短信验证码移动会话、双人工作区与设备签名审批、设备恢复/撤销、二维码 Web 会话、任务冲突与幂等、评论/延期/循环/重要日期、cursor 同步和通知型 WebSocket；客户端切换为 Android SMS + Web QR；删除旧密码、JWT、P2P 和旧任务运行时。
 - 验证：隔离 PostgreSQL 后端 `37 passed, 1 skipped`；真实 Uvicorn API 云协议端到端 `1 passed`；脚本 smoke、旧运行时检查、Compose 拓扑检查和 shell 语法检查通过；Flutter analyze 与 `17 tests passed`；Android debug APK 和 Web release bundle 构建成功。
-- 范围：本轮只交付 Android 与 Web，不生成 iOS 安装包；移动端新设备在已有工作区中先进入 `PENDING`，需另一位成员批准后才成为 ACTIVE。
+- 范围（旧设备策略，已不再作为当前验收依据）：本轮只交付 Android 与 Web，不生成 iOS 安装包；旧版本曾存在 `PENDING` 设备，现由 `0006_trust_sms_devices` 兼容迁移处理。当前改为短信验证成功即 `ACTIVE`，详见本页 2026-09-02 记录。
 - 下一步：使用新的独立 PostgreSQL/Compose 项目部署，执行 Android 真机、Chrome Web、短信供应商和备份恢复演练。
 
 ### 2026-08-25 - 接入国阳云生产短信 Provider

@@ -271,7 +271,11 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
         target = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
         if target is None:
             raise TaskConflictError("not_found", "task not found")
-        if target.current_handler_id != actor.user_id:
+        is_reviewer_decision = body.target_status in {"DONE", "IN_PROGRESS"} and (
+            (target.status.value if hasattr(target.status, "value") else str(target.status)) == "REVIEW"
+            and target.reviewer_user_id == actor.user_id
+        )
+        if target.current_handler_id != actor.user_id and not is_reviewer_decision:
             changes: dict[str, object] = {"target_status": body.target_status}
             if body.blocked_reason is not None:
                 changes["blocked_reason"] = body.blocked_reason
@@ -279,6 +283,8 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
                 changes["resume_handler_id"] = body.resume_handler_id
             if body.waiting_for_user_id is not None:
                 changes["waiting_for_user_id"] = body.waiting_for_user_id
+            if body.review_rejection_reason is not None:
+                changes["review_rejection_reason"] = body.review_rejection_reason
             approval_service = TaskApprovalService(session)
             approval = approval_service.create(
                 actor.workspace_id,
@@ -293,7 +299,18 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
             _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
             return _pending_response(approval, approval_service)
         service = TaskService(session)
-        task = service.transition(actor.workspace_id, actor.user_id, task_id, body.request_id, body.target_status, body.base_status_version, body.blocked_reason, body.resume_handler_id, body.waiting_for_user_id)
+        task = service.transition(
+            actor.workspace_id,
+            actor.user_id,
+            task_id,
+            body.request_id,
+            body.target_status,
+            body.base_status_version,
+            body.blocked_reason,
+            body.resume_handler_id,
+            body.waiting_for_user_id,
+            review_rejection_reason=body.review_rejection_reason,
+        )
         session.commit()
     except (TaskConflictError, TaskApprovalError) as error:
         if error.code in {"field_conflict", "approval_conflicted"}:

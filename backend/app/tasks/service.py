@@ -33,12 +33,15 @@ MAX_TASK_LABELS = 10
 MAX_TASK_LABEL_LENGTH = 32
 MAX_TASK_LABEL_CHARS = 320
 TRANSITIONS = {
-    "TODO": {"IN_PROGRESS", "WAITING", "DONE", "CANCELLED"},
-    "IN_PROGRESS": {"WAITING", "DONE", "CANCELLED"},
-    "WAITING": {"IN_PROGRESS", "DONE", "CANCELLED"},
-    "DONE": {"TODO"},
-    "CANCELLED": {"TODO"},
+    "TODO": {"IN_PROGRESS", "BLOCKED", "CANCELLED"},
+    "IN_PROGRESS": {"BLOCKED", "REVIEW", "CANCELLED"},
+    "BLOCKED": {"IN_PROGRESS", "CANCELLED"},
+    "REVIEW": {"DONE", "IN_PROGRESS", "CANCELLED"},
+    "DONE": {"TODO", "IN_PROGRESS", "CANCELLED"},
+    "CANCELLED": {"TODO", "IN_PROGRESS"},
 }
+LEGACY_SNAPSHOT_STATUS_MAP = {"WAITING": "BLOCKED", "COMPLETED": "DONE"}
+REVIEW_DECISION_STATUSES = {"DONE", "IN_PROGRESS"}
 
 
 def normalize_task_labels(value: object) -> list[str]:
@@ -287,24 +290,50 @@ class TaskService:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
         return self.transition(workspace_id, actor_user_id, task_id, request_id, target, task.status_version, operation_fingerprint=fingerprint)
 
-    def transition(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, target_status: str, base_status_version: int, blocked_reason: str | None = None, resume_handler_id: UUID | None = None, waiting_for_user_id: UUID | None = None, operation_fingerprint: str | None = None) -> Task:
+    def transition(
+        self,
+        workspace_id: UUID,
+        actor_user_id: UUID,
+        task_id: UUID,
+        request_id: UUID,
+        target_status: str,
+        base_status_version: int,
+        blocked_reason: str | None = None,
+        resume_handler_id: UUID | None = None,
+        waiting_for_user_id: UUID | None = None,
+        review_rejection_reason: str | None = None,
+        operation_fingerprint: str | None = None,
+    ) -> Task:
         task = self._task(workspace_id, task_id)
         target_status = str(target_status)
         if target_status not in TRANSITIONS:
             raise TaskConflictError("invalid_request", "unsupported target status")
-        fingerprint = operation_fingerprint or request_fingerprint(f"/api/v1/tasks/{task_id}/transition", {"target_status": target_status, "base_status_version": base_status_version, "blocked_reason": blocked_reason, "resume_handler_id": str(resume_handler_id) if resume_handler_id else None, "waiting_for_user_id": str(waiting_for_user_id) if waiting_for_user_id else None})
+        fingerprint = operation_fingerprint or request_fingerprint(
+            f"/api/v1/tasks/{task_id}/transition",
+            {
+                "target_status": target_status,
+                "base_status_version": base_status_version,
+                "blocked_reason": blocked_reason,
+                "resume_handler_id": str(resume_handler_id) if resume_handler_id else None,
+                "waiting_for_user_id": str(waiting_for_user_id) if waiting_for_user_id else None,
+                "review_rejection_reason": review_rejection_reason,
+            },
+        )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
             if existing.base_versions != {"fingerprint": fingerprint}:
                 raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             self.last_cursor = existing.cursor
             return task
-        self._require_handler(task, actor_user_id)
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before status changes")
-        before = self.snapshot(task)
         raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
-        current_public = "DONE" if raw_status == "COMPLETED" else raw_status
+        current_public = raw_status
+        if current_public == "REVIEW" and target_status in REVIEW_DECISION_STATUSES:
+            self._require_reviewer(task, workspace_id, actor_user_id)
+        else:
+            self._require_handler(task, actor_user_id)
+        before = self.snapshot(task)
         if task.status_version != base_status_version:
             conflict = TaskConflict(workspace_id=workspace_id, task_id=task.id, target="status", base_value=current_public, current_value=current_public, proposed_value=target_status, base_version=base_status_version, current_version=task.status_version, request_id=request_id, status=ConflictStatus.OPEN)
             self.session.add(conflict)
@@ -314,44 +343,83 @@ class TaskService:
             raise TaskConflictError("field_conflict", "task status changed", [conflict])
         if target_status not in TRANSITIONS[current_public]:
             raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")
-        target = TaskStatus.COMPLETED if target_status == "DONE" else TaskStatus(target_status)
+        target = TaskStatus(target_status)
         previous_handler_id = task.current_handler_id
         recovery_handler_id: UUID | None = None
-        if target_status == "WAITING":
-            if not blocked_reason or resume_handler_id is None:
-                raise TaskConflictError("invalid_request", "blocked_reason and resume_handler_id are required")
+        reviewer_id: UUID | None = None
+        if target_status == "BLOCKED":
+            if not isinstance(blocked_reason, str) or not blocked_reason.strip():
+                raise TaskConflictError("invalid_request", "blocked_reason is required")
+            if resume_handler_id is None:
+                raise TaskConflictError("invalid_request", "resume_handler_id is required")
+            blocked_reason = blocked_reason.strip()
             resume_handler_id = self._validated_member(workspace_id, resume_handler_id)
             if waiting_for_user_id is not None:
                 waiting_for_user_id = self._validated_member(workspace_id, waiting_for_user_id)
-        elif target_status == "IN_PROGRESS":
-            if current_public == "WAITING":
+        elif current_public == "BLOCKED":
+            if target_status == "IN_PROGRESS":
                 recovery_handler_id = resume_handler_id or task.resume_handler_id
                 if recovery_handler_id is None:
-                    raise TaskConflictError("invalid_request", "waiting task has no active resume handler")
+                    raise TaskConflictError("invalid_request", "blocked task has no active resume handler")
                 recovery_handler_id = self._validated_member(workspace_id, recovery_handler_id)
-            elif resume_handler_id is not None:
-                # Preserve the explicit API accepted by older unblock callers.
-                recovery_handler_id = self._validated_member(workspace_id, resume_handler_id)
+        elif target_status == "IN_PROGRESS" and current_public != "REVIEW" and resume_handler_id is not None:
+            # Preserve the explicit resume-handler override for non-blocked tasks.
+            recovery_handler_id = self._validated_member(workspace_id, resume_handler_id)
+
+        if target_status == "REVIEW":
+            reviewer_id = self._derived_reviewer(workspace_id, task)
+        elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
+            if not isinstance(review_rejection_reason, str) or not review_rejection_reason.strip():
+                raise TaskConflictError(
+                    "invalid_request",
+                    "review_rejection_reason is required when returning a review",
+                )
+            review_rejection_reason = review_rejection_reason.strip()
 
         task.status = target
-        if target == TaskStatus.COMPLETED:
+        if target == TaskStatus.DONE:
             task.completed_at = self.now()
         elif current_public == "DONE":
             task.completed_at = None
-        if target_status == "WAITING":
+        if target_status == "BLOCKED":
             task.blocked_reason = blocked_reason
             task.blocked_since = self.now()
             task.resume_handler_id = resume_handler_id
             task.waiting_for_user_id = waiting_for_user_id
-        elif current_public == "WAITING" or target_status == "IN_PROGRESS":
-            task.blocked_reason = task.blocked_since = task.resume_handler_id = task.waiting_for_user_id = None
+            task.reviewer_user_id = None
+            task.review_submitted_at = None
+            task.reviewed_at = None
+            task.review_rejection_reason = None
+        elif current_public == "BLOCKED":
+            task.blocked_reason = None
+            task.blocked_since = None
+            task.resume_handler_id = None
+            task.waiting_for_user_id = None
             if recovery_handler_id is not None:
                 task.current_handler_id = recovery_handler_id
-            if target_status == "IN_PROGRESS" and task.progress is None:
+        elif target_status == "IN_PROGRESS":
+            task.blocked_reason = None
+            task.blocked_since = None
+            task.resume_handler_id = None
+            task.waiting_for_user_id = None
+            if recovery_handler_id is not None:
+                task.current_handler_id = recovery_handler_id
+            if task.progress is None:
                 task.progress = 20
                 versions = dict(task.field_versions or {})
                 versions["progress"] = int(versions.get("progress", 1)) + 1
                 task.field_versions = versions
+        if target_status == "REVIEW":
+            task.reviewer_user_id = reviewer_id
+            task.review_submitted_at = self.now()
+            task.reviewed_at = None
+            task.review_rejection_reason = None
+        elif current_public == "REVIEW" and target_status == "DONE":
+            task.reviewed_at = self.now()
+            task.review_rejection_reason = None
+        elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
+            task.reviewed_at = None
+            task.review_rejection_reason = review_rejection_reason
         self._record_handler_change(task, previous_handler_id, actor_user_id)
         task.lifecycle_version += 1
         task.status_version += 1
@@ -370,11 +438,11 @@ class TaskService:
             cursor,
             base_versions={"fingerprint": fingerprint},
         )
-        self.session.add(TaskStatusHistory(task_id=task.id, from_status=TaskStatus.COMPLETED if before["status"] == "DONE" else TaskStatus(before["status"]), to_status=task.status, changed_by=actor_user_id))
+        self.session.add(TaskStatusHistory(task_id=task.id, from_status=TaskStatus(before["status"]), to_status=task.status, changed_by=actor_user_id))
         return task
 
     def block(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_status_version: int, blocked_reason: str, resume_handler_id: UUID, waiting_for_user_id: UUID | None = None) -> Task:
-        return self.transition(workspace_id, actor_user_id, task_id, request_id, "WAITING", base_status_version, blocked_reason, resume_handler_id, waiting_for_user_id)
+        return self.transition(workspace_id, actor_user_id, task_id, request_id, "BLOCKED", base_status_version, blocked_reason, resume_handler_id, waiting_for_user_id)
 
     def unblock(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, request_id: UUID, base_status_version: int, resume_handler_id: UUID | None = None) -> Task:
         return self.transition(workspace_id, actor_user_id, task_id, request_id, "IN_PROGRESS", base_status_version, resume_handler_id=resume_handler_id)
@@ -571,7 +639,7 @@ class TaskService:
 
     def snapshot(self, task: Task) -> dict[str, Any]:
         raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
-        public_status = "DONE" if raw_status == "COMPLETED" else raw_status
+        public_status = LEGACY_SNAPSHOT_STATUS_MAP.get(raw_status, raw_status)
         public_progress = 0 if public_status == "TODO" else 100 if public_status == "DONE" else task.progress if public_status == "IN_PROGRESS" else None
         return {
             "id": str(task.id),
@@ -593,6 +661,10 @@ class TaskService:
             "planned_start_at": task.planned_start_at.isoformat() if task.planned_start_at else None,
             "estimated_minutes": task.estimated_minutes,
             "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "reviewer_user_id": str(getattr(task, "reviewer_user_id", None)) if getattr(task, "reviewer_user_id", None) else None,
+            "review_submitted_at": getattr(task, "review_submitted_at", None).isoformat() if getattr(task, "review_submitted_at", None) else None,
+            "reviewed_at": getattr(task, "reviewed_at", None).isoformat() if getattr(task, "reviewed_at", None) else None,
+            "review_rejection_reason": getattr(task, "review_rejection_reason", None),
             "created_by": str(task.created_by),
             "created_at": task.created_at.isoformat() if task.created_at else self.now().isoformat(),
             "updated_at": task.updated_at.isoformat() if task.updated_at else self.now().isoformat(),
@@ -616,6 +688,34 @@ class TaskService:
     def _require_handler(self, task: Task, actor_user_id: UUID) -> None:
         if task.current_handler_id != actor_user_id:
             raise TaskConflictError("approval_required", "task owner approval is required")
+
+    def _require_reviewer(self, task: Task, workspace_id: UUID, actor_user_id: UUID) -> None:
+        reviewer_id = self._derived_reviewer(workspace_id, task)
+        if task.reviewer_user_id != reviewer_id or actor_user_id != reviewer_id:
+            raise TaskConflictError(
+                "approval_required",
+                "only the derived reviewer may complete or return a review",
+            )
+
+    def _derived_reviewer(self, workspace_id: UUID, task: Task) -> UUID:
+        active_member_ids = list(
+            self.session.scalars(
+                select(WorkspaceMembership.user_id)
+                .where(
+                    WorkspaceMembership.workspace_id == workspace_id,
+                    WorkspaceMembership.status == MembershipStatus.ACTIVE,
+                )
+                .order_by(WorkspaceMembership.member_slot, WorkspaceMembership.user_id)
+                .with_for_update()
+            ).all()
+        )
+        reviewer_ids = [user_id for user_id in active_member_ids if user_id != task.current_handler_id]
+        if len(active_member_ids) != 2 or len(reviewer_ids) != 1:
+            raise TaskConflictError(
+                "invalid_request",
+                "review requires exactly one other active workspace member",
+            )
+        return reviewer_ids[0]
 
     def _record_handler_change(
         self,

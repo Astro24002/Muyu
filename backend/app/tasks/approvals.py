@@ -40,7 +40,10 @@ STATUS_CHANGE_FIELDS = {
     "blocked_reason",
     "resume_handler_id",
     "waiting_for_user_id",
+    "review_rejection_reason",
 }
+
+
 class TaskApprovalError(TaskConflictError):
     """Stable domain error raised by the task approval service."""
 
@@ -481,6 +484,7 @@ class TaskApprovalService:
                     changes.get("blocked_reason"),
                     self._optional_uuid(changes.get("resume_handler_id")),
                     self._optional_uuid(changes.get("waiting_for_user_id")),
+                    review_rejection_reason=changes.get("review_rejection_reason"),
                 ),
                 None,
             )
@@ -798,7 +802,7 @@ class TaskApprovalService:
                 raise TaskApprovalError("approval_not_allowed", "status update fields are invalid")
             if set(versions) not in ({"status_version"}, {"status"}):
                 raise TaskApprovalError("approval_not_allowed", "status version is required")
-            if changes["target_status"] not in {"TODO", "IN_PROGRESS", "WAITING", "DONE", "CANCELLED"}:
+            if changes["target_status"] not in {"TODO", "IN_PROGRESS", "BLOCKED", "REVIEW", "DONE", "CANCELLED"}:
                 raise TaskApprovalError("approval_not_allowed", "unsupported target status")
         elif request_type in {TaskApprovalRequestType.TASK_DELETE, TaskApprovalRequestType.TASK_RESTORE}:
             if changes or set(versions) not in ({"lifecycle_version"}, {"lifecycle"}):
@@ -830,6 +834,15 @@ class TaskApprovalService:
                 )
             normalized["blocked_reason"] = blocked_reason.strip()
 
+        review_rejection_reason = normalized.get("review_rejection_reason")
+        if "review_rejection_reason" in normalized:
+            if not isinstance(review_rejection_reason, str) or not review_rejection_reason.strip():
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "review_rejection_reason must be a non-empty string",
+                )
+            normalized["review_rejection_reason"] = review_rejection_reason.strip()
+
         for field in ("resume_handler_id", "waiting_for_user_id"):
             if field not in normalized or normalized[field] is None:
                 continue
@@ -839,29 +852,37 @@ class TaskApprovalService:
                 )
             )
 
-        if target_status == "WAITING":
+        current_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+
+        if target_status == "BLOCKED":
             if "blocked_reason" not in normalized:
                 raise TaskApprovalError(
                     "approval_not_allowed",
-                    "blocked_reason is required for WAITING",
+                    "blocked_reason is required for BLOCKED",
                 )
             if normalized.get("resume_handler_id") is None:
                 raise TaskApprovalError(
                     "approval_not_allowed",
-                    "resume_handler_id is required for WAITING",
+                    "resume_handler_id is required for BLOCKED",
                 )
-        elif target_status == "IN_PROGRESS" and task.status.value == "WAITING":
+        elif target_status == "IN_PROGRESS" and current_status == "BLOCKED":
             stored_resume_handler_id = task.resume_handler_id
             if "resume_handler_id" not in normalized or normalized["resume_handler_id"] is None:
                 if stored_resume_handler_id is None:
                     raise TaskApprovalError(
                         "approval_not_allowed",
-                        "waiting task has no active resume handler",
+                        "blocked task has no active resume handler",
                     )
                 self._validated_status_member(
                     stored_resume_handler_id,
                     "resume_handler_id",
                     active_member_ids,
+                )
+        elif target_status == "IN_PROGRESS" and current_status == "REVIEW":
+            if normalized.get("review_rejection_reason") is None:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "review_rejection_reason is required when returning a review",
                 )
 
         return normalized

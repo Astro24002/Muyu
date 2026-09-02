@@ -46,7 +46,14 @@ class LifecycleRequest(BaseModel):
     base_lifecycle_version: int
 
 
-PUBLIC_STATUSES = {"TODO", "IN_PROGRESS", "WAITING", "DONE", "CANCELLED"}
+PUBLIC_STATUSES = {
+    "TODO",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "REVIEW",
+    "DONE",
+    "CANCELLED",
+}
 
 
 class TransitionRequest(BaseModel):
@@ -58,11 +65,14 @@ class TransitionRequest(BaseModel):
     blocked_reason: str | None = None
     resume_handler_id: UUID | None = None
     waiting_for_user_id: UUID | None = None
+    review_rejection_reason: str | None = None
 
     @model_validator(mode="after")
     def validate_status(self) -> "TransitionRequest":
         if self.target_status not in PUBLIC_STATUSES:
-            raise ValueError("target_status must be TODO, IN_PROGRESS, WAITING, DONE, or CANCELLED")
+            raise ValueError(
+                "target_status must be TODO, IN_PROGRESS, BLOCKED, REVIEW, DONE, or CANCELLED"
+            )
         return self
 
 

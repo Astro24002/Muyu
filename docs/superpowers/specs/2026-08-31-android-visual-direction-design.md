@@ -80,6 +80,37 @@ Android 优先使用系统无衬线字体，默认跟随系统字体缩放和无
 
 不使用负字距，也不随屏幕宽度连续缩放字号。长标题可以自然换行，不能用裁切、重叠或压缩到无法阅读来维持单行。
 
+### 3.4 Flutter 统一主题令牌落地
+
+安卓端必须在应用级主题中集中定义 Muyu 令牌。业务页面只能通过 `Theme.of(context).colorScheme`、`Theme.of(context).textTheme` 和应用级 `ThemeExtension` 读取颜色、文字与状态样式，不得在页面、组件或列表行中散落新的 `Color(0xff...)`、字号、圆角或阴影值。
+
+`MuyuApp` 使用亮色 Material 3 `ColorScheme`，字段映射固定如下：
+
+| Flutter 令牌 | 值 | 用途 |
+| --- | --- | --- |
+| `scaffoldBackgroundColor` | `#F8FAF9` | 页面冷白背景 |
+| `surface` | `#FFFFFF` | AppBar、输入区、必要浮层 |
+| `onSurface` | `#1D2D29` | 标题和主要文字 |
+| `onSurfaceVariant` | `#7C8783` | 日期、负责人、标签等辅助文字 |
+| `primary` | `#225F50` | 品牌、选中态、主要动作、FAB |
+| `onPrimary` | `#FFFFFF` | 深绿表面上的文字和图标 |
+| `secondary` | `#2E7663` | 进度、交互绿色和按下态 |
+| `outline` | `#DCE3E0` | 分隔线、输入边界和非激活轮廓 |
+| `error` | `#A33B2E` | 错误文字和错误图标 |
+| `errorContainer` | `#FBEAE7` | 错误背景 |
+
+浅绿重点、珊瑚提示、浅珊瑚等待背景、同步正常色和禁用色属于跨组件状态令牌，放入 `MuyuThemeExtension`（或等价的应用级主题扩展）统一提供：`focusSurface=#E7F0ED`、`coral=#B2573B`、`coralSurface=#F3DFD7`、`sync=#52A083`、`disabled=#A3AFAA`。这些状态色必须同时配合文字或图标，不得只依赖颜色。
+
+间距、圆角和层级使用固定常量：
+
+- 间距只使用 `4 / 8 / 12 / 16 / 24 / 32`，统一由 `MuyuSpacing`（或等价令牌）提供；
+- 普通控件圆角 `6px`，面板/浮层最大 `8px`，状态徽标才允许使用全圆角；
+- 普通页面区块和任务行 elevation 为 `0`，菜单、对话框和抽屉只允许一层低强度 Material 阴影；
+- FAB 使用 `colorScheme.primary`，禁止继续使用旧的蓝色 `#2F80ED` 或其他页面自定义蓝色；
+- 文字层级统一从 `TextTheme` 读取：页面标题 `24/32`、区块标题 `16/24`、任务标题 `14/20`、正文 `14/20`、辅助信息 `12/16`，所有文本 `letterSpacing` 保持 `0`。
+
+施工完成后的静态检查必须确认业务页面不再包含旧种子色、蓝色 FAB、散落的近似主题色或超过 `8px` 的通用圆角；新增页面只能引用上述主题令牌。
+
 ## 4. Android 页面骨架
 
 ### 4.1 应用级结构

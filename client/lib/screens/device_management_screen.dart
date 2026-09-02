@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../devices/device_management_repository.dart';
+import '../theme/muyu_theme.dart';
 import '../workspace/device_repository.dart';
 
 class DeviceManagementScreen extends StatefulWidget {
@@ -35,7 +36,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Android 设备'),
+      key: const Key('device-management-app-bar'),
+      title: Text('设备管理', style: Theme.of(context).textTheme.titleLarge),
       actions: [
         IconButton(
           tooltip: '刷新设备',
@@ -64,8 +66,13 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
           return const Center(child: Text('暂无 Android 设备'));
         }
         return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [for (final device in devices) _deviceTile(device)],
+          padding: const EdgeInsets.all(MuyuSpacing.lg),
+          children: [
+            for (final device in devices) ...[
+              _deviceTile(device),
+              const SizedBox(height: MuyuSpacing.xs),
+            ],
+          ],
         );
       },
     ),

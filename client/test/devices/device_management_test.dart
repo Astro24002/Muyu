@@ -129,6 +129,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
+        find.byKey(const Key('device-management-app-bar')),
+        findsOneWidget,
+      );
+
+      expect(
         find.byKey(const Key('revoke-device-current-device')),
         findsNothing,
       );

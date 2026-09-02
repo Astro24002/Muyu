@@ -32,6 +32,8 @@ void main() {
       ),
     );
 
+    expect(find.byKey(const Key('profile-edit-app-bar')), findsOneWidget);
+
     await tester.enterText(
       find.byKey(const Key('profile-edit-name')),
       'New name',

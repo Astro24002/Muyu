@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import '../auth/mobile_session_store.dart';
 import '../devices/device_management_repository.dart';
 import '../models/task_overview.dart';
-import '../platform/device_signing_key.dart';
+import '../models/user.dart';
+import '../profile/profile_repository.dart';
 import '../sync/workspace_sync_controller.dart';
-import '../workspace/device_authorization_repository.dart';
+import '../theme/muyu_theme.dart';
 import '../workspace/device_repository.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
+import 'device_management_screen.dart';
+import 'profile_edit_screen.dart';
 
 class MyProfileScreen extends StatefulWidget {
   const MyProfileScreen({
@@ -15,26 +18,26 @@ class MyProfileScreen extends StatefulWidget {
     required this.session,
     required this.repository,
     this.managementRepository,
+    this.profileRepository,
+    this.sessionStore,
     this.workspaceRepository,
-    this.authorizationRepository,
-    this.signingKey,
-    this.enrollmentReady,
     this.sync,
     this.canWrite = true,
     this.showAppBar = true,
+    this.onApprovalCenter,
     this.onWebQrLogin,
   });
 
   final MobileSession session;
   final DeviceRepository repository;
   final DeviceManagementRepository? managementRepository;
+  final ProfileRepository? profileRepository;
+  final MobileSessionStore? sessionStore;
   final WorkspaceBootstrapRepository? workspaceRepository;
-  final DeviceAuthorizationRepository? authorizationRepository;
-  final DeviceSigningKey? signingKey;
-  final Future<void>? enrollmentReady;
   final WorkspaceSyncController? sync;
   final bool canWrite;
   final bool showAppBar;
+  final VoidCallback? onApprovalCenter;
   final VoidCallback? onWebQrLogin;
 
   @override
@@ -43,7 +46,9 @@ class MyProfileScreen extends StatefulWidget {
 
 class _MyProfileScreenState extends State<MyProfileScreen> {
   late Future<_ProfileData> _profile;
-  String? _busyRequestId;
+  User? _updatedUser;
+
+  User get _currentUser => _updatedUser ?? widget.session.user;
 
   @override
   void initState() {
@@ -52,9 +57,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }
 
   void _reload() {
-    setState(() {
-      _profile = _loadProfile();
-    });
+    setState(() => _profile = _loadProfile());
   }
 
   Future<void> _refresh() async {
@@ -65,14 +68,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       await next;
       if (syncRefresh != null) await syncRefresh;
     } catch (_) {
-      // FutureBuilder keeps the stable error state visible.
+      // FutureBuilder retains the error and lets the user retry.
     }
   }
 
   Future<_ProfileData> _loadProfile() async {
-    if (widget.enrollmentReady != null) {
-      await widget.enrollmentReady;
-    }
     final devices =
         await (widget.managementRepository?.list() ??
             widget.repository.listDevices());
@@ -82,14 +82,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     final workspace = widget.workspaceRepository == null
         ? null
         : await widget.workspaceRepository!.loadBootstrap();
-    final requests = widget.authorizationRepository == null
-        ? const <DeviceAuthorizationRequest>[]
-        : await widget.authorizationRepository!.listRequests();
-    return _ProfileData(
-      devices: androidDevices,
-      workspace: workspace,
-      requests: requests,
-    );
+    return _ProfileData(devices: androidDevices, workspace: workspace);
   }
 
   @override
@@ -103,13 +96,16 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     if (!widget.showAppBar) return content;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的'),
+        key: const Key('profile-account-app-bar'),
+        title: Text('我的', style: Theme.of(context).textTheme.titleLarge),
         actions: [
-          IconButton(
-            tooltip: '刷新设备',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
-          ),
+          if (widget.onApprovalCenter != null)
+            IconButton(
+              key: const Key('profile-approval-center'),
+              tooltip: '审批中心',
+              onPressed: widget.onApprovalCenter,
+              icon: const Icon(Icons.rule_outlined),
+            ),
           if (widget.onWebQrLogin != null)
             IconButton(
               key: const Key('profile-web-qr-login'),
@@ -117,173 +113,247 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               onPressed: widget.onWebQrLogin,
               icon: const Icon(Icons.qr_code_scanner),
             ),
+          IconButton(
+            tooltip: '刷新资料',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: content,
     );
   }
 
-  Widget _profileBody(BuildContext context) {
-    final body = RefreshIndicator(
-      onRefresh: _refresh,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        children: [
-          FutureBuilder<_ProfileData>(
-            future: _profile,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasError) {
-                return Column(
-                  children: [
-                    const Text('个人信息加载失败，请重试'),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: _reload,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('重试'),
-                    ),
-                  ],
-                );
-              }
-              final data = snapshot.data!;
-              return _profileSections(context, data);
-            },
-          ),
-        ],
-      ),
-    );
-    return body;
-  }
+  Widget _profileBody(BuildContext context) => RefreshIndicator(
+    onRefresh: _refresh,
+    child: ListView(
+      key: const Key('profile-account-content'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(MuyuSpacing.lg),
+      children: [
+        FutureBuilder<_ProfileData>(
+          future: _profile,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Padding(
+                padding: EdgeInsets.all(MuyuSpacing.xl),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return Column(
+                children: [
+                  const Text('个人信息加载失败，请重试'),
+                  const SizedBox(height: MuyuSpacing.sm),
+                  OutlinedButton.icon(
+                    onPressed: _reload,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('重试'),
+                  ),
+                ],
+              );
+            }
+            return _profileSections(context, snapshot.data!);
+          },
+        ),
+      ],
+    ),
+  );
 
   Widget _profileSections(BuildContext context, _ProfileData data) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _accountCard(data),
-      const SizedBox(height: 16),
-      Text('登录设备', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 8),
-      if (data.devices.isEmpty)
-        const Text('暂无登录设备')
-      else
-        for (final device in data.devices) _deviceTile(device),
-      if (widget.authorizationRepository != null) ...[
-        const SizedBox(height: 16),
-        _authorizationSections(data.requests),
-      ],
+      _personalProfile(context, data),
+      const SizedBox(height: MuyuSpacing.md),
+      _workspaceMatch(data),
+      const SizedBox(height: MuyuSpacing.md),
+      _overviewCard(),
+      const SizedBox(height: MuyuSpacing.md),
+      _deviceManagementTile(data),
     ],
   );
 
-  Widget _accountCard(_ProfileData data) {
-    final workspace = data.workspace?.workspace;
-    final members = _membersFor(data);
-    final currentUserId = widget.session.user.id;
-    final currentMember = _memberForUser(members, currentUserId);
-    final partner = _partnerFor(members, currentUserId);
-    final activeMemberCount = members
-        .where((member) => _isActive(member))
-        .length;
-    final matchStatus = workspace?.matchStatus;
-    final status = switch (matchStatus) {
-      WorkspaceMatchStatus.matched => '已匹配 · 2/2 位成员',
-      WorkspaceMatchStatus.error => '匹配异常',
-      WorkspaceMatchStatus.waitingPartner => '等待对方加入',
-      null => switch (data.workspace?.state) {
-        WorkspaceBootstrapPhase.needsPartner => '尚未匹配对方',
-        WorkspaceBootstrapPhase.waitingForPartner ||
-        WorkspaceBootstrapPhase.invited => '等待对方加入',
-        _ => activeMemberCount >= 2 ? '已匹配 · 2/2 位成员' : '共享空间暂不可用',
-      },
-    };
-    final displayName = widget.session.user.nickname.trim().isNotEmpty
-        ? widget.session.user.nickname.trim()
-        : currentMember?.displayName?.trim().isNotEmpty == true
-        ? currentMember!.displayName!.trim()
-        : '我的账号';
+  Widget _personalProfile(BuildContext context, _ProfileData data) {
+    final displayName = _displayName(_currentUser.nickname);
+    final currentMember = _memberForUser(_membersFor(data), _currentUser.id);
     final phone = currentMember?.phoneMasked.trim().isNotEmpty == true
         ? currentMember!.phoneMasked
-        : _maskPhone(widget.session.user.phone);
-    final overview = TaskOverview.fromTasks(
-      widget.sync?.state.snapshot?.tasks ?? const [],
-      currentUserId,
+        : _maskPhone(_currentUser.phone);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.lg,
+          MuyuSpacing.md,
+          MuyuSpacing.sm,
+          MuyuSpacing.md,
+        ),
+        child: Row(
+          children: [
+            const CircleAvatar(child: Icon(Icons.account_circle_outlined)),
+            const SizedBox(width: MuyuSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    key: const Key('profile-current-display-name'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Text(phone, key: const Key('profile-current-phone')),
+                ],
+              ),
+            ),
+            IconButton(
+              key: const Key('profile-edit-name'),
+              tooltip: '编辑名称',
+              onPressed: widget.profileRepository == null
+                  ? null
+                  : _editDisplayName,
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          ],
+        ),
+      ),
     );
+  }
 
-    return KeyedSubtree(
+  Widget _workspaceMatch(_ProfileData data) {
+    final members = _membersFor(data);
+    final currentUserId = _currentUser.id;
+    final partner = _partnerFor(members, currentUserId);
+    final activeMemberCount = members.where(_isActive).length;
+    final matched = partner != null && activeMemberCount >= 2;
+    final status = switch (data.workspace?.workspace?.matchStatus) {
+      WorkspaceMatchStatus.error => '匹配异常',
+      WorkspaceMatchStatus.matched => '已匹配 · 2/2 位成员',
+      _ => matched ? '已匹配 · 2/2 位成员' : '等待对方',
+    };
+    // The full name is already shown in the personal-profile section. Keep
+    // the avatar pair compact and identify the local slot plainly.
+    final currentName = '我';
+
+    return Card(
       key: const Key('profile-workspace-match'),
-      child: Card(
-        key: const Key('profile-account-card'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const CircleAvatar(
-                    child: Icon(Icons.account_circle_outlined),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName,
-                          key: const Key('profile-current-display-name'),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(phone, key: const Key('profile-current-phone')),
-                      ],
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.lg,
+          MuyuSpacing.md,
+          MuyuSpacing.lg,
+          MuyuSpacing.lg,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.people_alt_outlined),
+                const SizedBox(width: MuyuSpacing.sm),
+                const Expanded(child: Text('共享空间')),
+                Text(status, key: const Key('profile-match-status')),
+              ],
+            ),
+            const SizedBox(height: MuyuSpacing.lg),
+            Row(
+              children: [
+                Expanded(
+                  child: _memberAvatar(
+                    avatar: const CircleAvatar(
+                      child: Icon(Icons.account_circle_outlined),
                     ),
+                    label: currentName,
                   ),
-                  if (partner != null)
-                    IconButton(
-                      key: const Key('profile-partner-avatar'),
-                      tooltip: '查看对方概览',
-                      onPressed: () => _openPartner(partner),
-                      icon: const CircleAvatar(
-                        child: Icon(Icons.person_outline),
-                      ),
+                ),
+                Icon(
+                  Icons.link,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                Expanded(
+                  child: _memberAvatar(
+                    avatar: const CircleAvatar(
+                      child: Icon(Icons.account_circle_outlined),
                     ),
-                ],
-              ),
-              const Divider(height: 24),
-              Row(
-                children: [
-                  const Icon(Icons.people_alt_outlined),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      '共享空间',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
+                    label: partner == null
+                        ? '匹配中'
+                        : _displayName(partner.displayName, fallback: '对方'),
+                    key: const Key('profile-partner-avatar'),
+                    onTap: partner == null ? null : () => _openPartner(partner),
                   ),
-                  Text(status, key: const Key('profile-match-status')),
-                ],
-              ),
-              if (members.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 8,
-                  children: [
-                    for (final member in members)
-                      _memberStatus(member, currentUserId),
-                  ],
                 ),
               ],
-              const Divider(height: 20),
-              _overviewSection(overview, title: '我的概览'),
-            ],
-          ),
+            ),
+            const SizedBox(height: MuyuSpacing.sm),
+            Text(
+              matched ? '两位成员已连接' : '等待对方加入',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _memberAvatar({
+    required Widget avatar,
+    required String label,
+    Key? key,
+    VoidCallback? onTap,
+  }) {
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (key == null) avatar else KeyedSubtree(key: key, child: avatar),
+        const SizedBox(height: MuyuSpacing.sm),
+        Text(label, overflow: TextOverflow.ellipsis),
+      ],
+    );
+    if (onTap == null) return Center(child: content);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: const BorderRadius.all(Radius.circular(6)),
+      child: Center(child: content),
+    );
+  }
+
+  Widget _overviewCard() {
+    final overview = TaskOverview.fromTasks(
+      widget.sync?.state.snapshot?.tasks ?? const [],
+      _currentUser.id,
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.lg,
+          MuyuSpacing.md,
+          MuyuSpacing.lg,
+          MuyuSpacing.lg,
+        ),
+        child: _overviewSection(overview, title: '我的概览'),
+      ),
+    );
+  }
+
+  Widget _deviceManagementTile(_ProfileData data) {
+    final verified = data.devices.where((device) => device.canWrite).length;
+    return Card(
+      child: ListTile(
+        key: const Key('profile-device-management'),
+        leading: const Icon(Icons.devices_outlined),
+        title: const Text('设备管理'),
+        subtitle: Text('${data.devices.length} 台 Android 设备 · $verified 台已验证'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.managementRepository == null
+            ? null
+            : () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => DeviceManagementScreen(
+                    repository: widget.managementRepository!,
+                    canWrite: widget.canWrite,
+                  ),
+                ),
+              ),
       ),
     );
   }
@@ -291,7 +361,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   List<WorkspaceMemberSummary> _membersFor(_ProfileData data) {
     final workspaceMembers = data.workspace?.workspace?.members;
     if (workspaceMembers?.isNotEmpty == true) return workspaceMembers!;
-
     final snapshotMembers = widget.sync?.state.snapshot?.members ?? const [];
     return [
       for (final member in snapshotMembers)
@@ -305,7 +374,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 member['membership_status'] as String? ?? 'ACTIVE',
             isCurrent:
                 member['is_current'] as bool? ??
-                member['user_id'] == widget.session.user.id,
+                member['user_id'] == _currentUser.id,
           ),
     ];
   }
@@ -333,27 +402,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   bool _isActive(WorkspaceMemberSummary member) =>
       member.membershipStatus.toUpperCase() == 'ACTIVE';
 
-  Widget _memberStatus(WorkspaceMemberSummary member, String currentUserId) {
-    final isCurrent = member.userId == currentUserId || member.isCurrent;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          isCurrent ? Icons.person_outline : Icons.person_add_alt_1_outlined,
-          size: 18,
-        ),
-        const SizedBox(width: 4),
-        Text(isCurrent ? '我' : '对方'),
-        if (member.phoneMasked.trim().isNotEmpty) ...[
-          const SizedBox(width: 4),
-          Text(member.phoneMasked),
-        ],
-        const SizedBox(width: 4),
-        Text(_isActive(member) ? '已加入' : '待加入'),
-      ],
-    );
-  }
-
   Widget _overviewSection(
     TaskOverview overview, {
     required String title,
@@ -361,11 +409,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      const SizedBox(height: 12),
+      Text(title, style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: MuyuSpacing.md),
       Wrap(
-        spacing: 20,
-        runSpacing: 12,
+        spacing: MuyuSpacing.xl,
+        runSpacing: MuyuSpacing.md,
         children: [
           _overviewMetric(
             key: Key('$keyPrefix-task-count'),
@@ -404,15 +452,27 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        value,
-        key: key,
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
-      const SizedBox(height: 2),
+      Text(value, key: key, style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: MuyuSpacing.xs),
       Text(label),
     ],
   );
+
+  Future<void> _editDisplayName() async {
+    final repository = widget.profileRepository;
+    if (repository == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileEditScreen(
+          repository: repository,
+          sessionStore: widget.sessionStore,
+          initialDisplayName: _currentUser.nickname,
+          onSaved: (user) => setState(() => _updatedUser = user),
+        ),
+      ),
+    );
+    if (mounted) _reload();
+  }
 
   Future<void> _openPartner(WorkspaceMemberSummary partner) async {
     final overview = TaskOverview.fromTasks(
@@ -425,19 +485,24 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       builder: (context) => SingleChildScrollView(
         child: Padding(
           key: const Key('profile-partner-sheet'),
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+          padding: const EdgeInsets.fromLTRB(
+            MuyuSpacing.xl,
+            MuyuSpacing.lg,
+            MuyuSpacing.xl,
+            MuyuSpacing.xxl,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
-                  const CircleAvatar(child: Icon(Icons.person_outline)),
-                  const SizedBox(width: 12),
+                  const CircleAvatar(
+                    child: Icon(Icons.account_circle_outlined),
+                  ),
+                  const SizedBox(width: MuyuSpacing.md),
                   Expanded(
                     child: Text(
-                      partner.displayName?.trim().isNotEmpty == true
-                          ? partner.displayName!.trim()
-                          : '对方',
+                      _displayName(partner.displayName, fallback: '对方'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -445,7 +510,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 ],
               ),
               if (partner.phoneMasked.trim().isNotEmpty) ...[
-                const SizedBox(height: 4),
+                const SizedBox(height: MuyuSpacing.xs),
                 Text(partner.phoneMasked),
               ],
               const Divider(height: 28),
@@ -461,231 +526,23 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
+  String _displayName(String? value, {String fallback = '我的账号'}) =>
+      value?.trim().isNotEmpty == true ? value!.trim() : fallback;
+
   String _maskPhone(String phone) {
     if (phone.length <= 5) return phone;
-    final hasChinaPrefix = phone.startsWith('+86');
-    final prefixLength = hasChinaPrefix ? 3 : 2;
-    final maskLength = hasChinaPrefix
+    final prefixLength = phone.startsWith('+86') ? 3 : 2;
+    final maskLength = phone.startsWith('+86')
         ? 6
         : (phone.length - prefixLength - 4).clamp(4, phone.length);
     final mask = List.filled(maskLength, '*').join();
     return '${phone.substring(0, prefixLength)}$mask${phone.substring(phone.length - 4)}';
   }
-
-  Widget _authorizationSections(List<DeviceAuthorizationRequest> requests) {
-    final incoming = requests
-        .where((request) => request.isIncoming && request.status == 'PENDING')
-        .toList(growable: false);
-    final outgoing = requests
-        .where((request) => !request.isIncoming)
-        .toList(growable: false);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('待处理的设备验证', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        if (incoming.isEmpty)
-          const Text('暂无待处理请求')
-        else
-          for (final request in incoming) _incomingRequestTile(request),
-        const SizedBox(height: 16),
-        Text('我发起的设备验证', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        if (outgoing.isEmpty)
-          const Text('暂无发起请求')
-        else
-          for (final request in outgoing) _outgoingRequestTile(request),
-      ],
-    );
-  }
-
-  Widget _incomingRequestTile(DeviceAuthorizationRequest request) => Card(
-    child: ListTile(
-      title: Text(
-        request.candidateDeviceLabel?.trim().isNotEmpty == true
-            ? request.candidateDeviceLabel!
-            : 'Android 设备',
-      ),
-      subtitle: Text(
-        '${request.candidatePhoneMasked ?? '对方'} · ${request.candidatePlatform ?? 'ANDROID'}',
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FilledButton(
-            key: const Key('profile-approve-device-request'),
-            onPressed: _busyRequestId == request.id
-                ? null
-                : () => _approveRequest(request),
-            child: _busyRequestId == request.id
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('验证设备'),
-          ),
-          IconButton(
-            key: const Key('profile-reject-device-request'),
-            tooltip: '拒绝设备',
-            onPressed: _busyRequestId == request.id
-                ? null
-                : () => _rejectRequest(request),
-            icon: const Icon(Icons.close),
-          ),
-        ],
-      ),
-    ),
-  );
-
-  Widget _outgoingRequestTile(DeviceAuthorizationRequest request) => Card(
-    child: ListTile(
-      title: Text(
-        request.candidateDeviceLabel?.trim().isNotEmpty == true
-            ? request.candidateDeviceLabel!
-            : 'Android 设备',
-      ),
-      subtitle: Text(
-        request.status == 'PENDING'
-            ? '等待另一位用户验证'
-            : _requestStatusLabel(request.status),
-      ),
-    ),
-  );
-
-  Widget _deviceTile(DeviceSummary device) {
-    final status = switch (device.status) {
-      'VERIFIED' ||
-      'ACTIVE' => device.canWrite ? '已验证 · 长期绑定 · 可读写' : '已验证 · 只读',
-      'UNVERIFIED' || 'PENDING' => '未验证 · 只读 · 等待授权',
-      'REVOKED' => '已撤销',
-      _ => device.status,
-    };
-    final canRevoke =
-        widget.managementRepository != null &&
-        widget.canWrite &&
-        !device.isCurrent &&
-        device.status != 'REVOKED';
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.phone_android_outlined),
-        title: Text(
-          device.label?.trim().isNotEmpty == true
-              ? device.label!
-              : 'Android 设备',
-        ),
-        subtitle: Text('$status · ${device.platform}'),
-        trailing: device.isCurrent
-            ? const Chip(label: Text('当前设备'))
-            : canRevoke
-            ? IconButton(
-                key: Key('profile-revoke-device-${device.id}'),
-                tooltip: '撤销设备',
-                onPressed: () => _confirmRevoke(device),
-                icon: const Icon(Icons.block_outlined),
-              )
-            : null,
-        isThreeLine: false,
-      ),
-    );
-  }
-
-  Future<void> _confirmRevoke(DeviceSummary device) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('撤销设备'),
-        content: Text('确定撤销“${device.label ?? 'Android 设备'}”的登录权限吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const Key('profile-confirm-revoke-device'),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('撤销'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    try {
-      await widget.managementRepository!.revoke(device.id);
-      _reload();
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('撤销设备失败，请稍后重试')));
-    }
-  }
-
-  Future<void> _approveRequest(DeviceAuthorizationRequest request) async {
-    final repository = widget.authorizationRepository;
-    final signingKey = widget.signingKey;
-    if (repository == null || signingKey == null) {
-      _showMessage('当前设备不支持设备验证');
-      return;
-    }
-    setState(() => _busyRequestId = request.id);
-    try {
-      final challenge = await repository.beginApproval(request.id);
-      final payload = challenge.signaturePayload;
-      if (payload == null || payload.isEmpty) {
-        throw const DeviceAuthorizationFailure('设备验证挑战不可用');
-      }
-      await repository.approve(
-        request.id,
-        signingKey: signingKey,
-        signaturePayload: payload,
-      );
-      if (!mounted) return;
-      _showMessage('设备验证成功');
-      _reload();
-    } catch (_) {
-      if (mounted) _showMessage('设备验证失败，请稍后重试');
-    } finally {
-      if (mounted) setState(() => _busyRequestId = null);
-    }
-  }
-
-  Future<void> _rejectRequest(DeviceAuthorizationRequest request) async {
-    final repository = widget.authorizationRepository;
-    if (repository == null) return;
-    setState(() => _busyRequestId = request.id);
-    try {
-      await repository.reject(request.id);
-      if (!mounted) return;
-      _reload();
-    } catch (_) {
-      if (mounted) _showMessage('拒绝设备验证失败，请稍后重试');
-    } finally {
-      if (mounted) setState(() => _busyRequestId = null);
-    }
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  String _requestStatusLabel(String status) => switch (status) {
-    'PENDING' => '等待验证',
-    'APPROVED' => '已通过',
-    'REJECTED' => '已拒绝',
-    'EXPIRED' => '已过期',
-    _ => status,
-  };
 }
 
 class _ProfileData {
-  const _ProfileData({
-    required this.devices,
-    required this.workspace,
-    required this.requests,
-  });
+  const _ProfileData({required this.devices, required this.workspace});
 
   final List<DeviceSummary> devices;
   final WorkspaceBootstrapPayload? workspace;
-  final List<DeviceAuthorizationRequest> requests;
 }

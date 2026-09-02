@@ -49,6 +49,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const Key('profile-account-app-bar')), findsOneWidget);
+      expect(find.byKey(const Key('profile-account-content')), findsOneWidget);
       expect(find.text('我的'), findsOneWidget);
       expect(find.text('+86******8000'), findsOneWidget);
       expect(find.byKey(const Key('profile-edit-name')), findsOneWidget);

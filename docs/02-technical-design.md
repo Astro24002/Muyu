@@ -128,14 +128,11 @@ CANCELLED
 
 用户界面、通知和无障碍名称不得显示英文状态名。
 
-### task_assignees
+读取旧快照时只允许做兼容映射：`WAITING` 映射为 `BLOCKED`，`COMPLETED` 映射为 `DONE`。新写入、数据库新状态、同步变更和 API 请求不得再产生这两个旧值。
 
-```text
-task_id
-user_id
-```
+### 任务负责人
 
-一个任务可关联一名或两名用户。
+每个任务只有一个 `current_handler_id`，表示当前负责推进任务的人。两位 ACTIVE 成员都可以读取 Workspace 内的任务，但负责人变更必须通过负责人转交或现有双人审批流程完成；不创建任务参与人关系表，也不使用参与人集合推导任务归属。
 
 ### task_user_positions
 
@@ -279,7 +276,6 @@ created_at
 ```text
 TASK_CREATED
 TASK_UPDATED
-TASK_ASSIGNEES_CHANGED
 TASK_HANDLER_CHANGED
 TASK_STATUS_CHANGED
 TASK_BLOCKED
@@ -332,11 +328,11 @@ approved_at
 
 ```text
 TODO -> IN_PROGRESS / BLOCKED / CANCELLED
-IN_PROGRESS -> TODO / BLOCKED / REVIEW / CANCELLED
+IN_PROGRESS -> BLOCKED / REVIEW / CANCELLED
 BLOCKED -> IN_PROGRESS / CANCELLED
 REVIEW -> DONE / IN_PROGRESS / CANCELLED
 DONE -> TODO / IN_PROGRESS / CANCELLED
-CANCELLED -> TODO
+CANCELLED -> TODO / IN_PROGRESS
 ```
 
 进入 `BLOCKED` 必须填写 `blocked_reason`，服务端写入 `blocked_since`，并校验 `resume_handler_id`；可选记录 `waiting_for_user_id`。解除阻塞时自动恢复为 `IN_PROGRESS`，清除当前阻塞字段并设置恢复负责人。
@@ -382,69 +378,70 @@ DelayRecord
 ### Auth 和用户
 
 ```text
-POST  /api/auth/login
-POST  /api/auth/refresh
-POST  /api/auth/logout
-GET   /api/me
-PATCH /api/me
-GET   /api/users
+POST  /api/v1/auth/login
+POST  /api/v1/auth/refresh
+POST  /api/v1/auth/logout
+GET   /api/v1/me
+PATCH /api/v1/me
+GET   /api/v1/users
 ```
 
 ### 首页和任务
 
 ```text
-GET    /api/home
-GET    /api/tasks
-POST   /api/tasks
-GET    /api/tasks/:id
-PATCH  /api/tasks/:id
-DELETE /api/tasks/:id
-POST   /api/tasks/:id/start
-POST   /api/tasks/:id/transfer
-POST   /api/tasks/:id/block
-POST   /api/tasks/:id/unblock
-POST   /api/tasks/:id/submit-review
-POST   /api/tasks/:id/accept-review
-POST   /api/tasks/:id/return-review
-POST   /api/tasks/:id/delay
-POST   /api/tasks/:id/complete
-POST   /api/tasks/:id/reopen
-POST   /api/tasks/:id/cancel
-GET    /api/tasks/:id/events
-GET    /api/tasks/:id/comments
-POST   /api/tasks/:id/comments
-GET    /api/me/tasks/order
+GET    /api/v1/home
+GET    /api/v1/tasks
+POST   /api/v1/tasks
+GET    /api/v1/tasks/:id
+PATCH  /api/v1/tasks/:id
+DELETE /api/v1/tasks/:id
+POST   /api/v1/tasks/:id/transition
+POST   /api/v1/tasks/:id/start
+POST   /api/v1/tasks/:id/transfer
+POST   /api/v1/tasks/:id/block
+POST   /api/v1/tasks/:id/unblock
+POST   /api/v1/tasks/:id/submit-review
+POST   /api/v1/tasks/:id/accept-review
+POST   /api/v1/tasks/:id/return-review
+POST   /api/v1/tasks/:id/delay
+POST   /api/v1/tasks/:id/complete
+POST   /api/v1/tasks/:id/reopen
+POST   /api/v1/tasks/:id/cancel
+GET    /api/v1/tasks/:id/events
+GET    /api/v1/tasks/:id/comments
+POST   /api/v1/tasks/:id/comments
+GET    /api/v1/me/tasks/order
+PUT    /api/v1/me/tasks/order
+```
 
 `submit-review`、`accept-review` 和 `return-review` 是业务动作名称；实现可以继续复用统一的状态转换接口，通过 `target_status` 和 Review 专用字段完成，不要求为每个动作新增独立 HTTP 路由。
-PUT    /api/me/tasks/order
-```
 
 ### 事件和循环任务
 
 ```text
-GET    /api/events
-POST   /api/events
-GET    /api/events/:id
-PATCH  /api/events/:id
-DELETE /api/events/:id
+GET    /api/v1/events
+POST   /api/v1/events
+GET    /api/v1/events/:id
+PATCH  /api/v1/events/:id
+DELETE /api/v1/events/:id
 
-GET    /api/recurring-tasks
-POST   /api/recurring-tasks
-GET    /api/recurring-tasks/:id
-PATCH  /api/recurring-tasks/:id
-POST   /api/recurring-tasks/:id/pause
-POST   /api/recurring-tasks/:id/resume
+GET    /api/v1/recurring-tasks
+POST   /api/v1/recurring-tasks
+GET    /api/v1/recurring-tasks/:id
+PATCH  /api/v1/recurring-tasks/:id
+POST   /api/v1/recurring-tasks/:id/pause
+POST   /api/v1/recurring-tasks/:id/resume
 ```
 
 ### 冲突和统计
 
 ```text
-GET  /api/conflicts
-GET  /api/conflicts/:id
-POST /api/conflicts/:id/approve
+GET  /api/v1/conflicts
+GET  /api/v1/conflicts/:id
+POST /api/v1/conflicts/:id/approve
 
-GET /api/analytics/delay
-GET /api/analytics/tasks
+GET /api/v1/analytics/delay
+GET /api/v1/analytics/tasks
 ```
 
 第一版统计实时计算，不保存汇总缓存。

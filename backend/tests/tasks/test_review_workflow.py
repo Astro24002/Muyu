@@ -99,6 +99,28 @@ def test_reviewer_can_accept_review_and_records_reviewed_at(db_engine) -> None:
         assert any(event.payload["after"]["status"] == "DONE" for event in status_events)
 
 
+def test_lifecycle_complete_submits_review(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3684)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "生命周期交付", quadrant="Q1")
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
+
+        submitted = service.lifecycle(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "complete",
+            task.lifecycle_version,
+        )
+
+        assert submitted.status == TaskStatus.REVIEW
+        assert submitted.current_handler_id == owner.id
+        assert submitted.reviewer_user_id == reviewer.id
+        assert submitted.review_submitted_at == NOW
+
+
 def test_review_requires_two_active_members(db_engine) -> None:
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3686)
@@ -158,7 +180,7 @@ def test_reviewer_return_requires_reason_and_restores_original_handler(db_engine
         assert returned.current_handler_id == owner.id
         assert returned.reviewer_user_id == reviewer.id
         assert returned.review_submitted_at == NOW
-        assert returned.reviewed_at is None
+        assert returned.reviewed_at == NOW
         assert returned.review_rejection_reason == "还需要补充订单截图"
         with pytest.raises(TaskConflictError) as reused:
             service.transition(
@@ -236,6 +258,17 @@ def test_approval_validation_uses_six_states_and_blocked_review_rules(db_engine)
                 task.id,
                 TaskApprovalRequestType.STATUS_UPDATE,
                 {"target_status": "BLOCKED", "resume_handler_id": str(owner.id)},
+                {"status_version": task.status_version},
+            )
+
+        with pytest.raises(TaskConflictError, match="cannot transition TODO to DONE"):
+            service.create(
+                workspace.id,
+                requester.id,
+                uuid4(),
+                task.id,
+                TaskApprovalRequestType.STATUS_UPDATE,
+                {"target_status": "DONE"},
                 {"status_version": task.status_version},
             )
 

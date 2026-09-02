@@ -236,7 +236,7 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
                 versions = {"lifecycle_version": body.base_lifecycle_version}
             elif action in {"complete", "completed", "reopen", "open"}:
                 approval_type = TaskApprovalRequestType.STATUS_UPDATE
-                changes = {"target_status": "DONE" if action in {"complete", "completed"} else "TODO"}
+                changes = {"target_status": "REVIEW" if action in {"complete", "completed"} else "TODO"}
                 versions = {"status_version": target.status_version}
             else:
                 raise TaskConflictError("invalid_request", "unsupported lifecycle action")

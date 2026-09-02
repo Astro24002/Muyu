@@ -271,7 +271,7 @@ class TaskService:
             cursor = self._cursor(workspace_id, task, ChangeAction.DELETED, request_id)
             self._operation(workspace_id, actor_user_id, request_id, task, OperationType.DELETED, before, self.snapshot(task), cursor, base_versions={"fingerprint": fingerprint})
             return task
-        target = "DONE" if action in {"complete", "completed"} else "TODO" if action in {"reopen", "open"} else None
+        target = "REVIEW" if action in {"complete", "completed"} else "TODO" if action in {"reopen", "open"} else None
         if target is None:
             raise TaskConflictError("invalid_request", "unsupported lifecycle action")
         task = self._task(workspace_id, task_id)
@@ -377,6 +377,11 @@ class TaskService:
             review_rejection_reason = review_rejection_reason.strip()
 
         task.status = target
+        if recovery_handler_id is not None and recovery_handler_id != task.current_handler_id:
+            task.current_handler_id = recovery_handler_id
+            versions = dict(task.field_versions or {})
+            versions["current_handler_id"] = int(versions.get("current_handler_id", 1)) + 1
+            task.field_versions = versions
         if target == TaskStatus.DONE:
             task.completed_at = self.now()
         elif current_public == "DONE":
@@ -395,15 +400,11 @@ class TaskService:
             task.blocked_since = None
             task.resume_handler_id = None
             task.waiting_for_user_id = None
-            if recovery_handler_id is not None:
-                task.current_handler_id = recovery_handler_id
         elif target_status == "IN_PROGRESS":
             task.blocked_reason = None
             task.blocked_since = None
             task.resume_handler_id = None
             task.waiting_for_user_id = None
-            if recovery_handler_id is not None:
-                task.current_handler_id = recovery_handler_id
             if task.progress is None:
                 task.progress = 20
                 versions = dict(task.field_versions or {})
@@ -418,7 +419,7 @@ class TaskService:
             task.reviewed_at = self.now()
             task.review_rejection_reason = None
         elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
-            task.reviewed_at = None
+            task.reviewed_at = self.now()
             task.review_rejection_reason = review_rejection_reason
         self._record_handler_change(task, previous_handler_id, actor_user_id)
         task.lifecycle_version += 1

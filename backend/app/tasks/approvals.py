@@ -31,7 +31,7 @@ from app.db.models import (
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
-from app.tasks.service import MUTABLE_FIELDS, TaskService, normalize_task_labels
+from app.tasks.service import MUTABLE_FIELDS, TRANSITIONS, TaskService, normalize_task_labels
 
 
 TASK_UPDATE_FIELDS = MUTABLE_FIELDS - {"quadrant", "current_handler_id"}
@@ -853,6 +853,11 @@ class TaskApprovalService:
             )
 
         current_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+        if target_status not in TRANSITIONS.get(current_status, set()):
+            raise TaskApprovalError(
+                "approval_not_allowed",
+                f"cannot transition {current_status} to {target_status}",
+            )
 
         if target_status == "BLOCKED":
             if "blocked_reason" not in normalized:

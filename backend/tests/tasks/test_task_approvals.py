@@ -543,7 +543,7 @@ def test_handler_transfer_approval_changes_task_handler_to_other_active_member(d
         assert task.current_handler_id == requester.id
 
 
-def test_waiting_recovery_approval_uses_stored_handler_and_records_history(db_engine) -> None:
+def test_blocked_recovery_approval_uses_stored_handler_and_records_history(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, resume_handler], workspace = _workspace(session)
         task = _task(session, workspace, owner)
@@ -552,7 +552,7 @@ def test_waiting_recovery_approval_uses_stored_handler_and_records_history(db_en
             owner.id,
             task.id,
             uuid4(),
-            "WAITING",
+            "BLOCKED",
             task.status_version,
             blocked_reason="等待确认",
             resume_handler_id=resume_handler.id,
@@ -576,6 +576,7 @@ def test_waiting_recovery_approval_uses_stored_handler_and_records_history(db_en
 
         assert result.task is task
         assert task.current_handler_id == resume_handler.id
+        assert task.field_versions["current_handler_id"] == 2
         assert task.blocked_reason is None
         assert task.resume_handler_id is None
         history = session.scalars(
@@ -604,18 +605,29 @@ def test_specialized_task_approval_types_delegate_to_owner_task_service(db_engin
         )
         assert service.approve(workspace.id, owner.id, quadrant.id, uuid4()).task.quadrant.value == "Q2"
 
-        status = service.create(
+        review = service.create(
             workspace.id,
             requester.id,
             uuid4(),
             task.id,
             TaskApprovalRequestType.STATUS_UPDATE,
-            {"target_status": "DONE"},
+            {"target_status": "REVIEW"},
             {"status_version": task.status_version},
         )
-        result = service.approve(workspace.id, owner.id, status.id, uuid4())
-        assert result.task.status == TaskStatus.COMPLETED
-        assert TaskService(session).snapshot(result.task)["status"] == "DONE"
+        review_result = service.approve(workspace.id, owner.id, review.id, uuid4())
+        assert review_result.task.status == TaskStatus.REVIEW
+        assert review_result.task.reviewer_user_id == requester.id
+
+        done = TaskService(session).transition(
+            workspace.id,
+            requester.id,
+            task.id,
+            uuid4(),
+            "DONE",
+            review_result.task.status_version,
+        )
+        assert done.status == TaskStatus.DONE
+        assert TaskService(session).snapshot(done)["status"] == "DONE"
 
 
 def test_task_delete_and_restore_approvals_preserve_lifecycle_rules(db_engine) -> None:

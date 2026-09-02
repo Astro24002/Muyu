@@ -63,6 +63,94 @@ def test_non_owner_patch_creates_pending_approval_and_owner_can_apply(db_engine)
     assert approved.json()["task"]["title"] == "Partner proposal"
 
 
+def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Review conflict", "quadrant": "Q1"},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+
+    stale = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"current_handler_id": partner["user"]["id"]},
+            "base_field_versions": {"current_handler_id": 0},
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    conflict_id = stale.json()["details"]["conflicts"][0]["id"]
+
+    started = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": task["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+    submitted = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started.json()["status_version"],
+        },
+    )
+    assert submitted.status_code == 200, submitted.text
+    before = submitted.json()
+
+    rejected = client.post(
+        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["code"] == "invalid_request"
+
+    after_rejection = client.get(f"/api/v1/tasks/{task['id']}", headers=partner_headers)
+    assert after_rejection.status_code == 200, after_rejection.text
+    assert after_rejection.json()["status"] == "REVIEW"
+    assert after_rejection.json()["current_handler_id"] == owner["user"]["id"]
+    assert after_rejection.json()["reviewer_user_id"] == partner["user"]["id"]
+    assert after_rejection.json()["version"] == before["version"]
+    conflicts = client.get(f"/api/v1/tasks/{task['id']}/conflicts", headers=partner_headers)
+    assert conflicts.status_code == 200, conflicts.text
+    assert conflicts.json()[0]["status"] == "OPEN"
+
+    kept = client.post(
+        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4()), "resolution": "current"},
+    )
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["status"] == "REVIEW"
+    assert kept.json()["current_handler_id"] == owner["user"]["id"]
+
+    done = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=partner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "DONE",
+            "base_status_version": kept.json()["status_version"],
+        },
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "DONE"
+    assert done.json()["current_handler_id"] == owner["user"]["id"]
+
+
 def test_owner_comment_delete_is_pending_and_comment_author_approves(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)

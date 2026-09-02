@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.enums import MembershipStatus, TaskApprovalRequestStatus, TaskApprovalRequestType, TaskStatus
+from app.db.enums import ConflictStatus, MembershipStatus, Resolution, TaskApprovalRequestStatus, TaskApprovalRequestType, TaskStatus
 from app.db.models import ActivityEvent, Task, TaskOperation, TaskStatusHistory, User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.tasks.approvals import TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
@@ -44,6 +44,21 @@ def _review_task(session: Session, owner: User, workspace: Workspace) -> tuple[T
     task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
     task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
     return task, service
+
+
+def _handler_conflict(service: TaskService, workspace: Workspace, task: Task, owner: User, proposed_handler: User):
+    with pytest.raises(TaskConflictError) as error:
+        service.patch(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            {"current_handler_id": proposed_handler.id},
+            {"current_handler_id": 0},
+        )
+    assert error.value.code == "field_conflict"
+    assert error.value.conflict
+    return error.value.conflict[0]
 
 
 def test_in_progress_submit_derives_other_active_member_and_preserves_handler(db_engine) -> None:
@@ -119,6 +134,86 @@ def test_handler_transfer_is_rejected_during_review_and_reviewer_remains_valid(d
         assert service.snapshot(task) == before
         done = service.transition(workspace.id, reviewer.id, task.id, uuid4(), "DONE", task.status_version)
         assert done.status == TaskStatus.DONE
+
+
+def test_proposed_handler_conflict_is_rejected_during_review_without_mutation(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3683)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "冲突验收", quadrant="Q1")
+        conflict = _handler_conflict(service, workspace, task, owner, reviewer)
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
+        before = service.snapshot(task)
+        conflict_before = (conflict.status, conflict.resolution, conflict.resolved_by, conflict.resolved_at)
+
+        with pytest.raises(TaskConflictError) as error:
+            service.resolve_conflict(
+                workspace.id,
+                reviewer.id,
+                task.id,
+                conflict.id,
+                uuid4(),
+                "proposed",
+            )
+
+        assert error.value.code == "invalid_request"
+        assert service.snapshot(task) == before
+        assert (conflict.status, conflict.resolution, conflict.resolved_by, conflict.resolved_at) == conflict_before
+        done = service.transition(workspace.id, reviewer.id, task.id, uuid4(), "DONE", task.status_version)
+        assert done.status == TaskStatus.DONE
+        assert done.current_handler_id == owner.id
+
+
+def test_current_handler_conflict_can_be_kept_during_review(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3685)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "保留当前负责人", quadrant="Q1")
+        conflict = _handler_conflict(service, workspace, task, owner, reviewer)
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
+        before = service.snapshot(task)
+
+        resolved = service.resolve_conflict(
+            workspace.id,
+            reviewer.id,
+            task.id,
+            conflict.id,
+            uuid4(),
+            "current",
+        )
+
+        assert resolved.status == TaskStatus.REVIEW
+        assert resolved.current_handler_id == owner.id
+        assert resolved.reviewer_user_id == reviewer.id
+        assert service.snapshot(resolved) == before
+        assert conflict.status == ConflictStatus.RESOLVED
+        assert conflict.resolution == Resolution.KEEP_CURRENT
+        assert conflict.resolved_by == reviewer.id
+
+
+def test_proposed_handler_conflict_still_applies_before_review(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3687)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "非验收阶段转交", quadrant="Q1")
+        conflict = _handler_conflict(service, workspace, task, owner, reviewer)
+
+        resolved = service.resolve_conflict(
+            workspace.id,
+            reviewer.id,
+            task.id,
+            conflict.id,
+            uuid4(),
+            "proposed",
+        )
+
+        assert resolved.status == TaskStatus.TODO
+        assert resolved.current_handler_id == reviewer.id
+        assert resolved.field_versions["current_handler_id"] == 2
+        assert conflict.status == ConflictStatus.RESOLVED
+        assert conflict.resolution == Resolution.ACCEPT_PROPOSED
 
 
 def test_lifecycle_complete_submits_review(db_engine) -> None:

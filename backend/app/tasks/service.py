@@ -522,6 +522,15 @@ class TaskService:
             raise TaskConflictError("lifecycle_conflict", "conflict is already resolved")
         if resolution not in {"current", "proposed"}:
             raise TaskConflictError("invalid_request", "resolution must be current or proposed")
+        if (
+            resolution == "proposed"
+            and conflict.target == "current_handler_id"
+            and task.status == TaskStatus.REVIEW
+        ):
+            raise TaskConflictError(
+                "invalid_request",
+                "handler transfer is not allowed while task is in review",
+            )
         before = self.snapshot(task)
         if resolution == "proposed":
             versions = dict(task.field_versions or {})

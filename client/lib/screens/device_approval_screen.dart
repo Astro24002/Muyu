@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/muyu_theme.dart';
 import '../workspace/device_authorization_repository.dart';
 
 class DeviceApprovalScreen extends StatelessWidget {
@@ -16,18 +17,18 @@ class DeviceApprovalScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('设备授权')),
     body: Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(MuyuSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text('请核对安全码', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
+          const SizedBox(height: MuyuSpacing.md),
           SelectableText(
             request.safetyCode ?? '请在另一台设备核对安全码',
             textAlign: TextAlign.center,
           ),
           Text('有效期至 ${request.expiresAt.toLocal()}'),
-          const SizedBox(height: 24),
+          const SizedBox(height: MuyuSpacing.xl),
           FilledButton.icon(
             onPressed: request.status == 'PENDING' ? onApprove : null,
             icon: const Icon(Icons.verified_user_outlined),

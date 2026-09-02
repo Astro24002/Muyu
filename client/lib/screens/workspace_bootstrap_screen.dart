@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/muyu_theme.dart';
 import '../workspace/workspace_bootstrap_controller.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
 
@@ -73,7 +74,10 @@ class _WorkspaceBootstrapScreenState extends State<WorkspaceBootstrapScreen> {
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(padding: const EdgeInsets.all(24), child: content),
+          child: Padding(
+            padding: const EdgeInsets.all(MuyuSpacing.xl),
+            child: content,
+          ),
         ),
       ),
     );
@@ -87,17 +91,18 @@ class _WorkspaceBootstrapScreenState extends State<WorkspaceBootstrapScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
+        Text(
           '绑定共同使用人',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
+          style: Theme.of(context).textTheme.headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w600),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: MuyuSpacing.md),
         Text(
           widget.state.errorMessage ?? '填写另一位共同使用人的手机号，创建两人共享空间。',
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: MuyuSpacing.xl),
         TextField(
           key: const Key('partner-phone-input'),
           controller: _phone,
@@ -111,7 +116,7 @@ class _WorkspaceBootstrapScreenState extends State<WorkspaceBootstrapScreen> {
             errorText: _validationError,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: MuyuSpacing.lg),
         FilledButton(
           key: const Key('bind-partner-button'),
           onPressed: submitting ? null : _bindPartner,
@@ -203,12 +208,13 @@ class _WorkspaceBootstrapScreenState extends State<WorkspaceBootstrapScreen> {
     children: [
       Text(
         title,
-        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
+        style: Theme.of(context).textTheme.headlineSmall
+            ?.copyWith(fontWeight: FontWeight.w600),
         textAlign: TextAlign.center,
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: MuyuSpacing.md),
       Text(message, textAlign: TextAlign.center),
-      const SizedBox(height: 24),
+      const SizedBox(height: MuyuSpacing.xl),
       action,
     ],
   );

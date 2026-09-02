@@ -10,6 +10,7 @@ import '../profile/profile_repository.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../sync/workspace_cache.dart';
 import '../sync/workspace_sync_repository.dart';
+import '../theme/muyu_theme.dart';
 import '../workspace/device_authorization_repository.dart';
 import '../workspace/device_repository.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
@@ -295,7 +296,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     child: Row(
       children: [
         SizedBox(
-          width: 24,
+          width: MuyuSpacing.xl,
           child: selected ? const Icon(Icons.check, size: 18) : null,
         ),
         Text(title),
@@ -469,7 +470,7 @@ class _TaskCategorySelector extends StatelessWidget {
                   Text(
                     '${category.unfinishedCount}',
                     key: Key('task-category-count-${category.label ?? 'all'}'),
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.error,
                       fontWeight: FontWeight.w700,
                     ),
@@ -486,7 +487,8 @@ class _TaskCategorySelector extends StatelessWidget {
             child: Text(
               selectedTitle,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           const Icon(Icons.keyboard_arrow_down, size: 20),
@@ -615,10 +617,10 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.fromLTRB(
-      16,
-      12,
-      16,
-      16 + MediaQuery.viewInsetsOf(context).bottom,
+      MuyuSpacing.lg,
+      MuyuSpacing.md,
+      MuyuSpacing.lg,
+      MuyuSpacing.lg + MediaQuery.viewInsetsOf(context).bottom,
     ),
     child: SingleChildScrollView(
       child: Column(
@@ -669,7 +671,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
             ),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: MuyuSpacing.sm),
           DropdownButtonFormField<String>(
             key: const Key('task-create-quadrant-select'),
             initialValue: _selectedQuadrant,
@@ -687,7 +689,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                 ? null
                 : (value) => setState(() => _selectedQuadrant = value),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: MuyuSpacing.sm),
           TextField(
             key: const Key('task-create-label-input'),
             controller: _label,
@@ -711,10 +713,10 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
-                padding: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.only(top: MuyuSpacing.xs),
                 child: Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
+                  spacing: MuyuSpacing.xs,
+                  runSpacing: MuyuSpacing.xs,
                   children: [
                     for (final label in _labels)
                       InputChip(

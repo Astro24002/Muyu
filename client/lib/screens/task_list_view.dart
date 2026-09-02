@@ -178,7 +178,7 @@ class TaskListSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Material(
-          color: Colors.transparent,
+          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0),
           child: InkWell(
             key: headerKey,
             onTap: onToggle,
@@ -309,7 +309,7 @@ class TaskListRow extends StatelessWidget {
             task.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: _isTerminal(task.status)
                   ? Theme.of(context).textTheme.bodyLarge?.color
                         ?.withValues(alpha: 0.5)

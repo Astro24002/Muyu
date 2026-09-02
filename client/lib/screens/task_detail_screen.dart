@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
 import '../sync/workspace_sync_controller.dart';
+import '../theme/muyu_theme.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   const TaskDetailScreen({
@@ -118,6 +119,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (userId is String && userId.isNotEmpty) ids.add(userId);
     }
     return ids;
+  }
+
+  static Map<String, String> _handlerLabels(
+    Iterable<Map<String, dynamic>> members,
+  ) {
+    final labels = <String, String>{};
+    for (final member in members) {
+      final userId = member['user_id'];
+      if (userId is! String || userId.isEmpty) continue;
+      final displayName = member['display_name'];
+      labels[userId] = displayName is String && displayName.trim().isNotEmpty
+          ? displayName.trim()
+          : userId;
+    }
+    return labels;
   }
 
   static List<String> _handlerOptionIds(
@@ -476,6 +492,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   ),
             );
       final activeHandlerIds = _activeHandlerIds(members);
+      final handlerLabels = _handlerLabels(members);
       final handlerIds = _handlerOptionIds(
         activeHandlerIds,
         task.currentHandlerId,
@@ -509,7 +526,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           ],
         ),
         body: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(MuyuSpacing.lg),
           children: [
             if (widget.sync.state.errorMessage != null)
               Text(
@@ -539,7 +556,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '标题'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             DropdownButtonFormField<String>(
               key: const Key('task-quadrant-select'),
               initialValue: quadrant,
@@ -560,7 +577,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       }
                     },
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             TextField(
               key: const Key('task-detail-label-input'),
               controller: _label,
@@ -588,12 +605,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ),
             if (_selectedLabels.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.only(top: MuyuSpacing.xs),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Wrap(
-                    spacing: 4,
-                    runSpacing: 4,
+                    spacing: MuyuSpacing.xs,
+                    runSpacing: MuyuSpacing.xs,
                     children: [
                       for (final label in _selectedLabels)
                         InputChip(
@@ -611,7 +628,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   ),
                 ),
               ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             TextField(
               key: const Key('task-detail-description'),
               controller: _description,
@@ -619,21 +636,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '描述'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             TextField(
               key: const Key('task-detail-due-at'),
               controller: _dueAt,
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '截止时间（ISO 8601，可选）'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             TextField(
               key: const Key('task-detail-planned-start-at'),
               controller: _plannedStartAt,
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '计划开始（ISO 8601，可选）'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             TextField(
               key: const Key('task-detail-estimated-minutes'),
               controller: _estimatedMinutes,
@@ -641,7 +658,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               enabled: widget.canWrite,
               decoration: const InputDecoration(labelText: '预计工时（分钟）'),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: MuyuSpacing.lg),
             Text('状态：${task.status}'),
             if (task.status == 'IN_PROGRESS')
               DropdownButtonFormField<int>(
@@ -674,7 +691,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       (id) => DropdownMenuItem(
                         value: id,
                         enabled: activeHandlerIds.contains(id),
-                        child: Text(id),
+                        child: Text(handlerLabels[id] ?? id),
                       ),
                     )
                     .toList(),
@@ -692,7 +709,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       (id) => DropdownMenuItem(
                         value: id,
                         enabled: activeHandlerIds.contains(id),
-                        child: Text(id),
+                        child: Text(handlerLabels[id] ?? id),
                       ),
                     )
                     .toList(),
@@ -700,10 +717,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     ? null
                     : _changeResumeHandler,
               ),
-            const SizedBox(height: 8),
+            const SizedBox(height: MuyuSpacing.sm),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: MuyuSpacing.sm,
+              runSpacing: MuyuSpacing.sm,
               children: [
                 for (final status in const [
                   'IN_PROGRESS',
@@ -728,7 +745,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: MuyuSpacing.xl),
             TextField(
               key: const Key('task-comment-input'),
               controller: _comment,
@@ -752,7 +769,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
             ),
             if (comments.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: MuyuSpacing.md),
               const Text('评论记录'),
               for (final comment in comments)
                 Card(
@@ -780,7 +797,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ),
             ],
             if (conflicts.isNotEmpty) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: MuyuSpacing.xl),
               const Text('待解决冲突'),
               for (final conflict in conflicts)
                 Card(

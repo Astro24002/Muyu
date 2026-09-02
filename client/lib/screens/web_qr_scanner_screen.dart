@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../platform/device_signing_key.dart';
+import '../theme/muyu_theme.dart';
 import '../workspace/device_authorization_repository.dart';
 
 class WebQrScannerScreen extends StatefulWidget {
@@ -82,7 +83,7 @@ class _WebQrScannerScreenState extends State<WebQrScannerScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('扫码登录 Web')),
     body: Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(MuyuSpacing.xl),
       child: _request == null
           ? Column(
               children: [
@@ -92,14 +93,14 @@ class _WebQrScannerScreenState extends State<WebQrScannerScreen> {
                     child: MobileScanner(controller: _scanner, onDetect: _scan),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: MuyuSpacing.lg),
                 const Text('请扫描 Web 页面上的登录二维码'),
                 if (_error != null)
                   Padding(
-                    padding: const EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.only(top: MuyuSpacing.md),
                     child: Text(
                       _error!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),
@@ -113,23 +114,23 @@ class _WebQrScannerScreenState extends State<WebQrScannerScreen> {
                   '请核对 Web 来源和安全码',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: MuyuSpacing.lg),
                 SelectableText(_request!.origin ?? '未知来源'),
-                const SizedBox(height: 12),
+                const SizedBox(height: MuyuSpacing.md),
                 SelectableText(
                   _request!.safetyCode ?? '安全码不可用，请重新扫码',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: MuyuSpacing.md),
                 Text('有效期至 ${_request!.expiresAt.toLocal()}'),
                 const Spacer(),
                 if (_error != null)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
                     child: Text(
                       _error!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),

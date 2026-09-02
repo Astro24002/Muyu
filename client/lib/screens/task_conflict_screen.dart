@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/task_conflict.dart';
+import '../theme/muyu_theme.dart';
 
 class TaskConflictScreen extends StatelessWidget {
   const TaskConflictScreen({
@@ -16,14 +17,14 @@ class TaskConflictScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('需要确认的修改')),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(MuyuSpacing.xl),
       children: [
         Text(conflict.target, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 20),
+        const SizedBox(height: MuyuSpacing.xl),
         _ValueRow(label: '修改前', value: conflict.baseline),
         _ValueRow(label: '服务器当前值', value: conflict.current),
         _ValueRow(label: '你的修改', value: conflict.proposed),
-        const SizedBox(height: 20),
+        const SizedBox(height: MuyuSpacing.xl),
         FilledButton(
           onPressed: () => onResolve(conflict.current),
           child: const Text('保留服务器当前值'),
@@ -45,7 +46,7 @@ class _ValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

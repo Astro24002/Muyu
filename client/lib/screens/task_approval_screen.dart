@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/task_approval_request.dart';
 import '../sync/workspace_sync_controller.dart';
+import '../theme/muyu_theme.dart';
 
 class TaskApprovalScreen extends StatefulWidget {
   const TaskApprovalScreen({
@@ -71,7 +72,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
             ),
           if (state.errorMessage != null)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(MuyuSpacing.md),
               child: Text(
                 state.errorMessage!,
                 key: const Key('approval-error'),
@@ -113,7 +114,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
       return const Center(child: Text('暂无审批请求'));
     }
     return ListView.builder(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(MuyuSpacing.md),
       itemCount: requests.length,
       itemBuilder: (context, index) =>
           _requestCard(context, requests[index], incoming: incoming),
@@ -135,12 +136,12 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     return Card(
       key: Key('approval-card-${request.id}'),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(MuyuSpacing.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(taskLabel, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
+            const SizedBox(height: MuyuSpacing.xs),
             Text('${_typeLabel(request.requestType)} · ${request.status}'),
             Text('发起人：${request.requesterId}'),
             Text('审批人：${request.approverId}'),
@@ -156,7 +157,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
                     onPressed: () => _approve(request),
                     child: const Text('批准'),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: MuyuSpacing.sm),
                   OutlinedButton(
                     key: Key('approval-reject-${request.id}'),
                     onPressed: () => _reject(request),

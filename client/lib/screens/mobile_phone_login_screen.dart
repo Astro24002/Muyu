@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../auth/mobile_login_controller.dart';
+import '../theme/muyu_theme.dart';
 
 class MobilePhoneLoginScreen extends StatefulWidget {
   const MobilePhoneLoginScreen({super.key, required this.controller});
@@ -30,19 +31,19 @@ class _MobilePhoneLoginScreenState extends State<MobilePhoneLoginScreen> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(MuyuSpacing.xl),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text('Muyu', style: Theme.of(context).textTheme.headlineLarge),
-                const SizedBox(height: 24),
+                const SizedBox(height: MuyuSpacing.xl),
                 TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(labelText: '手机号'),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: MuyuSpacing.md),
                 if (widget.controller.status == MobileLoginStatus.codeSent ||
                     widget.controller.status == MobileLoginStatus.failure)
                   TextField(
@@ -52,15 +53,15 @@ class _MobilePhoneLoginScreenState extends State<MobilePhoneLoginScreen> {
                   ),
                 if (widget.controller.errorMessage != null)
                   Padding(
-                    padding: const EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.only(top: MuyuSpacing.md),
                     child: Text(
                       widget.controller.errorMessage!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),
                   ),
-                const SizedBox(height: 20),
+                const SizedBox(height: MuyuSpacing.xl),
                 FilledButton(
                   onPressed:
                       widget.controller.status == MobileLoginStatus.codeSent

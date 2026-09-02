@@ -29,6 +29,7 @@ export interface TaskItem {
   id: string; workspace_id: string; parent_task_id: string | null; title: string; description: string;
   due_at: string | null; status: TaskStatus; current_handler_id: string; blocked_reason: string | null;
   blocked_since: string | null; resume_handler_id: string | null; waiting_for_user_id: string | null;
+  reviewer_user_id?: string | null; review_submitted_at?: string | null; reviewed_at?: string | null; review_rejection_reason?: string | null;
   planned_start_at: string | null; estimated_minutes: number | null; completed_at: string | null;
   created_by: string; created_at: string; updated_at: string;
   delay_count: number; total_delay_minutes: number; version: number; status_version: number; field_versions: Record<string, number>;
@@ -100,8 +101,8 @@ export interface ApprovalActionResult {
 }
 
 export interface WorkspaceSnapshot {
-  workspace_id: string; workspace: { id: string; name: string; status: string };
-  members: Array<{ user_id: string; member_slot: number; membership_status?: string; status?: string }>; tasks: TaskItem[];
+  workspace_id: string; workspace: { id: string; name: string | null; status: string };
+  members: Array<{ user_id: string; display_name?: string; member_slot: number; membership_status?: string; status?: string }>; tasks: TaskItem[];
   conflicts: Array<Record<string, unknown>>; cursor: number;
   viewer_user_id?: string | null;
   comments?: TaskComment[];

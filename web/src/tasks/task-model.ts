@@ -20,9 +20,27 @@ export interface TaskConflict {
   current?: unknown;
   proposed?: unknown;
   status?: string;
+  proposed_payload?: unknown;
+  base_version?: number;
+  current_version?: number;
+  base_status_version?: number;
+  current_status_version?: number;
+  reviewer_user_id?: string | null;
+  review_submitted_at?: string | null;
+  reviewed_at?: string | null;
+  review_rejection_reason?: string | null;
+  blocked_reason?: string | null;
+  blocked_since?: string | null;
+  resume_handler_id?: string | null;
+  waiting_for_user_id?: string | null;
+  field_versions?: Record<string, number>;
+  status_version?: number;
+  lifecycle_version?: number;
+  current_snapshot?: unknown;
 }
 
 export const TASK_QUADRANTS: readonly TaskQuadrant[] = ['Q1', 'Q2', 'Q3', 'Q4'];
+export const LEGACY_STATUS_MAP = { WAITING: 'BLOCKED', COMPLETED: 'DONE' } as const;
 const MAX_TASK_LABELS = 10;
 const MAX_TASK_LABEL_LENGTH = 32;
 const MAX_TASK_LABEL_CHARS = 320;
@@ -34,8 +52,22 @@ const MAX_TASK_LABEL_CHARS = 320;
 export function parseTaskItem(value: unknown): TaskItem {
   if (!isRecord(value)) throw new Error('任务数据格式无效。');
   if (!isTaskQuadrant(value.quadrant)) throw new Error('任务必须设置有效四象限。');
-  const status = value.status === 'COMPLETED' ? 'DONE' : value.status;
+  const status = normalizeTaskStatus(value.status);
   return { ...value, status, quadrant: value.quadrant, labels: value.labels === undefined ? [] : parseTaskLabels(value.labels) } as TaskItem;
+}
+
+export function normalizeTaskStatus(value: unknown): unknown {
+  if (value === 'WAITING' || value === 'COMPLETED') return LEGACY_STATUS_MAP[value];
+  return value;
+}
+
+export function isCanonicalTaskStatus(value: unknown): boolean {
+  return value === 'TODO'
+    || value === 'IN_PROGRESS'
+    || value === 'BLOCKED'
+    || value === 'REVIEW'
+    || value === 'DONE'
+    || value === 'CANCELLED';
 }
 
 export function parseTaskLabels(value: unknown): string[] {

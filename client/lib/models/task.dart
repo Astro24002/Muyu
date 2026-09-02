@@ -20,6 +20,10 @@ class TaskItem implements TaskMutationResult {
     this.blockedSince,
     this.resumeHandlerId,
     this.waitingForUserId,
+    this.reviewerUserId,
+    this.reviewSubmittedAt,
+    this.reviewedAt,
+    this.reviewRejectionReason,
     required this.plannedStartAt,
     required this.dueAt,
     required this.estimatedMinutes,
@@ -52,7 +56,7 @@ class TaskItem implements TaskMutationResult {
 
   int? get progress => switch (status) {
     'TODO' => 0,
-    'DONE' || 'COMPLETED' => 100,
+    'DONE' => 100,
     'IN_PROGRESS' => _progress,
     _ => null,
   };
@@ -60,6 +64,10 @@ class TaskItem implements TaskMutationResult {
   final DateTime? blockedSince;
   final String? resumeHandlerId;
   final String? waitingForUserId;
+  final String? reviewerUserId;
+  final DateTime? reviewSubmittedAt;
+  final DateTime? reviewedAt;
+  final String? reviewRejectionReason;
   final DateTime? plannedStartAt;
   final DateTime? dueAt;
   final int? estimatedMinutes;
@@ -78,16 +86,17 @@ class TaskItem implements TaskMutationResult {
   factory TaskItem.fromJson(Map<String, dynamic> json) {
     final status = json['status'] as String;
     final rawProgress = json['progress'];
+    final normalizedStatus = _normalizeStatus(status);
     final progress = rawProgress is num
         ? rawProgress.toInt()
-        : _derivedProgress(status);
+        : _derivedProgress(normalizedStatus);
     return TaskItem(
       id: json['id'] as String,
       parentTaskId: json['parent_task_id'] as String?,
       taskNumber: json['task_number'] as String? ?? '',
       title: json['title'] as String,
       description: json['description'] as String,
-      status: status,
+      status: normalizedStatus,
       quadrant: _parseQuadrant(json['quadrant']),
       labels: _parseLabels(json),
       progress: progress,
@@ -96,6 +105,10 @@ class TaskItem implements TaskMutationResult {
       blockedSince: _date(json['blocked_since']),
       resumeHandlerId: json['resume_handler_id'] as String?,
       waitingForUserId: json['waiting_for_user_id'] as String?,
+      reviewerUserId: json['reviewer_user_id'] as String?,
+      reviewSubmittedAt: _date(json['review_submitted_at']),
+      reviewedAt: _date(json['reviewed_at']),
+      reviewRejectionReason: json['review_rejection_reason'] as String?,
       plannedStartAt: _date(json['planned_start_at']),
       dueAt: _date(json['due_at']),
       estimatedMinutes: json['estimated_minutes'] as int?,
@@ -126,6 +139,10 @@ class TaskItem implements TaskMutationResult {
     List<String>? labels,
     int? progress,
     String? currentHandlerId,
+    String? reviewerUserId,
+    DateTime? reviewSubmittedAt,
+    DateTime? reviewedAt,
+    String? reviewRejectionReason,
     Map<String, int>? fieldVersions,
     int? lifecycleVersion,
     DateTime? deletedAt,
@@ -144,6 +161,10 @@ class TaskItem implements TaskMutationResult {
     blockedSince: blockedSince,
     resumeHandlerId: resumeHandlerId,
     waitingForUserId: waitingForUserId,
+    reviewerUserId: reviewerUserId ?? this.reviewerUserId,
+    reviewSubmittedAt: reviewSubmittedAt ?? this.reviewSubmittedAt,
+    reviewedAt: reviewedAt ?? this.reviewedAt,
+    reviewRejectionReason: reviewRejectionReason ?? this.reviewRejectionReason,
     plannedStartAt: plannedStartAt,
     dueAt: dueAt,
     estimatedMinutes: estimatedMinutes,
@@ -175,6 +196,10 @@ class TaskItem implements TaskMutationResult {
     'blocked_since': blockedSince?.toUtc().toIso8601String(),
     'resume_handler_id': resumeHandlerId,
     'waiting_for_user_id': waitingForUserId,
+    'reviewer_user_id': reviewerUserId,
+    'review_submitted_at': reviewSubmittedAt?.toUtc().toIso8601String(),
+    'reviewed_at': reviewedAt?.toUtc().toIso8601String(),
+    'review_rejection_reason': reviewRejectionReason,
     'planned_start_at': plannedStartAt?.toUtc().toIso8601String(),
     'due_at': dueAt?.toUtc().toIso8601String(),
     'estimated_minutes': estimatedMinutes,
@@ -207,10 +232,12 @@ class TaskItem implements TaskMutationResult {
 
   static String _validateQuadrant(String value) => _parseQuadrant(value);
 
-  // The persisted API historically exposed COMPLETED; the public client
-  // contract uses DONE for the same terminal state.
-  static String _normalizeStatus(String value) =>
-      value == 'COMPLETED' ? 'DONE' : value;
+  // Legacy status values are accepted only at the read boundary.
+  static String _normalizeStatus(String value) => switch (value) {
+    'WAITING' => 'BLOCKED',
+    'COMPLETED' => 'DONE',
+    _ => value,
+  };
 
   static List<String> _parseLabels(Map<String, dynamic> json) {
     // Omitted labels are accepted for cached pre-label snapshots. Values from
@@ -226,7 +253,7 @@ class TaskItem implements TaskMutationResult {
 
   static int? _derivedProgress(String status) => switch (status) {
     'TODO' => 0,
-    'DONE' || 'COMPLETED' => 100,
+    'DONE' => 100,
     _ => null,
   };
 }

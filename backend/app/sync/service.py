@@ -8,8 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
-from app.db.models import Task, TaskApprovalRequest, TaskComment, TaskConflict, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
+from app.auth.profile import public_display_name
+from app.db.models import Task, TaskApprovalRequest, TaskComment, TaskConflict, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
 from app.tasks.approval_schemas import approval_request_json, comment_json
+from app.tasks.operations import task_conflict_json
 from app.tasks.service import TaskService
 
 
@@ -26,14 +28,35 @@ class SyncService:
         workspace = self.session.get(Workspace, workspace_id)
         if workspace is None:
             raise ValueError("workspace not found")
-        memberships = self.session.scalars(select(WorkspaceMembership).where(WorkspaceMembership.workspace_id == workspace_id, WorkspaceMembership.status == MembershipStatus.ACTIVE)).all()
+        member_rows = self.session.execute(
+            select(WorkspaceMembership, User)
+            .join(User, User.id == WorkspaceMembership.user_id)
+            .where(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.status == MembershipStatus.ACTIVE,
+            )
+            .order_by(WorkspaceMembership.member_slot.asc(), WorkspaceMembership.id.asc())
+        ).all()
         tasks = self.session.scalars(select(Task).where(Task.workspace_id == workspace_id, Task.deleted_at.is_(None)).order_by(Task.updated_at.desc())).all()
-        conflicts = self.session.scalars(select(TaskConflict).where(TaskConflict.workspace_id == workspace_id, TaskConflict.status == "OPEN")).all()
+        conflicts = self.session.scalars(
+            select(TaskConflict)
+            .where(TaskConflict.workspace_id == workspace_id, TaskConflict.status == "OPEN")
+            .order_by(TaskConflict.created_at.asc(), TaskConflict.id.asc())
+        ).all()
         cursor_row = self.session.get(WorkspaceCursor, workspace_id)
         head = max(0, (cursor_row.next_cursor - 1) if cursor_row else 0)
         # Keep task-derived fields identical across sync and HTTP responses.
         service = TaskService(self.session)
         task_snapshots = [service.snapshot(task) for task in tasks]
+        task_snapshots_by_id = {item["id"]: item for item in task_snapshots}
+        conflict_projections = []
+        for conflict in conflicts:
+            current_snapshot = task_snapshots_by_id.get(str(conflict.task_id))
+            if current_snapshot is None:
+                conflict_task = self.session.get(Task, conflict.task_id)
+                if conflict_task is not None:
+                    current_snapshot = service.snapshot(conflict_task)
+            conflict_projections.append(task_conflict_json(conflict, current_snapshot))
         comments = self.session.scalars(
             select(TaskComment)
             .where(TaskComment.workspace_id == workspace_id)
@@ -48,9 +71,16 @@ class SyncService:
             "workspace_id": str(workspace_id),
             "viewer_user_id": str(viewer_user_id) if viewer_user_id else None,
             "workspace": {"id": str(workspace.id), "name": workspace.name, "status": workspace.status.value},
-            "members": [{"user_id": str(item.user_id), "member_slot": item.member_slot} for item in memberships],
+            "members": [
+                {
+                    "user_id": str(membership.user_id),
+                    "display_name": public_display_name(user),
+                    "member_slot": membership.member_slot,
+                }
+                for membership, user in member_rows
+            ],
             "tasks": task_snapshots,
-            "conflicts": [{"id": str(item.id), "task_id": str(item.task_id), "field": item.target, "status": item.status.value} for item in conflicts],
+            "conflicts": conflict_projections,
             "comments": [comment_json(item) for item in comments],
             "approval_requests": [approval_request_json(item) for item in approvals],
             "cursor": head,

@@ -18,6 +18,7 @@ from app.httpapi.errors import ApiError
 from app.tasks.comments import add_comment, list_comments
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.delays import add_delay, list_delays
+from app.tasks.operations import task_conflict_json
 from app.tasks.recurrence import create_rule
 from app.tasks.approval_schemas import approval_request_json, comment_json
 from app.tasks.approvals import TaskApprovalError, TaskApprovalService
@@ -90,7 +91,7 @@ def _task_error(error: TaskConflictError) -> ApiError:
     status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code in {"invalid_request", "nested_task_not_allowed"} else 404 if error.code == "not_found" else 409
     details = {}
     if isinstance(error.conflict, list):
-        details["conflicts"] = [{"id": str(item.id), "field": item.target, "base": item.base_value, "current": item.current_value, "proposed": item.proposed_value} for item in error.conflict]
+        details["conflicts"] = [task_conflict_json(item) for item in error.conflict]
     return ApiError(status_code, error.code, str(error), details)
 
 
@@ -354,8 +355,12 @@ def restore_task(task_id: UUID, body: LifecycleRequest, request: Request, backgr
 
 @router.get("/tasks/{task_id}/conflicts")
 def conflicts(task_id: UUID, actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
+    task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
+    if task is None:
+        raise ApiError(404, "not_found", "task not found")
     rows = session.scalars(select(TaskConflict).where(TaskConflict.workspace_id == actor.workspace_id, TaskConflict.task_id == task_id).order_by(TaskConflict.created_at.desc())).all()
-    return [{"id": str(row.id), "field": row.target, "base": row.base_value, "current": row.current_value, "proposed": row.proposed_value, "status": row.status.value} for row in rows]
+    task_snapshot = TaskService(session).snapshot(task)
+    return [task_conflict_json(row, task_snapshot) for row in rows]
 
 
 @router.post("/tasks/{task_id}/conflicts/{conflict_id}/resolve")

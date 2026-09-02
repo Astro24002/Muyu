@@ -23,7 +23,7 @@ from app.db.models import (
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
-from app.tasks.operations import request_fingerprint
+from app.tasks.operations import request_fingerprint, status_transition_payload
 from app.tasks.numbering import TaskNumberAllocator
 
 
@@ -42,6 +42,20 @@ TRANSITIONS = {
 }
 LEGACY_SNAPSHOT_STATUS_MAP = {"WAITING": "BLOCKED", "COMPLETED": "DONE"}
 REVIEW_DECISION_STATUSES = {"DONE", "IN_PROGRESS"}
+
+
+def _status_activity_type(previous_status: str, target_status: str) -> str | None:
+    if target_status == "BLOCKED":
+        return "TASK_BLOCKED"
+    if previous_status == "BLOCKED" and target_status == "IN_PROGRESS":
+        return "TASK_UNBLOCKED"
+    if target_status == "REVIEW":
+        return "TASK_REVIEW_SUBMITTED"
+    if previous_status == "REVIEW" and target_status == "DONE":
+        return "TASK_REVIEW_ACCEPTED"
+    if previous_status == "REVIEW" and target_status == "IN_PROGRESS":
+        return "TASK_REVIEW_RETURNED"
+    return None
 
 
 def normalize_task_labels(value: object) -> list[str]:
@@ -316,15 +330,18 @@ class TaskService:
         target_status = str(target_status)
         if target_status not in TRANSITIONS:
             raise TaskConflictError("invalid_request", "unsupported target status")
+        transition_payload = status_transition_payload(
+            target_status,
+            blocked_reason=blocked_reason,
+            resume_handler_id=resume_handler_id,
+            waiting_for_user_id=waiting_for_user_id,
+            review_rejection_reason=review_rejection_reason,
+        )
         fingerprint = operation_fingerprint or request_fingerprint(
             f"/api/v1/tasks/{task_id}/transition",
             {
-                "target_status": target_status,
                 "base_status_version": base_status_version,
-                "blocked_reason": blocked_reason,
-                "resume_handler_id": str(resume_handler_id) if resume_handler_id else None,
-                "waiting_for_user_id": str(waiting_for_user_id) if waiting_for_user_id else None,
-                "review_rejection_reason": review_rejection_reason,
+                **transition_payload,
             },
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
@@ -343,7 +360,18 @@ class TaskService:
             self._require_handler(task, actor_user_id)
         before = self.snapshot(task)
         if task.status_version != base_status_version:
-            conflict = TaskConflict(workspace_id=workspace_id, task_id=task.id, target="status", base_value=current_public, current_value=current_public, proposed_value=target_status, base_version=base_status_version, current_version=task.status_version, request_id=request_id, status=ConflictStatus.OPEN)
+            conflict = TaskConflict(
+                workspace_id=workspace_id,
+                task_id=task.id,
+                target="status",
+                base_value=current_public,
+                current_value=current_public,
+                proposed_value=transition_payload,
+                base_version=base_status_version,
+                current_version=task.status_version,
+                request_id=request_id,
+                status=ConflictStatus.OPEN,
+            )
             self.session.add(conflict)
             self.session.flush()
             cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
@@ -436,6 +464,7 @@ class TaskService:
         task.updated_at = self.now()
         after = self.snapshot(task)
         cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        activity_type = _status_activity_type(current_public, target_status)
         self._operation(
             workspace_id,
             actor_user_id,
@@ -446,6 +475,7 @@ class TaskService:
             after,
             cursor,
             base_versions={"fingerprint": fingerprint},
+            activity_type=activity_type,
         )
         self.session.add(TaskStatusHistory(task_id=task.id, from_status=TaskStatus(before["status"]), to_status=task.status, changed_by=actor_user_id))
         return task
@@ -783,17 +813,59 @@ class TaskService:
         self.last_cursor = cursor
         return cursor
 
-    def _operation(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, task: Task, operation_type: OperationType, before: dict[str, Any] | None, after: dict[str, Any] | None, cursor: int, base_versions: dict[str, Any] | None = None) -> TaskOperation:
+    def _operation(
+        self,
+        workspace_id: UUID,
+        actor_user_id: UUID,
+        request_id: UUID,
+        task: Task,
+        operation_type: OperationType,
+        before: dict[str, Any] | None,
+        after: dict[str, Any] | None,
+        cursor: int,
+        base_versions: dict[str, Any] | None = None,
+        activity_type: str | None = None,
+    ) -> TaskOperation:
+        activity_payload: dict[str, Any] = {"before": before, "after": after}
+        if activity_type is not None:
+            activity_payload.update(
+                {
+                    "activity_type": activity_type,
+                    "activity": activity_type.removeprefix("TASK_"),
+                    "field_versions": (after or {}).get("field_versions", {}),
+                    "status_version": (after or {}).get("status_version"),
+                    "lifecycle_version": (after or {}).get("lifecycle_version"),
+                    "reviewer_user_id": (after or {}).get("reviewer_user_id"),
+                    "review_submitted_at": (after or {}).get("review_submitted_at"),
+                    "reviewed_at": (after or {}).get("reviewed_at"),
+                    "review_rejection_reason": (after or {}).get("review_rejection_reason"),
+                    "blocked_reason": (after or {}).get("blocked_reason"),
+                    "blocked_since": (after or {}).get("blocked_since"),
+                    "resume_handler_id": (after or {}).get("resume_handler_id"),
+                    "waiting_for_user_id": (after or {}).get("waiting_for_user_id"),
+                }
+            )
         self.session.add(
             ActivityEvent(
                 workspace_id=workspace_id,
                 task_id=task.id,
                 actor_user_id=actor_user_id,
                 event_type=operation_type.value,
-                payload={"before": before, "after": after},
+                payload=activity_payload,
                 request_id=request_id,
             )
         )
+        if activity_type is not None:
+            self.session.add(
+                ActivityEvent(
+                    workspace_id=workspace_id,
+                    task_id=task.id,
+                    actor_user_id=actor_user_id,
+                    event_type=activity_type,
+                    payload=activity_payload,
+                    request_id=request_id,
+                )
+            )
         operation = TaskOperation(workspace_id=workspace_id, task_id=task.id, actor_user_id=actor_user_id, request_id=request_id, operation_type=operation_type, before_state=before, after_state=after, base_versions=base_versions, resulting_versions=task.field_versions, cursor=cursor)
         self.session.add(operation)
         self.session.flush()

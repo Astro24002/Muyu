@@ -3,8 +3,22 @@ import 'package:flutter/material.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
 import '../sync/workspace_sync_controller.dart';
+import '../theme/muyu_theme.dart';
 
 typedef TaskNavigationCallback = void Function(TaskItem task);
+
+String _memberDisplayName(WorkspaceSyncState state, String userId) {
+  for (final member
+      in state.snapshot?.members ?? const <Map<String, dynamic>>[]) {
+    if (member['user_id'] != userId) continue;
+    final displayName = member['display_name'];
+    if (displayName is String && displayName.trim().isNotEmpty) {
+      return displayName.trim();
+    }
+    break;
+  }
+  return userId;
+}
 
 List<String> collectTaskLabels(Iterable<TaskItem> tasks) {
   final seen = <String>{};
@@ -80,11 +94,21 @@ class _TaskListViewState extends State<TaskListView> {
       child: ListView(
         key: const Key('task-list-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.md,
+          MuyuSpacing.sm,
+          MuyuSpacing.md,
+          96,
+        ),
         children: [
           if (widget.state.errorMessage != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+              padding: const EdgeInsets.fromLTRB(
+                MuyuSpacing.xs,
+                0,
+                MuyuSpacing.xs,
+                MuyuSpacing.sm,
+              ),
               child: Text(
                 widget.state.errorMessage!,
                 key: const Key('task-list-error'),
@@ -92,7 +116,7 @@ class _TaskListViewState extends State<TaskListView> {
             ),
           if (visibleTaskCount == 0)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
+              padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xxl),
               child: Center(child: Text('还没有任务')),
             ),
           for (final group in groups)
@@ -149,7 +173,7 @@ class TaskListSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -158,9 +182,12 @@ class TaskListSection extends StatelessWidget {
           child: InkWell(
             key: headerKey,
             onTap: onToggle,
-            borderRadius: const BorderRadius.all(Radius.circular(8)),
+            borderRadius: const BorderRadius.all(Radius.circular(6)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: MuyuSpacing.xs,
+                vertical: MuyuSpacing.sm,
+              ),
               child: Row(
                 children: [
                   Text(
@@ -169,12 +196,12 @@ class TaskListSection extends StatelessWidget {
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   if (group.actionLabel != null) ...[
-                    const SizedBox(width: 10),
+                    const SizedBox(width: MuyuSpacing.md),
                     Text(
                       group.actionLabel!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.primary,
-                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -183,7 +210,7 @@ class TaskListSection extends StatelessWidget {
                     '${group.tasks.length}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: MuyuSpacing.xs),
                   Icon(
                     expanded
                         ? Icons.keyboard_arrow_up
@@ -198,7 +225,12 @@ class TaskListSection extends StatelessWidget {
         if (expanded)
           if (group.tasks.isEmpty)
             const Padding(
-              padding: EdgeInsets.fromLTRB(4, 4, 4, 12),
+              padding: EdgeInsets.fromLTRB(
+                MuyuSpacing.xs,
+                MuyuSpacing.xs,
+                MuyuSpacing.xs,
+                MuyuSpacing.md,
+              ),
               child: Text('无任务'),
             )
           else
@@ -217,7 +249,7 @@ class TaskListSection extends StatelessWidget {
               if (expandedTaskIds.contains(task.id))
                 for (final subtask in childrenByParent[task.id] ?? const [])
                   Padding(
-                    padding: const EdgeInsets.only(left: 28),
+                    padding: const EdgeInsets.only(left: MuyuSpacing.xxl),
                     child: TaskListRow(
                       task: subtask,
                       state: state,
@@ -259,7 +291,7 @@ class TaskListRow extends StatelessWidget {
       color: Theme.of(context).colorScheme.surface,
       child: Container(
         key: ValueKey('task-list-row-${task.id}'),
-        margin: const EdgeInsets.only(bottom: 2),
+        margin: const EdgeInsets.only(bottom: MuyuSpacing.xs / 2),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -269,8 +301,8 @@ class TaskListRow extends StatelessWidget {
         ),
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 4,
-            vertical: 2,
+            horizontal: MuyuSpacing.xs,
+            vertical: MuyuSpacing.xs,
           ),
           leading: _TaskStatusIcon(status: task.status),
           title: Text(
@@ -327,6 +359,7 @@ class TaskListRow extends StatelessWidget {
           request.isOutgoing(state.snapshot?.viewerUserId ?? ''),
     );
     final parts = <String>[];
+    parts.add('负责人 ${_memberDisplayName(state, task.currentHandlerId)}');
     if (pending) parts.add('等待负责人审批');
     final due = task.dueAt;
     if (due != null) {
@@ -370,16 +403,33 @@ class _TaskStatusIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extension = theme.extension<MuyuThemeExtension>();
     if (status == 'DONE') {
-      return const Icon(Icons.check_circle, color: Color(0xff2e9d62), size: 24);
+      return Icon(
+        Icons.check_circle,
+        color: extension?.sync ?? theme.colorScheme.secondary,
+        size: 24,
+        semanticLabel: '已完成',
+      );
     }
     if (status == 'CANCELLED') {
-      return const Icon(Icons.check_circle, color: Color(0xff7a59b8), size: 24);
+      return Icon(
+        Icons.cancel,
+        color: theme.colorScheme.error,
+        size: 24,
+        semanticLabel: '已失败',
+      );
     }
     final color = status == 'WAITING'
-        ? const Color(0xffe28b3d)
-        : Theme.of(context).colorScheme.primary;
-    return Icon(Icons.radio_button_unchecked, color: color, size: 24);
+        ? extension?.coral ?? theme.colorScheme.secondary
+        : theme.colorScheme.primary;
+    return Icon(
+      Icons.radio_button_unchecked,
+      color: color,
+      size: 24,
+      semanticLabel: status == 'WAITING' ? '等待中' : '未完成',
+    );
   }
 }
 
@@ -425,19 +475,78 @@ class TaskSummaryCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
-    key: ValueKey('task-card-${task.id}'),
-    child: ListTile(
-      title: Text(
-        task.taskNumber.isEmpty
-            ? task.title
-            : '${task.taskNumber} ${task.title}',
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final subtitle = _subtitle(task, state);
+    return Material(
+      key: ValueKey('task-card-${task.id}'),
+      color: theme.colorScheme.surface,
+      elevation: 0,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 56),
+          padding: const EdgeInsets.symmetric(
+            horizontal: MuyuSpacing.xs,
+            vertical: MuyuSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: theme.colorScheme.outline),
+            ),
+          ),
+          child: Row(
+            children: [
+              _TaskStatusIcon(status: task.status),
+              const SizedBox(width: MuyuSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.taskNumber.isEmpty
+                          ? task.title
+                          : '${task.taskNumber} ${task.title}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        decoration: task.status == 'DONE'
+                            ? TextDecoration.lineThrough
+                            : TextDecoration.none,
+                        color: _isTerminal(task.status)
+                            ? theme.colorScheme.onSurface.withValues(
+                                alpha: 0.55,
+                              )
+                            : theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: MuyuSpacing.xs),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (task.dueAt != null) ...[
+                const SizedBox(width: MuyuSpacing.sm),
+                Text(
+                  _dateText(task.dueAt!),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
-      subtitle: Text(_subtitle(task, state)),
-      trailing: Text('v${task.version}'),
-      onTap: onTap,
-    ),
-  );
+    );
+  }
 
   static String _subtitle(TaskItem task, WorkspaceSyncState state) {
     final pending = state.approvalRequests.any(
@@ -447,6 +556,7 @@ class TaskSummaryCard extends StatelessWidget {
           request.isOutgoing(state.snapshot?.viewerUserId ?? ''),
     );
     final parts = <String>[];
+    parts.add('负责人 ${_memberDisplayName(state, task.currentHandlerId)}');
     if (pending) {
       parts.add('等待负责人审批');
     } else {
@@ -472,4 +582,7 @@ class TaskSummaryCard extends StatelessWidget {
     final day = local.day.toString().padLeft(2, '0');
     return '$year-$month-$day';
   }
+
+  static bool _isTerminal(String status) =>
+      status == 'DONE' || status == 'CANCELLED';
 }

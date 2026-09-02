@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
 import '../sync/workspace_sync_controller.dart';
+import '../theme/muyu_theme.dart';
 import 'task_list_view.dart';
 
 class TaskQuadrantView extends StatefulWidget {
@@ -36,7 +37,12 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
       child: ListView(
         key: const Key('task-quadrant-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.lg,
+          MuyuSpacing.md,
+          MuyuSpacing.lg,
+          MuyuSpacing.xl,
+        ),
         children: [
           TaskLabelFilter(
             key: const Key('task-quadrant-label-filter'),
@@ -47,7 +53,7 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
           ),
           if (widget.state.errorMessage != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
               child: Text(
                 widget.state.errorMessage!,
                 key: const Key('task-quadrant-error'),
@@ -90,7 +96,7 @@ class _QuadrantGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.only(bottom: MuyuSpacing.lg),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -99,10 +105,10 @@ class _QuadrantGroup extends StatelessWidget {
           key: Key('task-quadrant-title-$quadrant'),
           style: Theme.of(context).textTheme.titleMedium,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: MuyuSpacing.sm),
         if (tasks.isEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
             child: Text('无任务'),
           )
         else

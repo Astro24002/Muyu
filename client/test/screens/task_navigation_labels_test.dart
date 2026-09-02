@@ -7,6 +7,7 @@ import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/screens/cloud_workspace_screen.dart';
 import 'package:muyu_client/screens/task_detail_screen.dart';
+import 'package:muyu_client/screens/task_list_view.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 import 'package:http/http.dart' as http;
@@ -130,6 +131,71 @@ ApiClient testApi() => ApiClient(
 );
 
 void main() {
+  testWidgets('quadrant and schedule summaries use linear themed rows', (
+    tester,
+  ) async {
+    final task = sampleTask();
+    final state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 1,
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '15028180169'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskSummaryCard(task: task, state: state),
+        ),
+      ),
+    );
+
+    expect(find.byType(Card), findsNothing);
+    expect(find.textContaining('负责人 15028180169'), findsOneWidget);
+    final row = tester.widget<Material>(
+      find.byKey(const ValueKey('task-card-task-1')),
+    );
+    expect(row.elevation, 0);
+  });
+
+  testWidgets('task list shows the handler display name', (tester) async {
+    final task = sampleTask();
+    final sync = WorkspaceSyncController.unavailable();
+    final state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 1,
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '15028180169'},
+          {'user_id': 'user-2', 'display_name': '小雨'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskListView(
+            sync: sync,
+            state: state,
+            canWrite: true,
+            onTaskTap: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('负责人 15028180169'), findsOneWidget);
+    expect(find.textContaining('负责人 user-1'), findsNothing);
+  });
+
   testWidgets('creation requires a quadrant and sends all labels', (
     tester,
   ) async {

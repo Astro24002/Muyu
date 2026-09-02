@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
 import '../sync/workspace_sync_controller.dart';
+import '../theme/muyu_theme.dart';
 import 'task_list_view.dart';
 
 class TaskScheduleView extends StatefulWidget {
@@ -36,7 +37,12 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
       child: ListView(
         key: const Key('task-schedule-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.lg,
+          MuyuSpacing.md,
+          MuyuSpacing.lg,
+          MuyuSpacing.xl,
+        ),
         children: [
           TaskLabelFilter(
             key: const Key('task-schedule-label-filter'),
@@ -47,7 +53,7 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
           ),
           if (widget.state.errorMessage != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
               child: Text(
                 widget.state.errorMessage!,
                 key: const Key('task-schedule-error'),
@@ -55,7 +61,7 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
             ),
           if (grouped.isEmpty)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
+              padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xxl),
               child: Center(child: Text('还没有任务')),
             )
           else
@@ -89,7 +95,7 @@ class _ScheduleGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.only(bottom: MuyuSpacing.lg),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -98,7 +104,7 @@ class _ScheduleGroup extends StatelessWidget {
           key: Key('task-schedule-title-$dateKey'),
           style: Theme.of(context).textTheme.titleMedium,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: MuyuSpacing.sm),
         for (final task in tasks)
           TaskSummaryCard(
             task: task,

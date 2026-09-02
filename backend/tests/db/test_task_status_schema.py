@@ -245,6 +245,15 @@ def test_upgrade_maps_legacy_task_status_rows_and_history(at_0006: Engine, datab
         schema = connection.scalar(text("SELECT current_schema()"))
     command.upgrade(_alembic_config(database_url, schema), "head")
 
+    assert _enum_values(at_0006, "task_status") == [
+        "TODO",
+        "IN_PROGRESS",
+        "BLOCKED",
+        "REVIEW",
+        "DONE",
+        "CANCELLED",
+    ]
+
     with at_0006.connect() as connection:
         task_statuses = connection.execute(
             text("SELECT id, status::text FROM tasks ORDER BY task_number")
@@ -270,12 +279,30 @@ def test_upgrade_maps_legacy_task_status_rows_and_history(at_0006: Engine, datab
         waiting_task_id: ("TODO", "BLOCKED"),
     }
 
+    # Reuse the seeded completed row to cover REVIEW without changing the
+    # two-row history-preservation contract.
+    with at_0006.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE task_status_history SET from_status = 'REVIEW' "
+                "WHERE task_id = :task_id"
+            ),
+            {"task_id": completed_task_id},
+        )
+
     command.downgrade(_alembic_config(database_url, schema), "0006_trust_sms_devices")
 
     with at_0006.connect() as connection:
         downgraded_tasks = connection.execute(
             text("SELECT id, status::text FROM tasks ORDER BY task_number")
         ).all()
+        downgraded_history = connection.execute(
+            text(
+                "SELECT task_id, from_status::text, to_status::text "
+                "FROM task_status_history"
+            )
+        ).all()
+        assert connection.scalar(text("SELECT count(*) FROM task_status_history")) == 2
         downgraded_columns = {
             column["name"] for column in inspect(at_0006).get_columns("tasks")
         }
@@ -291,6 +318,13 @@ def test_upgrade_maps_legacy_task_status_rows_and_history(at_0006: Engine, datab
         (waiting_task_id, "WAITING"),
         (completed_task_id, "COMPLETED"),
     ]
+    assert {
+        row[0]: (row[1], row[2])
+        for row in downgraded_history
+    } == {
+        waiting_task_id: ("TODO", "WAITING"),
+        completed_task_id: ("IN_PROGRESS", "COMPLETED"),
+    }
     assert not {
         "reviewer_user_id",
         "review_submitted_at",

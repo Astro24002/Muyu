@@ -6,6 +6,7 @@ import '../devices/device_management_repository.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
 import '../platform/device_signing_key.dart';
+import '../profile/profile_repository.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../sync/workspace_cache.dart';
 import '../sync/workspace_sync_repository.dart';
@@ -19,6 +20,7 @@ import 'my_profile_screen.dart';
 import 'task_list_view.dart';
 import 'task_quadrant_view.dart';
 import 'task_schedule_view.dart';
+import '../widgets/task_system_app_bar.dart';
 
 enum _TaskListMenuAction {
   sortDueAt,
@@ -28,7 +30,6 @@ enum _TaskListMenuAction {
   toggleSubtitle,
   toggleCompleted,
   toggleFailed,
-  approvals,
 }
 
 class CloudWorkspaceScreen extends StatefulWidget {
@@ -42,6 +43,8 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.waitingForPartner = false,
     this.workspaceBootstrapRepository,
     this.authorizationRepository,
+    this.profileRepository,
+    this.sessionStore,
     this.workspaceCache,
     this.workspaceId,
   });
@@ -54,6 +57,8 @@ class CloudWorkspaceScreen extends StatefulWidget {
   final bool waitingForPartner;
   final WorkspaceBootstrapRepository? workspaceBootstrapRepository;
   final DeviceAuthorizationRepository? authorizationRepository;
+  final ProfileRepository? profileRepository;
+  final MobileSessionStore? sessionStore;
   final WorkspaceCache? workspaceCache;
   final String? workspaceId;
 
@@ -72,8 +77,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   bool _showTaskSubtitle = true;
   bool _showCompleted = true;
   bool _showFailed = true;
-  bool _enrollmentRequested = false;
-  Future<void>? _enrollmentFuture;
 
   @override
   void initState() {
@@ -86,11 +89,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           workspaceId: widget.workspaceId,
         );
     if (widget.syncController == null) _sync.start();
-    if (widget.session != null &&
-        !widget.canWrite &&
-        widget.signingKey != null) {
-      _enrollmentFuture = _requestDeviceEnrollment();
-    }
   }
 
   @override
@@ -122,9 +120,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             ),
           ),
         ),
-        appBar: _selectedDestination == 0
-            ? _buildTaskListAppBar(state)
-            : _buildDestinationAppBar(state),
+        appBar: _selectedDestination == 3
+            ? _buildProfileAppBar()
+            : _buildTaskSystemAppBar(state),
         body: Column(
           children: [
             if (!widget.canWrite)
@@ -178,8 +176,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             ? FloatingActionButton(
                 key: const Key('create-task-fab'),
                 tooltip: '新增任务',
-                backgroundColor: const Color(0xff2f80ed),
-                foregroundColor: Colors.white,
                 onPressed: widget.canWrite ? _openCreateTask : null,
                 child: const Icon(Icons.add),
               )
@@ -188,102 +184,104 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     },
   );
 
-  PreferredSizeWidget _buildDestinationAppBar(WorkspaceSyncState state) =>
-      AppBar(
-        title: Text(_destinationTitles[_selectedDestination]),
-        actions: [
-          if (state.snapshot != null)
-            IconButton(
-              key: const Key('task-approval-button'),
-              tooltip: '任务审批',
-              onPressed: _openApprovals,
-              icon: const Icon(Icons.rule),
-            ),
-          if (_selectedDestination == 3 &&
-              widget.session != null &&
-              widget.signingKey != null &&
-              widget.canWrite)
-            IconButton(
-              key: const Key('profile-web-qr-login'),
-              tooltip: '扫码登录 Web',
-              onPressed: _openWebQrScanner,
-              icon: const Icon(Icons.qr_code_scanner),
-            ),
-        ],
-      );
-
-  PreferredSizeWidget _buildTaskListAppBar(WorkspaceSyncState state) => AppBar(
-    centerTitle: true,
-    leading: IconButton(
-      key: const Key('task-list-menu-button'),
-      tooltip: '菜单',
-      onPressed: _openTaskListDrawer,
-      icon: const Icon(Icons.menu),
-    ),
-    title: _TaskCategorySelector(
-      categories: TaskView.listCategories(
-        state.snapshot?.tasks ?? const <TaskItem>[],
-      ),
-      selectedLabel: _selectedTaskLabel,
-      onSelected: (label) => setState(() => _selectedTaskLabel = label),
-    ),
+  PreferredSizeWidget _buildProfileAppBar() => AppBar(
+    key: const Key('profile-account-app-bar'),
+    title: Text('我的', style: Theme.of(context).textTheme.titleLarge),
     actions: [
-      PopupMenuButton<_TaskListMenuAction>(
-        key: const Key('task-list-more-button'),
-        tooltip: '更多',
-        icon: const Icon(Icons.more_vert),
-        onSelected: _handleTaskListMenuAction,
-        itemBuilder: (context) => [
-          const PopupMenuItem<_TaskListMenuAction>(
-            enabled: false,
-            child: Text('排序'),
+      if (widget.session != null)
+        IconButton(
+          key: const Key('profile-approval-center'),
+          tooltip: '审批中心',
+          onPressed: _openApprovals,
+          icon: const Icon(Icons.rule_outlined),
+        ),
+      if (widget.session != null &&
+          widget.signingKey != null &&
+          widget.canWrite)
+        IconButton(
+          key: const Key('profile-web-qr-login'),
+          tooltip: '扫码登录 Web',
+          onPressed: _openWebQrScanner,
+          icon: const Icon(Icons.qr_code_scanner),
+        ),
+    ],
+  );
+
+  PreferredSizeWidget _buildTaskSystemAppBar(WorkspaceSyncState state) {
+    if (_selectedDestination == 0) {
+      return TaskSystemAppBar(
+        title: '清单',
+        leading: IconButton(
+          key: const Key('task-list-menu-button'),
+          tooltip: '菜单',
+          onPressed: _openTaskListDrawer,
+          icon: const Icon(Icons.menu),
+        ),
+        titleContent: _TaskCategorySelector(
+          categories: TaskView.listCategories(
+            state.snapshot?.tasks ?? const <TaskItem>[],
           ),
-          _sortMenuItem(
-            _TaskListMenuAction.sortDueAt,
-            '截止时间',
-            _taskListSort == TaskListSort.dueAt,
-          ),
-          _sortMenuItem(
-            _TaskListMenuAction.sortQuadrant,
-            '四象限优先级',
-            _taskListSort == TaskListSort.quadrant,
-          ),
-          _sortMenuItem(
-            _TaskListMenuAction.sortUpdatedAt,
-            '最近更新',
-            _taskListSort == TaskListSort.updatedAt,
-          ),
-          _sortMenuItem(
-            _TaskListMenuAction.sortCreatedAt,
-            '创建时间',
-            _taskListSort == TaskListSort.createdAt,
-          ),
-          const PopupMenuDivider(),
-          const PopupMenuItem<_TaskListMenuAction>(
-            enabled: false,
-            child: Text('显示'),
-          ),
-          CheckedPopupMenuItem<_TaskListMenuAction>(
-            value: _TaskListMenuAction.toggleSubtitle,
-            checked: _showTaskSubtitle,
-            child: const Text('显示副标题'),
-          ),
-          CheckedPopupMenuItem<_TaskListMenuAction>(
-            value: _TaskListMenuAction.toggleCompleted,
-            checked: _showCompleted,
-            child: const Text('显示已完成任务'),
-          ),
-          CheckedPopupMenuItem<_TaskListMenuAction>(
-            value: _TaskListMenuAction.toggleFailed,
-            checked: _showFailed,
-            child: const Text('显示已失败任务'),
-          ),
-          if (state.snapshot != null)
-            const PopupMenuItem<_TaskListMenuAction>(
-              value: _TaskListMenuAction.approvals,
-              child: Text('任务审批'),
-            ),
-        ],
+          selectedLabel: _selectedTaskLabel,
+          onSelected: (label) => setState(() => _selectedTaskLabel = label),
+        ),
+        actions: [_buildTaskListMoreMenu()],
+      );
+    }
+    return TaskSystemAppBar(
+      title: _destinationTitles[_selectedDestination],
+      actions: const [],
+    );
+  }
+
+  Widget _buildTaskListMoreMenu() => PopupMenuButton<_TaskListMenuAction>(
+    key: const Key('task-list-more-button'),
+    tooltip: '更多',
+    icon: const Icon(Icons.more_vert),
+    onSelected: _handleTaskListMenuAction,
+    itemBuilder: (context) => [
+      const PopupMenuItem<_TaskListMenuAction>(
+        enabled: false,
+        child: Text('排序'),
+      ),
+      _sortMenuItem(
+        _TaskListMenuAction.sortDueAt,
+        '截止时间',
+        _taskListSort == TaskListSort.dueAt,
+      ),
+      _sortMenuItem(
+        _TaskListMenuAction.sortQuadrant,
+        '四象限优先级',
+        _taskListSort == TaskListSort.quadrant,
+      ),
+      _sortMenuItem(
+        _TaskListMenuAction.sortUpdatedAt,
+        '最近更新',
+        _taskListSort == TaskListSort.updatedAt,
+      ),
+      _sortMenuItem(
+        _TaskListMenuAction.sortCreatedAt,
+        '创建时间',
+        _taskListSort == TaskListSort.createdAt,
+      ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<_TaskListMenuAction>(
+        enabled: false,
+        child: Text('显示'),
+      ),
+      CheckedPopupMenuItem<_TaskListMenuAction>(
+        value: _TaskListMenuAction.toggleSubtitle,
+        checked: _showTaskSubtitle,
+        child: const Text('显示副标题'),
+      ),
+      CheckedPopupMenuItem<_TaskListMenuAction>(
+        value: _TaskListMenuAction.toggleCompleted,
+        checked: _showCompleted,
+        child: const Text('显示已完成任务'),
+      ),
+      CheckedPopupMenuItem<_TaskListMenuAction>(
+        value: _TaskListMenuAction.toggleFailed,
+        checked: _showFailed,
+        child: const Text('显示已失败任务'),
       ),
     ],
   );
@@ -321,8 +319,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         setState(() => _showCompleted = !_showCompleted);
       case _TaskListMenuAction.toggleFailed:
         setState(() => _showFailed = !_showFailed);
-      case _TaskListMenuAction.approvals:
-        _openApprovals();
     }
   }
 
@@ -355,22 +351,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _requestDeviceEnrollment() async {
-    if (_enrollmentRequested) return;
-    _enrollmentRequested = true;
-    final signingKey = widget.signingKey;
-    final repository =
-        widget.authorizationRepository ??
-        HttpDeviceAuthorizationRepository(widget.api);
-    if (signingKey == null) return;
-    try {
-      final publicKey = await signingKey.getOrCreatePublicKey();
-      await repository.createDeviceRequest(publicKey);
-    } catch (_) {
-      // A request failure must not block the read-only workspace surface.
-    }
   }
 
   Future<void> _openCreateTask() async {
@@ -429,12 +409,10 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             session: widget.session!,
             repository: HttpDeviceRepository(widget.api),
             managementRepository: HttpDeviceManagementRepository(widget.api),
+            profileRepository:
+                widget.profileRepository ?? HttpProfileRepository(widget.api),
+            sessionStore: widget.sessionStore,
             workspaceRepository: widget.workspaceBootstrapRepository,
-            authorizationRepository:
-                widget.authorizationRepository ??
-                HttpDeviceAuthorizationRepository(widget.api),
-            signingKey: widget.signingKey,
-            enrollmentReady: _enrollmentFuture,
             sync: _sync,
             canWrite: widget.canWrite,
             showAppBar: false,

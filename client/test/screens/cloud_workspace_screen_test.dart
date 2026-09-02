@@ -550,6 +550,47 @@ void main() {
     expect(find.text('当前会话不可用'), findsOneWidget);
   });
 
+  testWidgets(
+    'task destinations share one AppBar contract while My stays independent',
+    (tester) async {
+      final sync = await readyController(FakeTaskRepository());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CloudWorkspaceScreen(
+            api: testApi(),
+            syncController: sync,
+            session: loggedInSession,
+            signingKey: FakeCloudSigningKey(),
+          ),
+        ),
+      );
+
+      final taskAppBarHeights = <double>[];
+      for (final destination in const [
+        'task-list-destination',
+        'task-quadrant-destination',
+        'task-schedule-destination',
+      ]) {
+        await tester.tap(find.byKey(ValueKey(destination)));
+        await tester.pumpAndSettle();
+        final appBar = tester.widget<AppBar>(
+          find.byKey(const Key('task-system-app-bar')),
+        );
+        taskAppBarHeights.add(appBar.preferredSize.height);
+        expect(find.byKey(const Key('task-system-title')), findsOneWidget);
+        expect(find.byKey(const Key('profile-account-app-bar')), findsNothing);
+      }
+
+      expect(taskAppBarHeights, everyElement(taskAppBarHeights.first));
+      await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('task-system-app-bar')), findsNothing);
+      expect(find.byKey(const Key('profile-account-app-bar')), findsOneWidget);
+      expect(find.byKey(const Key('profile-approval-center')), findsOneWidget);
+      expect(find.byKey(const Key('profile-web-qr-login')), findsOneWidget);
+    },
+  );
+
   testWidgets('hamburger opens a left drawer instead of a bottom sheet', (
     tester,
   ) async {

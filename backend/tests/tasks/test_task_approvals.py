@@ -437,6 +437,57 @@ def test_stale_field_marks_request_conflicted_without_overwriting_new_value(db_e
         assert task.title == "Owner edit"
 
 
+def test_stale_status_approval_is_conflicted_after_task_status_changes(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session, phone_seed=8200)
+        task = _task(session, workspace, owner)
+        task = TaskService(session).transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "IN_PROGRESS",
+            task.status_version,
+        )
+        approval = TaskApprovalService(session).create(
+            workspace.id,
+            requester.id,
+            uuid4(),
+            task.id,
+            TaskApprovalRequestType.STATUS_UPDATE,
+            {"target_status": "REVIEW"},
+            {"status_version": task.status_version},
+        )
+        task = TaskService(session).transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "BLOCKED",
+            task.status_version,
+            blocked_reason="等待外部确认",
+            resume_handler_id=owner.id,
+        )
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskApprovalService(session).approve(workspace.id, owner.id, approval.id, uuid4())
+
+        assert error.value.code == "approval_conflicted"
+        assert approval.status == TaskApprovalRequestStatus.CONFLICTED
+        assert approval.rejection_reason == "task status version changed"
+        assert task.status == TaskStatus.BLOCKED
+        assert task.status_version == 3
+        conflict_events = session.scalars(
+            select(ActivityEvent).where(
+                ActivityEvent.task_id == task.id,
+                ActivityEvent.event_type == "APPROVAL_CONFLICTED",
+            )
+        ).all()
+        assert len(conflict_events) == 1
+        assert conflict_events[0].payload["approval_request"]["status"] == "CONFLICTED"
+        assert conflict_events[0].payload["reason"] == "task status version changed"
+
+
 def test_stale_pending_requests_can_be_cancelled_after_handler_change(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
@@ -541,6 +592,47 @@ def test_handler_transfer_approval_changes_task_handler_to_other_active_member(d
         assert result.request.status == TaskApprovalRequestStatus.APPROVED
         assert result.task is task
         assert task.current_handler_id == requester.id
+
+
+def test_handler_transfer_approval_is_rejected_during_review(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session, phone_seed=8300)
+        task = _task(session, workspace, owner)
+        task = TaskService(session).transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "IN_PROGRESS",
+            task.status_version,
+        )
+        task = TaskService(session).transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "REVIEW",
+            task.status_version,
+        )
+        before = TaskService(session).snapshot(task)
+        request_id = uuid4()
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskApprovalService(session).create(
+                workspace.id,
+                requester.id,
+                request_id,
+                task.id,
+                TaskApprovalRequestType.HANDLER_TRANSFER,
+                {"current_handler_id": requester.id},
+                {"current_handler_id": task.field_versions["current_handler_id"]},
+            )
+
+        assert error.value.code == "approval_not_allowed"
+        assert TaskService(session).snapshot(task) == before
+        assert session.scalar(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.request_id == request_id)
+        ) is None
 
 
 def test_blocked_recovery_approval_uses_stored_handler_and_records_history(db_engine) -> None:

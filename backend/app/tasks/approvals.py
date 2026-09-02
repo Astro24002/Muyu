@@ -17,6 +17,7 @@ from app.db.enums import (
     TaskApprovalRequestStatus,
     TaskApprovalRequestType,
     TaskQuadrant,
+    TaskStatus,
     UserStatus,
 )
 from app.db.models import (
@@ -156,6 +157,11 @@ class TaskApprovalService:
         )
         if task is None:
             raise TaskApprovalError("approval_not_allowed", "task does not belong to the workspace")
+        if request_type == TaskApprovalRequestType.HANDLER_TRANSFER and task.status == TaskStatus.REVIEW:
+            raise TaskApprovalError(
+                "approval_not_allowed",
+                "handler transfer is not allowed while task is in review",
+            )
         if request_type == TaskApprovalRequestType.STATUS_UPDATE:
             changes = self._validate_status_proposal(task, changes, member_ids)
 
@@ -281,12 +287,13 @@ class TaskApprovalService:
                 versions,
                 request.comment_id,
             )
+        self._check_freshness(request, task, comment, action_request_id)
+        if request.request_type == TaskApprovalRequestType.STATUS_UPDATE:
             self._validate_status_proposal(
                 task,
                 changes,
                 {member.user_id for member in self._active_members(request.workspace_id)},
             )
-        self._check_freshness(request, task, comment, action_request_id)
         target_actor = comment.author_user_id if request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment else task.current_handler_id
         if target_actor is None or target_actor != request.approver_id:
             self._cancel_for_stale_owner(request, task, comment, action_request_id, "task owner changed")

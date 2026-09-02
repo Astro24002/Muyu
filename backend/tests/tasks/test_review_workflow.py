@@ -99,6 +99,28 @@ def test_reviewer_can_accept_review_and_records_reviewed_at(db_engine) -> None:
         assert any(event.payload["after"]["status"] == "DONE" for event in status_events)
 
 
+def test_handler_transfer_is_rejected_during_review_and_reviewer_remains_valid(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3682)
+        task, service = _review_task(session, owner, workspace)
+        before = service.snapshot(task)
+
+        with pytest.raises(TaskConflictError) as error:
+            service.patch(
+                workspace.id,
+                owner.id,
+                task.id,
+                uuid4(),
+                {"current_handler_id": reviewer.id},
+                {"current_handler_id": task.field_versions["current_handler_id"]},
+            )
+
+        assert error.value.code == "invalid_request"
+        assert service.snapshot(task) == before
+        done = service.transition(workspace.id, reviewer.id, task.id, uuid4(), "DONE", task.status_version)
+        assert done.status == TaskStatus.DONE
+
+
 def test_lifecycle_complete_submits_review(db_engine) -> None:
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3684)

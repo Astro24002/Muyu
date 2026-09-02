@@ -185,6 +185,14 @@ class TaskService:
         if "current_handler_id" in changes:
             self._validated_member(workspace_id, changes["current_handler_id"])
         self._require_handler(task, actor_user_id)
+        if (
+            task.status == TaskStatus.REVIEW
+            and "current_handler_id" in changes
+        ):
+            raise TaskConflictError(
+                "invalid_request",
+                "handler transfer is not allowed while task is in review",
+            )
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before editing")
         current_versions = dict(task.field_versions or {})

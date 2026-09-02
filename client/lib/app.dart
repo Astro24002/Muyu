@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import 'auth/mobile_login_controller.dart';
+import 'auth/mobile_session_store.dart';
 import 'core/api_client.dart';
 import 'platform/device_signing_key.dart';
 import 'screens/mobile_phone_login_screen.dart';
 import 'screens/workspace_gate.dart';
 import 'sync/workspace_cache.dart';
+import 'theme/muyu_theme.dart';
 import 'workspace/workspace_bootstrap_repository.dart';
 
 class MuyuApp extends StatelessWidget {
@@ -15,6 +17,7 @@ class MuyuApp extends StatelessWidget {
     required this.deviceSigningKey,
     required this.mobileLoginController,
     required this.workspaceBootstrapRepository,
+    this.sessionStore,
     this.workspaceCache,
   });
 
@@ -22,37 +25,20 @@ class MuyuApp extends StatelessWidget {
   final DeviceSigningKey deviceSigningKey;
   final MobileLoginController mobileLoginController;
   final WorkspaceBootstrapRepository workspaceBootstrapRepository;
+  final MobileSessionStore? sessionStore;
   final WorkspaceCache? workspaceCache;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Muyu',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xff087f73),
-        brightness: Brightness.light,
-      ),
-      scaffoldBackgroundColor: const Color(0xfff7f8f6),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      cardTheme: const CardThemeData(
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(6)),
-          side: BorderSide(color: Color(0xffd9dedb)),
-        ),
-      ),
-      useMaterial3: true,
-    ),
+    theme: muyuLightTheme(),
     home: _AndroidHome(
       apiClient: apiClient,
       controller: mobileLoginController,
       signingKey: deviceSigningKey,
       workspaceBootstrapRepository: workspaceBootstrapRepository,
+      sessionStore: sessionStore,
       workspaceCache: workspaceCache,
     ),
   );
@@ -64,6 +50,7 @@ class _AndroidHome extends StatelessWidget {
     required this.controller,
     required this.signingKey,
     required this.workspaceBootstrapRepository,
+    this.sessionStore,
     this.workspaceCache,
   });
 
@@ -71,6 +58,7 @@ class _AndroidHome extends StatelessWidget {
   final MobileLoginController controller;
   final DeviceSigningKey signingKey;
   final WorkspaceBootstrapRepository workspaceBootstrapRepository;
+  final MobileSessionStore? sessionStore;
   final WorkspaceCache? workspaceCache;
 
   @override
@@ -83,6 +71,7 @@ class _AndroidHome extends StatelessWidget {
             signingKey: signingKey,
             repository: workspaceBootstrapRepository,
             session: controller.currentSession,
+            sessionStore: sessionStore,
             workspaceCache: workspaceCache,
           )
         : MobilePhoneLoginScreen(controller: controller),

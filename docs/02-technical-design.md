@@ -91,6 +91,10 @@ planned_start_at     nullable
 due_at               nullable
 estimated_minutes    nullable
 completed_at         nullable
+reviewer_user_id     nullable
+review_submitted_at   nullable
+reviewed_at           nullable
+review_rejection_reason nullable
 created_by
 recurring_task_id    nullable
 version
@@ -105,10 +109,24 @@ updated_at
 ```text
 TODO
 IN_PROGRESS
-WAITING
+BLOCKED
+REVIEW
 DONE
 CANCELLED
 ```
+
+这些值是数据库、API、同步协议和测试使用的内部标识。客户端统一将它们映射为中文展示名称：
+
+| 内部标识 | Android / Web 展示 |
+| --- | --- |
+| `TODO` | 待进行 |
+| `IN_PROGRESS` | 进行中 |
+| `BLOCKED` | 阻塞中 |
+| `REVIEW` | 待验收 |
+| `DONE` | 已完成 |
+| `CANCELLED` | 已取消 |
+
+用户界面、通知和无障碍名称不得显示英文状态名。
 
 ### task_assignees
 
@@ -266,6 +284,9 @@ TASK_HANDLER_CHANGED
 TASK_STATUS_CHANGED
 TASK_BLOCKED
 TASK_UNBLOCKED
+TASK_REVIEW_SUBMITTED
+TASK_REVIEW_ACCEPTED
+TASK_REVIEW_RETURNED
 TASK_DELAYED
 TASK_COMPLETED
 TASK_CANCELLED
@@ -310,14 +331,26 @@ approved_at
 ### 状态转换
 
 ```text
-TODO -> IN_PROGRESS / WAITING / DONE / CANCELLED
-IN_PROGRESS -> TODO / WAITING / DONE / CANCELLED
-WAITING -> TODO / IN_PROGRESS / DONE / CANCELLED
-DONE -> TODO / IN_PROGRESS
+TODO -> IN_PROGRESS / BLOCKED / CANCELLED
+IN_PROGRESS -> TODO / BLOCKED / REVIEW / CANCELLED
+BLOCKED -> IN_PROGRESS / CANCELLED
+REVIEW -> DONE / IN_PROGRESS / CANCELLED
+DONE -> TODO / IN_PROGRESS / CANCELLED
 CANCELLED -> TODO
 ```
 
-进入 `WAITING` 必须填写阻塞原因和解除阻塞后处理人。解除阻塞时自动恢复为 `IN_PROGRESS` 并设置该处理人。
+进入 `BLOCKED` 必须填写 `blocked_reason`，服务端写入 `blocked_since`，并校验 `resume_handler_id`；可选记录 `waiting_for_user_id`。解除阻塞时自动恢复为 `IN_PROGRESS`，清除当前阻塞字段并设置恢复负责人。
+
+当前负责人从 `IN_PROGRESS` 提交 `REVIEW` 后，服务端将 Workspace 内另一位 ACTIVE 成员确定为默认验收人。验收人只能执行 `REVIEW -> DONE` 或填写退回原因后执行 `REVIEW -> IN_PROGRESS`；提交人不能自行完成 Review。
+
+Review 元数据必须随任务快照和 cursor 增量同步，不能只存在首页投影：
+
+- `reviewer_user_id`：服务端在进入 `REVIEW` 时写入另一位 ACTIVE 成员；
+- `review_submitted_at`：服务端写入提交时间；
+- `reviewed_at`：验收通过或退回时由服务端写入；
+- `review_rejection_reason`：仅退回时必填，重新提交 Review 前清空。
+
+状态转换接口继续以 `expected_status_version` 做并发校验；Review 的通过/退回必须验证操作者等于 `reviewer_user_id`，并写入状态历史、活动事件和新的同步游标。
 
 ### 延期
 
@@ -370,6 +403,9 @@ POST   /api/tasks/:id/start
 POST   /api/tasks/:id/transfer
 POST   /api/tasks/:id/block
 POST   /api/tasks/:id/unblock
+POST   /api/tasks/:id/submit-review
+POST   /api/tasks/:id/accept-review
+POST   /api/tasks/:id/return-review
 POST   /api/tasks/:id/delay
 POST   /api/tasks/:id/complete
 POST   /api/tasks/:id/reopen
@@ -378,6 +414,8 @@ GET    /api/tasks/:id/events
 GET    /api/tasks/:id/comments
 POST   /api/tasks/:id/comments
 GET    /api/me/tasks/order
+
+`submit-review`、`accept-review` 和 `return-review` 是业务动作名称；实现可以继续复用统一的状态转换接口，通过 `target_status` 和 Review 专用字段完成，不要求为每个动作新增独立 HTTP 路由。
 PUT    /api/me/tasks/order
 ```
 
@@ -425,7 +463,7 @@ GET /api/analytics/tasks
 {
   "code": "STATUS_CONFLICT",
   "conflict_id": "conflict-123",
-  "current_status": "WAITING",
+  "current_status": "BLOCKED",
   "proposed_status": "DONE"
 }
 ```

@@ -1,6 +1,6 @@
 # 双人协作行动管理系统
 
-> 任务模型、Workspace 读取范围、负责人写入与双人审批、Android“我的”概览、迁移和缓存规则以 [移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md) 为当前权威；身份、设备、云端同步与 Web 授权仍以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为准。本文件描述产品目标与任务行为，不再定义旧的固定账号或共享密码模型。
+> 任务模型、Workspace 读取范围、负责人写入与双人审批、Android“我的”概览、迁移和缓存规则以 [移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md) 为当前权威；身份、设备、云端同步与 Web 授权仍以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为准；Android“我的”页、设备和资料边界以 [我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md) 为准。本文件描述产品目标与任务行为，不再定义旧的固定账号或共享密码模型。
 
 ## 1. 产品定义
 
@@ -41,9 +41,9 @@
 
 用户由手机号唯一标识。首版用户在 Android 上通过短信验证码注册或登录，不使用共享密码或启动时预置账号。
 
-用户 A 在自己的 Android 设备创建 Workspace，并按手机号邀请用户 B；B 完成短信验证、设备短码核对和 A 的活动 Android 设备批准后加入。一个 Workspace 最多有两名 ACTIVE 成员，权限完全对等；一个用户在首版最多属于一个 ACTIVE Workspace。
+用户 A 在自己的 Android 设备创建 Workspace，并按手机号邀请用户 B；B 完成短信验证并接受邀请后加入。一个 Workspace 最多有两名 ACTIVE 成员，权限完全对等；一个用户在首版最多属于一个 ACTIVE Workspace。
 
-用户可以拥有多个长期 Android 设备，但新增或替换长期设备必须由另一位成员的活动 Android 设备批准。Web 只能由当前用户自己的活动 Android 设备扫码登录，浏览器会话最长 18 小时。当前交付 Android 与 Web；iOS 只保留未来接入空间。
+每次短信验证成功都会让当前 Android 登录设备成为 `ACTIVE` 且可读写，不创建设备审批请求，也不要求另一位成员确认。用户只能在自己的账号内撤销其他设备，当前设备不能撤销；Web 只能由当前用户自己的活动 Android 设备扫码登录，浏览器会话最长 18 小时。当前交付 Android 与 Web；iOS 只保留未来接入空间。
 
 昵称和展示资料不参与权限判断，所有授权都以 `user_id`、Workspace 成员关系和 Device 或 WebSession 状态为准。
 
@@ -52,6 +52,15 @@
 “我的”页从现有 Workspace snapshot 派生紧凑的账户概览，不新增统计接口、统计表或统计缓存。当前用户的概览只统计所有未删除且 `current_handler_id` 等于当前用户的 Task；父任务和子任务分别计数，包含全部任务数、未完成数、已完成数、延期次数和累计延期分钟数，累计时长显示为天、小时和分钟。
 
 匹配成功时，账户卡片显示对方头像入口。点击后展示另一位 ACTIVE 成员的同一组概览，统计口径保持一致；快照刷新后更新，刷新失败时保留上一次结果。
+
+任务审批只从 Android “我的”页 AppBar 的审批中心进入；清单、四象限和日程的“更多”菜单不提供任务审批。相邻的 AppBar 操作提供扫码登录 Web。
+
+### 3.2 Android 账户、设备与资料边界
+
+- 短信验证码校验成功后，首次设备和后续设备都直接创建或恢复为 `ACTIVE`，立即拥有当前账号权限；历史未撤销的 `PENDING` 设备在策略迁移中转为 `ACTIVE`，未完成的设备授权请求过期，已撤销设备和审计历史保留。
+- 设备管理只允许撤销当前账号下的其他设备。撤销前必须经过客户端二次确认，确认后关联移动会话和刷新令牌失效；当前设备没有撤销入口。
+- 个人资料只允许编辑 `display_name`。服务端清理首尾空格，允许清空并统一限制长度；手机号、头像和账号归属不可编辑。页面继续使用现有默认 `CircleAvatar`，不增加头像上传或头像资源接口。
+- Workspace bootstrap 的 `match_status` 只由 ACTIVE 成员数量决定：零或一名成员为 `waiting_partner`，两名成员为 `matched`。未匹配时始终显示默认占位头像和“匹配中”，不显示虚假的对方身份；匹配后才显示另一位 ACTIVE 成员的名称、脱敏手机号和概览入口。
 
 ## 4. 设计原则
 
@@ -171,31 +180,37 @@ RecurringTask 表示需要反复执行的生活任务，例如喂猫、打扫卫
 ```text
 TODO
 IN_PROGRESS
-WAITING
+BLOCKED
+REVIEW
 DONE
 CANCELLED
 ```
 
 状态含义：
 
-- `TODO`：已创建但尚未开始；
-- `IN_PROGRESS`：当前有人正在处理；
-- `WAITING`：被外部条件阻塞；
-- `DONE`：已完成；
-- `CANCELLED`：不再需要执行。
+- `TODO`：待进行，已创建但尚未开始；
+- `IN_PROGRESS`：进行中，当前负责人正在处理；
+- `BLOCKED`：阻塞中，当前负责人暂时无法继续；
+- `REVIEW`：待验收，当前负责人已提交结果，等待另一位成员确认；
+- `DONE`：已完成，验收人已确认结果；
+- `CANCELLED`：已取消，任务不再需要执行。
+
+Android 和 Web 的用户界面只展示中文名称，英文值仅作为系统内部标识。
 
 允许从 `DONE` 或 `CANCELLED` 恢复，历史记录不会丢失。
 
 ### 6.3 阻塞
 
-进入 `WAITING` 时必须填写：
+进入 `BLOCKED` 时必须填写：
 
 - 阻塞原因；
 - 解除阻塞后继续处理的用户。
 
 可以额外说明正在等待哪一位用户。
 
-解除阻塞后，任务恢复为 `IN_PROGRESS`，并由预先记录的用户继续处理。
+解除阻塞后，任务恢复为 `IN_PROGRESS`，清除阻塞信息并由预先记录的用户继续处理。
+
+任务负责人可以将 `IN_PROGRESS` 提交为 `REVIEW`。系统默认将另一位 ACTIVE 成员设为验收人；验收通过进入 `DONE`，退回必须填写原因并回到 `IN_PROGRESS`。任务负责人不能自行确认自己的 Review。
 
 ## 7. 延期记录
 
@@ -276,7 +291,7 @@ OTHER
 ```text
 用户 A 短信登录 Android
   -> 创建 Workspace 并邀请 B
-  -> B 短信登录 Android、核对短码并获批准
+  -> B 短信登录 Android、接受邀请
   -> 创建任务
   -> 确定当前负责人（默认是创建者）
   -> 开始
@@ -302,6 +317,7 @@ OTHER
 - 复杂权限；
 - 社交和公开分享；
 - P2P、局域网同步和离线写入队列；
+- 首版设备验证审批或把设备审批伪装成任务审批；
 - Web 端短信验证码直接登录或浏览器长期设备身份；
 - 面向用户的即时聊天和复杂实时通信；
 - AI 自动规划；

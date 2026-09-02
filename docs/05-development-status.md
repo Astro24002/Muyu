@@ -41,6 +41,14 @@
 - 兼容边界：当前代码仍使用旧内部 `WAITING`，后续状态迁移统一为 `BLOCKED` 并新增 `REVIEW`；迁移完成前不把旧英文标识直接暴露给 Web 用户。
 - 权威文档：[Web 行动工作台任务状态与首页模块设计](./superpowers/specs/2026-09-02-web-action-workbench-task-status-design.md)。本条仅记录设计，不代表已开始工程施工。
 
+### 2026-09-02 - Android 与后端任务状态契约同步设计
+
+- 类型：设计同步 / 待施工。
+- 变更：确认 Android 与 Web 使用同一套六状态中文展示：待进行、进行中、阻塞中、待验收、已完成、已取消；后端、数据库、API、同步和测试继续使用 `TODO`、`IN_PROGRESS`、`BLOCKED`、`REVIEW`、`DONE`、`CANCELLED` 内部标识。补充 Review 验收元数据、状态转换、阻塞字段清理规则和活动事件要求。
+- 后端设计：`IN_PROGRESS -> REVIEW` 时由服务端指定另一位 ACTIVE 成员为 `reviewer_user_id`；验收通过进入 `DONE`，退回必须带原因并回到 `IN_PROGRESS`。`BLOCKED` 使用 `blocked_reason`、`blocked_since`、`resume_handler_id` 和可选 `waiting_for_user_id`，解除后清除阻塞信息。
+- 兼容边界：现有实现仍使用旧内部 `WAITING` 且尚未实现 `REVIEW`，后续迁移统一处理数据库枚举、状态机、快照、增量、审批和两端文案；本条不代表代码已施工。
+- 权威文档：[后端技术设计](./02-technical-design.md) 与 [Web 行动工作台任务状态与首页模块设计](./superpowers/specs/2026-09-02-web-action-workbench-task-status-design.md)。
+
 ### 2026-09-02 - 我的页、可信设备与 bootstrap 匹配契约
 
 - 类型：当前契约收口 / 客户端 helper / 活动文档更新。

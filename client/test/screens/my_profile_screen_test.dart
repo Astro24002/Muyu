@@ -22,40 +22,44 @@ class FakeDeviceRepository implements DeviceRepository {
 }
 
 void main() {
-  testWidgets('shows profile and the long-term logged-in device', (
-    tester,
-  ) async {
-    const session = MobileSession(
-      accessToken: 'access',
-      refreshToken: 'refresh',
-      deviceId: 'device-1',
-      user: User(
-        id: 'user-1',
-        phone: '+8613800138000',
-        nickname: 'Muyu',
-        avatarKey: '',
-        role: 'member',
-      ),
-      expiresAt: null,
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MyProfileScreen(
-          session: session,
-          repository: FakeDeviceRepository(),
+  testWidgets(
+    'shows a compact device-management entry instead of device tiles',
+    (tester) async {
+      const session = MobileSession(
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        deviceId: 'device-1',
+        user: User(
+          id: 'user-1',
+          phone: '+8613800138000',
+          nickname: 'Muyu',
+          avatarKey: '',
+          role: 'member',
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+        expiresAt: null,
+      );
 
-    expect(find.text('我的'), findsOneWidget);
-    expect(find.text('+86******8000'), findsOneWidget);
-    expect(find.text('登录设备'), findsOneWidget);
-    expect(find.text('Pixel 8'), findsOneWidget);
-    expect(find.text('当前设备'), findsOneWidget);
-    expect(find.textContaining('长期绑定'), findsOneWidget);
-  });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MyProfileScreen(
+            session: session,
+            repository: FakeDeviceRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('我的'), findsOneWidget);
+      expect(find.text('+86******8000'), findsOneWidget);
+      expect(find.byKey(const Key('profile-edit-name')), findsOneWidget);
+      expect(
+        find.byKey(const Key('profile-device-management')),
+        findsOneWidget,
+      );
+      expect(find.text('设备管理'), findsOneWidget);
+      expect(find.text('Pixel 8'), findsNothing);
+    },
+  );
 
   testWidgets('places Web QR authorization in the AppBar only', (tester) async {
     const session = MobileSession(

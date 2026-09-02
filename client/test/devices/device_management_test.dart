@@ -77,6 +77,7 @@ void main() {
                   'platform': 'ANDROID',
                   'label': 'Pixel',
                   'status': 'VERIFIED',
+                  'can_write': true,
                   'is_current': true,
                   'created_at': '2026-08-27T00:00:00Z',
                   'enrolled_at': '2026-08-27T00:00:00Z',
@@ -92,6 +93,7 @@ void main() {
               'platform': 'ANDROID',
               'label': 'Tablet',
               'status': 'REVOKED',
+              'can_write': false,
               'is_current': false,
               'created_at': '2026-08-27T00:00:00Z',
               'enrolled_at': '2026-08-27T00:00:00Z',
@@ -104,7 +106,9 @@ void main() {
       ),
     );
 
-    expect((await repository.list()).single.status, 'VERIFIED');
+    final devices = await repository.list();
+    expect(devices.single.status, 'VERIFIED');
+    expect(devices.single.canWrite, isTrue);
     final revoked = await repository.revoke('device-2');
 
     expect(requests.map((request) => request.url.path), [
@@ -112,6 +116,7 @@ void main() {
       '/api/v1/devices/device-2/revoke',
     ]);
     expect(revoked.status, 'REVOKED');
+    expect(revoked.canWrite, isFalse);
   });
 
   testWidgets(

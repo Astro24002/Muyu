@@ -1,15 +1,11 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/auth/mobile_session_store.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/models/user.dart';
-import 'package:muyu_client/platform/device_signing_key.dart';
 import 'package:muyu_client/screens/my_profile_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
-import 'package:muyu_client/workspace/device_authorization_repository.dart';
 import 'package:muyu_client/workspace/device_repository.dart';
 import 'package:muyu_client/workspace/workspace_bootstrap_repository.dart';
 
@@ -89,77 +85,42 @@ class FakeWorkspaceRepository implements WorkspaceBootstrapRepository {
   ) => throw UnimplementedError();
 }
 
-class FakeAuthorizationRepository implements DeviceAuthorizationRepository {
-  final request = DeviceAuthorizationRequest(
-    id: 'request-1',
-    expiresAt: DateTime.utc(2026, 8, 31, 12),
-    status: 'PENDING',
-    candidateDeviceId: 'device-2',
-    candidateDeviceLabel: 'Pixel 9',
-    candidatePlatform: 'ANDROID',
-    candidateUserId: 'user-2',
-    candidatePhoneMasked: '+86******0169',
-    requesterUserId: 'user-2',
-    requesterPhoneMasked: '+86******0169',
-    isIncoming: true,
-  );
-
-  bool began = false;
-  bool approved = false;
-  bool rejected = false;
+class FakeUnmatchedWorkspaceRepository implements WorkspaceBootstrapRepository {
+  @override
+  Future<WorkspaceBootstrapPayload> loadBootstrap() async =>
+      WorkspaceBootstrapPayload.fromJson({
+        'state': 'WAITING_FOR_PARTNER',
+        'workspace': {
+          'id': 'workspace-1',
+          'name': '共同空间',
+          'member_count': 1,
+          'match_status': 'waiting_partner',
+          'members': [
+            {
+              'user_id': 'user-1',
+              'display_name': '我',
+              'phone_masked': '+86******0000',
+              'member_slot': 1,
+              'membership_status': 'ACTIVE',
+              'is_current': true,
+            },
+          ],
+        },
+        'invite': null,
+        'device': {'status': 'VERIFIED', 'can_write': true},
+      });
 
   @override
-  Future<DeviceAuthorizationRequest> createDeviceRequest(String publicKey) =>
-      throw UnimplementedError();
+  Future<WorkspaceBootstrapPayload> bindPartner(
+    String phone,
+    String requestId,
+  ) => throw UnimplementedError();
 
   @override
-  Future<List<DeviceAuthorizationRequest>> listRequests() async => [request];
-
-  @override
-  Future<DeviceAuthorizationRequest> beginApproval(String requestId) async {
-    began = true;
-    return DeviceAuthorizationRequest(
-      id: requestId,
-      expiresAt: request.expiresAt,
-      status: 'PENDING',
-      signaturePayload: 'c2lnbmF0dXJl',
-    );
-  }
-
-  @override
-  Future<void> approve(
-    String requestId, {
-    required DeviceSigningKey signingKey,
-    required String signaturePayload,
-  }) async {
-    approved = true;
-  }
-
-  @override
-  Future<void> reject(String requestId) async {
-    rejected = true;
-  }
-
-  @override
-  Future<DeviceAuthorizationRequest> scanWebQr(String qrPayload) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> approveWebLogin(
-    DeviceAuthorizationRequest request, {
-    required DeviceSigningKey signingKey,
-  }) => throw UnimplementedError();
-}
-
-class FakeSigningKey implements DeviceSigningKey {
-  @override
-  Future<String> getOrCreatePublicKey() async => 'cHVibGlj';
-
-  @override
-  Future<Uint8List> sign(Uint8List payload) async => Uint8List.fromList([1]);
-
-  @override
-  Future<void> deleteKey() async {}
+  Future<WorkspaceBootstrapPayload> acceptInvite(
+    String inviteId,
+    String requestId,
+  ) => throw UnimplementedError();
 }
 
 TaskItem profileTask(
@@ -294,7 +255,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('profile-account-card')), findsOneWidget);
+    expect(find.byKey(const Key('profile-workspace-match')), findsOneWidget);
     expect(find.text('Muyu'), findsOneWidget);
     expect(
       tester.widget<Text>(find.byKey(const Key('profile-current-phone'))).data,
@@ -326,60 +287,28 @@ void main() {
     );
   });
 
-  testWidgets('shows workspace matching and approves an incoming device', (
+  testWidgets('shows a placeholder partner while the workspace is matching', (
     tester,
   ) async {
-    final authorization = FakeAuthorizationRepository();
     await tester.pumpWidget(
       MaterialApp(
         home: MyProfileScreen(
           session: _session,
           repository: FakeDeviceRepository(),
-          workspaceRepository: FakeWorkspaceRepository(),
-          authorizationRepository: authorization,
-          signingKey: FakeSigningKey(),
+          workspaceRepository: FakeUnmatchedWorkspaceRepository(),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('共享空间'), findsOneWidget);
-    expect(find.text('已匹配 · 2/2 位成员'), findsOneWidget);
-    expect(find.textContaining('+86******0169'), findsWidgets);
-    expect(find.text('待处理的设备验证'), findsOneWidget);
-    expect(find.text('Pixel 9'), findsOneWidget);
-    expect(
-      find.byKey(const Key('profile-approve-device-request')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('profile-workspace-match')), findsOneWidget);
+    expect(find.byKey(const Key('profile-partner-avatar')), findsOneWidget);
+    expect(find.text('匹配中'), findsOneWidget);
+    expect(find.text('对方'), findsNothing);
+    expect(find.text('+86******0169'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('profile-approve-device-request')));
+    await tester.tap(find.byKey(const Key('profile-partner-avatar')));
     await tester.pumpAndSettle();
-
-    expect(authorization.began, isTrue);
-    expect(authorization.approved, isTrue);
-  });
-
-  testWidgets('rejects an incoming device request from the profile page', (
-    tester,
-  ) async {
-    final authorization = FakeAuthorizationRepository();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MyProfileScreen(
-          session: _session,
-          repository: FakeDeviceRepository(),
-          workspaceRepository: FakeWorkspaceRepository(),
-          authorizationRepository: authorization,
-          signingKey: FakeSigningKey(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('profile-reject-device-request')));
-    await tester.pumpAndSettle();
-
-    expect(authorization.rejected, isTrue);
+    expect(find.byKey(const Key('profile-partner-sheet')), findsNothing);
   });
 }

@@ -287,7 +287,7 @@ void main() {
     expect(find.text('我的'), findsWidgets);
   });
 
-  testWidgets('profile exposes Web QR login in the destination AppBar', (
+  testWidgets('profile AppBar exposes approval center and Web QR actions', (
     tester,
   ) async {
     final sync = await readyController(FakeTaskRepository());
@@ -305,8 +305,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
     await tester.pump();
 
+    final approval = find.byKey(const Key('profile-approval-center'));
     final qr = find.byKey(const Key('profile-web-qr-login'));
+    expect(approval, findsOneWidget);
     expect(qr, findsOneWidget);
+    expect(tester.widget<IconButton>(approval).onPressed, isNotNull);
     expect(tester.widget<IconButton>(qr).onPressed, isNotNull);
     expect(
       find.ancestor(of: qr, matching: find.byType(ListTile)),
@@ -333,7 +336,7 @@ void main() {
     expect(find.byKey(const Key('profile-web-qr-login')), findsNothing);
   });
 
-  testWidgets('unverified device creates one authorization request on entry', (
+  testWidgets('profile entry does not create device authorization requests', (
     tester,
   ) async {
     final authorization = CountingAuthorizationRepository();
@@ -352,7 +355,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(authorization.createCalls, 1);
+    expect(authorization.createCalls, 0);
   });
 
   testWidgets('creation requires a quadrant and successful task appears', (
@@ -612,6 +615,7 @@ void main() {
     expect(find.text('显示副标题'), findsOneWidget);
     expect(find.text('显示已完成任务'), findsOneWidget);
     expect(find.text('显示已失败任务'), findsOneWidget);
+    expect(find.text('任务审批'), findsNothing);
     expect(find.text('批量编辑'), findsNothing);
     expect(find.text('刷新'), findsNothing);
     expect(find.text('扫码登录 Web'), findsNothing);

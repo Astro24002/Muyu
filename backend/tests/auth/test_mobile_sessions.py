@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import MobileSession
+from app.db.models import DeviceAuthorizationRequest, MobileSession
 from app.main import create_app
 
 
@@ -15,6 +15,50 @@ class FakeSmsProvider:
 
     def send_otp(self, phone: str, code: str) -> None:
         self.codes[phone] = code
+
+
+def _client(db_engine) -> TestClient:
+    app = create_app()
+    app.state.engine = db_engine
+    app.state.ready = True
+    app.state.sms_provider = FakeSmsProvider()
+    return TestClient(app)
+
+
+def _login(client: TestClient, phone: str, public_key_der: str) -> dict[str, object]:
+    sent = client.post("/api/v1/auth/sms/send", json={"phone": phone})
+    assert sent.status_code == 202, sent.text
+    provider = client.app.state.sms_provider
+    code = provider.last_code_for(phone)
+    verified = client.post(
+        "/api/v1/auth/sms/verify",
+        json={
+            "phone": phone,
+            "code": code,
+            "device": {"public_key_der": public_key_der},
+        },
+    )
+    assert verified.status_code == 201, verified.text
+    return verified.json()
+
+
+def test_sms_verification_trusts_first_and_subsequent_devices(db_engine) -> None:
+    client = _client(db_engine)
+
+    first = _login(client, "+8613800138000", "AQID")
+    second = _login(client, "+8613800138000", "BAUG")
+
+    assert first["device_status"] == "VERIFIED"
+    assert first["can_write"] is True
+    assert first["user"]["device_status"] == "VERIFIED"
+    assert first["user"]["can_write"] is True
+    assert second["device_id"] != first["device_id"]
+    assert second["device_status"] == "VERIFIED"
+    assert second["can_write"] is True
+    assert second["user"]["device_status"] == "VERIFIED"
+    assert second["user"]["can_write"] is True
+    with Session(db_engine) as session:
+        assert session.scalars(select(DeviceAuthorizationRequest)).all() == []
 
 
 def test_mobile_me_refresh_and_logout_use_opaque_bearer_session(db_engine) -> None:

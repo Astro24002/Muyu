@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import base64
+import hashlib
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -8,9 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.providers.fake import FakeSmsProvider
-from app.db.enums import ApprovalStatus, DeviceStatus, WebSessionStatus
-from app.db.enums import MembershipStatus
-from app.db.models import AndroidDevice, DeviceAuthorizationRequest, MobileSession, WebSession, WorkspaceMembership
+from app.db.enums import ApprovalStatus, DeviceStatus, MembershipStatus, WebSessionStatus
+from app.db.models import (
+    AndroidDevice,
+    DeviceAuthorizationRequest,
+    MobileSession,
+    WebSession,
+    WorkspaceMembership,
+)
 from app.main import create_app
 
 
@@ -43,6 +50,39 @@ def _headers(session: dict[str, object]) -> dict[str, str]:
     return {"Authorization": f"Bearer {session['access_token']}"}
 
 
+def _legacy_pending_session(
+    db_engine, source: dict[str, object], public_key_der: str
+) -> dict[str, object]:
+    token = f"legacy-{uuid4()}"
+    now = datetime.now(timezone.utc)
+    key = base64.b64decode(public_key_der)
+    with Session(db_engine) as session:
+        device = AndroidDevice(
+            user_id=UUID(str(source["user"]["id"])),
+            public_key_der=key,
+            fingerprint=hashlib.sha256(key).hexdigest(),
+            label="Legacy pending",
+            status=DeviceStatus.PENDING,
+        )
+        session.add(device)
+        session.flush()
+        session.add(
+            MobileSession(
+                user_id=device.user_id,
+                device_id=device.id,
+                refresh_token_digest=hashlib.sha256(token.encode()).hexdigest(),
+                expires_at=now + timedelta(hours=1),
+            )
+        )
+        session.commit()
+        return {
+            "access_token": token,
+            "refresh_token": token,
+            "device_id": str(device.id),
+            "user": source["user"],
+        }
+
+
 def _ready_workspace(client: TestClient) -> tuple[dict[str, object], dict[str, object]]:
     owner = _login(client, "+8613800138000", "AQID")
     bound = client.post(
@@ -61,10 +101,10 @@ def _ready_workspace(client: TestClient) -> tuple[dict[str, object], dict[str, o
     return owner, partner
 
 
-def test_pending_device_can_list_only_android_devices(db_engine) -> None:
+def test_device_list_returns_only_android_devices(db_engine) -> None:
     client = _client(db_engine)
     _owner, partner = _ready_workspace(client)
-    pending = _login(client, "+8615028180169", "BwgJ")
+    second = _login(client, "+8615028180169", "BwgJ")
 
     with Session(db_engine) as session:
         # A web session is a separate temporary credential and must never be
@@ -88,20 +128,20 @@ def test_pending_device_can_list_only_android_devices(db_engine) -> None:
         session.commit()
         web_session_id = str(web_session.id)
 
-    response = client.get("/api/v1/devices", headers=_headers(pending))
+    response = client.get("/api/v1/devices", headers=_headers(second))
     assert response.status_code == 200, response.text
     devices = response.json()
     assert {item["platform"] for item in devices} == {"ANDROID"}
-    assert {item["status"] for item in devices} == {"VERIFIED", "UNVERIFIED"}
+    assert {item["status"] for item in devices} == {"VERIFIED"}
     assert web_session_id not in {item["id"] for item in devices}
-    assert any(item["is_current"] and item["status"] == "UNVERIFIED" for item in devices)
-    assert {item["can_write"] for item in devices} == {False, True}
+    assert any(item["is_current"] and item["status"] == "VERIFIED" for item in devices)
+    assert {item["can_write"] for item in devices} == {True}
 
 
 def test_authorization_request_is_idempotent_and_visible_to_both_members(db_engine) -> None:
     client = _client(db_engine)
-    owner, _partner = _ready_workspace(client)
-    pending = _login(client, "+8615028180169", "BwgJ")
+    owner, partner = _ready_workspace(client)
+    pending = _legacy_pending_session(db_engine, owner, "BwgJ")
 
     first = client.post(
         "/api/v1/devices/authorization-requests",
@@ -120,7 +160,7 @@ def test_authorization_request_is_idempotent_and_visible_to_both_members(db_engi
 
     incoming = client.get(
         "/api/v1/devices/authorization-requests",
-        headers=_headers(owner),
+        headers=_headers(partner),
     )
     outgoing = client.get(
         "/api/v1/devices/authorization-requests",
@@ -139,8 +179,8 @@ def test_authorization_request_is_idempotent_and_visible_to_both_members(db_engi
 
 def test_active_partner_can_reject_pending_device_request(db_engine) -> None:
     client = _client(db_engine)
-    owner, _partner = _ready_workspace(client)
-    pending = _login(client, "+8615028180169", "Bwga")
+    owner, partner = _ready_workspace(client)
+    pending = _legacy_pending_session(db_engine, owner, "Bwga")
     created = client.post(
         "/api/v1/devices/authorization-requests",
         headers=_headers(pending),
@@ -151,22 +191,23 @@ def test_active_partner_can_reject_pending_device_request(db_engine) -> None:
     request_id = created.json()["id"]
     rejected = client.post(
         f"/api/v1/devices/authorization-requests/{request_id}/reject",
-        headers=_headers(owner),
+        headers=_headers(partner),
     )
 
     assert rejected.status_code == 200, rejected.text
     assert rejected.json() == {"id": request_id, "status": "REJECTED"}
     with Session(db_engine) as session:
-        device = session.get(AndroidDevice, UUID(str(pending["device_id"])))
         request = session.get(DeviceAuthorizationRequest, UUID(request_id))
+        assert request is not None
+        device = session.get(AndroidDevice, request.candidate_device_id)
         assert device is not None and device.status == DeviceStatus.PENDING
-        assert request is not None and request.status == ApprovalStatus.REJECTED
+        assert request.status == ApprovalStatus.REJECTED
 
 
 def test_pending_device_only_sees_its_own_authorization_requests(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
-    owner_pending = _login(client, "+8613800138000", "Bwgb")
+    owner_pending = _legacy_pending_session(db_engine, owner, "Bwgb")
     created = client.post(
         "/api/v1/devices/authorization-requests",
         headers=_headers(owner_pending),
@@ -174,7 +215,7 @@ def test_pending_device_only_sees_its_own_authorization_requests(db_engine) -> N
     )
     assert created.status_code == 201, created.text
 
-    partner_pending = _login(client, "+8615028180169", "Bwg c".replace(" ", ""))
+    partner_pending = _legacy_pending_session(db_engine, partner, "Bwgc")
     response = client.get(
         "/api/v1/devices/authorization-requests",
         headers=_headers(partner_pending),
@@ -206,6 +247,11 @@ def test_active_device_can_revoke_other_device_and_replay_is_conflict(db_engine)
     client = _client(db_engine)
     owner, _partner = _ready_workspace(client)
     other = _login(client, "+8613800138000", "AQIF")
+    with Session(db_engine) as session:
+        other_device = session.get(AndroidDevice, UUID(str(other["device_id"])))
+        assert other_device is not None
+        other_device.status = DeviceStatus.ACTIVE
+        session.commit()
 
     response = client.post(
         f"/api/v1/devices/{other['device_id']}/revoke",
@@ -230,17 +276,29 @@ def test_active_device_can_revoke_other_device_and_replay_is_conflict(db_engine)
     assert repeated.json()["code"] == "device_already_revoked"
 
 
-def test_revoke_invalidates_mobile_sessions_and_pending_authorization_requests(db_engine) -> None:
+def test_revoke_invalidates_all_mobile_sessions_for_other_device(db_engine) -> None:
     client = _client(db_engine)
     owner, _partner = _ready_workspace(client)
     other = _login(client, "+8613800138000", "AQIG")
-
-    authorization = client.post(
-        "/api/v1/devices/authorization-requests",
-        headers=_headers(other),
-        json={"public_key": "AQIG", "label": "secondary"},
-    )
-    assert authorization.status_code == 201, authorization.text
+    _login(client, "+8613800138000", "AQIG")
+    with Session(db_engine) as session:
+        workspace_id = session.scalar(
+            select(WorkspaceMembership.workspace_id).where(
+                WorkspaceMembership.user_id == UUID(str(owner["user"]["id"])),
+                WorkspaceMembership.status == MembershipStatus.ACTIVE,
+            )
+        )
+        assert workspace_id is not None
+        authorization = DeviceAuthorizationRequest(
+            workspace_id=workspace_id,
+            candidate_device_id=UUID(str(other["device_id"])),
+            status=ApprovalStatus.PENDING,
+            safety_code_digest="pending-revoke-digest",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        session.add(authorization)
+        session.commit()
+        authorization_id = authorization.id
 
     response = client.post(
         f"/api/v1/devices/{other['device_id']}/revoke",
@@ -252,12 +310,12 @@ def test_revoke_invalidates_mobile_sessions_and_pending_authorization_requests(d
         device = session.get(AndroidDevice, UUID(str(other["device_id"])))
         assert device is not None
         assert device.status == DeviceStatus.REVOKED
-        mobile_session = session.scalar(
+        mobile_sessions = session.scalars(
             select(MobileSession).where(MobileSession.device_id == device.id)
-        )
-        assert mobile_session is not None
-        assert mobile_session.revoked_at is not None
-        request = session.get(DeviceAuthorizationRequest, UUID(authorization.json()["id"]))
+        ).all()
+        assert len(mobile_sessions) == 2
+        assert all(item.revoked_at is not None for item in mobile_sessions)
+        request = session.get(DeviceAuthorizationRequest, authorization_id)
         assert request is not None
         assert request.status == ApprovalStatus.REVOKED
         assert request.revoked_at is not None
@@ -266,7 +324,7 @@ def test_revoke_invalidates_mobile_sessions_and_pending_authorization_requests(d
 def test_pending_device_cannot_revoke_any_device(db_engine) -> None:
     client = _client(db_engine)
     owner, _partner = _ready_workspace(client)
-    pending = _login(client, "+8613800138000", "AQIH")
+    pending = _legacy_pending_session(db_engine, owner, "AQIH")
 
     response = client.post(
         f"/api/v1/devices/{owner['device_id']}/revoke",

@@ -371,6 +371,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         workspaceId: snapshot.workspaceId,
         requestId: _requestId(),
       );
+      _validateApprovalResult(result, snapshot);
       await _refreshAfterAction(result.cursor);
       _mergeApprovalResult(result);
       return result;
@@ -396,6 +397,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         requestId: _requestId(),
         reason: reason,
       );
+      _validateApprovalResult(result, snapshot);
       await _refreshAfterAction(result.cursor);
       _mergeApprovalResult(result);
       return result;
@@ -417,6 +419,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         workspaceId: snapshot.workspaceId,
         requestId: _requestId(),
       );
+      _validateApprovalResult(result, snapshot);
       await _refreshAfterAction(result.cursor);
       _mergeApprovalResult(result);
       return result;
@@ -597,11 +600,7 @@ class WorkspaceSyncController extends ChangeNotifier {
   void _mergeApprovalResult(ApprovalActionResult result) {
     final current = state.snapshot;
     if (current == null) return;
-    if (result.comment != null &&
-        result.comment!.workspaceId != current.workspaceId) {
-      _setError(const FormatException('comment belongs to another workspace'));
-      return;
-    }
+    _validateApprovalResult(result, current);
     final approvals = [...current.approvalRequests]
       ..removeWhere((item) => item.id == result.approvalRequest.id)
       ..add(result.approvalRequest);
@@ -629,6 +628,23 @@ class WorkspaceSyncController extends ChangeNotifier {
           : current.cursor,
       notify: true,
     );
+  }
+
+  void _validateApprovalResult(
+    ApprovalActionResult result,
+    WorkspaceSnapshot current,
+  ) {
+    final approval = result.approvalRequest;
+    if (approval.workspaceId != current.workspaceId) {
+      throw const FormatException('approval belongs to another workspace');
+    }
+    final comment = result.comment;
+    if (comment == null) return;
+    if (comment.workspaceId != current.workspaceId ||
+        comment.taskId != approval.taskId ||
+        (approval.commentId != null && approval.commentId != comment.id)) {
+      throw const FormatException('comment does not match approval workspace');
+    }
   }
 
   Future<void> _refreshAfterAction(int? cursor) async {

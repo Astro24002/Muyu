@@ -51,6 +51,7 @@ class ApprovalSyncFake implements WorkspaceSyncRepository {
   final request = pendingRequest();
   final task = localTask();
   final List<int> requestedCursors = [];
+  ApprovalActionResult? approvalResult;
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
@@ -96,15 +97,17 @@ class ApprovalSyncFake implements WorkspaceSyncRepository {
     String approvalId, {
     String? workspaceId,
     required String requestId,
-  }) async => ApprovalActionResult(
-    approvalRequest: TaskApprovalRequest.fromJson({
-      ...pendingRequest().toJson(),
-      'status': 'APPROVED',
-      'resolved_cursor': 5,
-    }),
-    task: localTask(title: 'Pending title'),
-    cursor: 5,
-  );
+  }) async =>
+      approvalResult ??
+      ApprovalActionResult(
+        approvalRequest: TaskApprovalRequest.fromJson({
+          ...pendingRequest().toJson(),
+          'status': 'APPROVED',
+          'resolved_cursor': 5,
+        }),
+        task: localTask(title: 'Pending title'),
+        cursor: 5,
+      );
 
   @override
   Stream<WorkspaceChanged> openWorkspaceHints() => const Stream.empty();
@@ -144,6 +147,39 @@ void main() {
     expect(controller.state.snapshot!.tasks.single.title, 'Pending title');
     expect(controller.state.approvalRequests.single.status, 'APPROVED');
     expect(controller.state.cursor, 5);
+  });
+
+  test('approval result rejects an unbound or foreign comment before cursor reconciliation', () async {
+    for (final workspaceId in <String?>[null, 'workspace-foreign']) {
+      final repository = ApprovalSyncFake()
+        ..approvalResult = ApprovalActionResult(
+          approvalRequest: TaskApprovalRequest.fromJson({
+            ...pendingRequest().toJson(),
+            'status': 'APPROVED',
+            'resolved_cursor': 9,
+          }),
+          comment: TaskComment(
+            id: 'comment-1',
+            workspaceId: workspaceId,
+            taskId: 'task-1',
+            authorUserId: 'user-b',
+            body: 'deleted',
+            version: 2,
+          ),
+          cursor: 9,
+        );
+      final controller = WorkspaceSyncController(repository);
+      await controller.refresh();
+
+      await expectLater(
+        controller.approveApproval('approval-1'),
+        throwsA(isA<FormatException>()),
+      );
+
+      expect(repository.requestedCursors, isEmpty);
+      expect(controller.state.cursor, 4);
+      expect(controller.state.approvalRequests, isEmpty);
+    }
   });
 
   test('approval and comment changes parse as typed resources', () {

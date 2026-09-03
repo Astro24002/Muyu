@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -30,6 +30,21 @@ def _workspace(session: Session) -> tuple[User, Workspace]:
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
     return user, workspace
+
+
+def test_create_defaults_due_at_to_fourteen_days_after_creation_time(db_engine) -> None:
+    with Session(db_engine) as session:
+        user, workspace = _workspace(session)
+        created_at = datetime(2026, 9, 3, 10, 30, tzinfo=timezone.utc)
+        task = TaskService(session, now=lambda: created_at).create(
+            workspace.id,
+            user.id,
+            uuid4(),
+            "默认截止时间",
+            quadrant="Q1",
+        )
+
+        assert task.due_at == created_at + timedelta(days=14)
 
 
 def test_create_requires_a_quadrant_and_rejects_null_quadrants(db_engine) -> None:

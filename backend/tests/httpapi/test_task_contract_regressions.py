@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -54,6 +54,9 @@ def test_create_contract_exposes_versions_and_cursor(db_engine) -> None:
     assert body["status"] == "TODO"
     assert body["quadrant"] == "Q1"
     assert body["labels"] == ["工作"]
+    due_at = datetime.fromisoformat(body["due_at"])
+    assert datetime.now(timezone.utc) + timedelta(days=13, hours=23) < due_at
+    assert due_at < datetime.now(timezone.utc) + timedelta(days=14, minutes=1)
     assert body["current_handler_id"]
     assert "assignee_ids" not in body
     assert body["version"] == 1

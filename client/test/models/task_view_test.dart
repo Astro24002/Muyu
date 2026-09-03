@@ -176,31 +176,22 @@ void main() {
     );
   });
 
-  test(
-    'list groups separate overdue, upcoming, unscheduled and terminal tasks',
-    () {
-      final now = DateTime(2026, 8, 31, 12);
-      final groups = TaskView.listGroups([
-        makeTask('past', 'TODO', DateTime(2026, 8, 30, 9)),
-        makeTask('today', 'IN_PROGRESS', DateTime(2026, 8, 31, 18)),
-        makeTask('future', 'BLOCKED', DateTime(2026, 9, 1, 9)),
-        makeTask('none', 'TODO', null),
-        makeTask('done', 'DONE', DateTime(2026, 8, 29)),
-        makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
-      ], now: now);
+  test('list groups omit the obsolete unscheduled section', () {
+    final now = DateTime(2026, 8, 31, 12);
+    final groups = TaskView.listGroups([
+      makeTask('past', 'TODO', DateTime(2026, 8, 30, 9)),
+      makeTask('today', 'IN_PROGRESS', DateTime(2026, 8, 31, 18)),
+      makeTask('future', 'BLOCKED', DateTime(2026, 9, 1, 9)),
+      makeTask('none', 'TODO', null),
+      makeTask('done', 'DONE', DateTime(2026, 8, 29)),
+      makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
+    ], now: now);
 
-      expect(groups.map((group) => group.key), [
-        'past',
-        'upcoming',
-        'unscheduled',
-        'terminal',
-      ]);
-      expect(groups[0].tasks.map((item) => item.id), ['past']);
-      expect(groups[1].tasks.map((item) => item.id), ['today', 'future']);
-      expect(groups[2].tasks.map((item) => item.id), ['none']);
-      expect(groups[3].tasks.map((item) => item.id), ['done', 'failed']);
-    },
-  );
+    expect(groups.map((group) => group.key), ['past', 'upcoming', 'terminal']);
+    expect(groups[0].tasks.map((item) => item.id), ['past']);
+    expect(groups[1].tasks.map((item) => item.id), ['today', 'future', 'none']);
+    expect(groups[2].tasks.map((item) => item.id), ['done', 'failed']);
+  });
 
   test('list groups keep legacy COMPLETED tasks out of active sections', () {
     final groups = TaskView.listGroups([
@@ -209,8 +200,7 @@ void main() {
 
     expect(groups[0].tasks, isEmpty);
     expect(groups[1].tasks, isEmpty);
-    expect(groups[2].tasks, isEmpty);
-    expect(groups[3].tasks.map((item) => item.id), ['legacy-completed']);
+    expect(groups[2].tasks.map((item) => item.id), ['legacy-completed']);
   });
 
   test('list groups filter terminal visibility and apply selected label', () {

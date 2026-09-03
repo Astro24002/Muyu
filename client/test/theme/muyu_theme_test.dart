@@ -23,6 +23,10 @@ void main() {
     expect(extension.coralSurface, const Color(0xfff3dfd7));
     expect(extension.sync, const Color(0xff52a083));
     expect(extension.disabled, const Color(0xffa3afaa));
+    expect(extension.quadrantQ1, const Color(0xffb04a3a));
+    expect(extension.quadrantQ2, const Color(0xffc47a20));
+    expect(extension.quadrantQ3, const Color(0xff2e7663));
+    expect(extension.quadrantQ4, const Color(0xff5f6f8a));
   });
 
   test('exposes the fixed spacing scale and themed FAB color', () {

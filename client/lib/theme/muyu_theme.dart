@@ -8,6 +8,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
     required this.coralSurface,
     required this.sync,
     required this.disabled,
+    required this.quadrantQ1,
+    required this.quadrantQ2,
+    required this.quadrantQ3,
+    required this.quadrantQ4,
   });
 
   final Color focusSurface;
@@ -15,6 +19,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
   final Color coralSurface;
   final Color sync;
   final Color disabled;
+  final Color quadrantQ1;
+  final Color quadrantQ2;
+  final Color quadrantQ3;
+  final Color quadrantQ4;
 
   @override
   MuyuThemeExtension copyWith({
@@ -23,12 +31,20 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
     Color? coralSurface,
     Color? sync,
     Color? disabled,
+    Color? quadrantQ1,
+    Color? quadrantQ2,
+    Color? quadrantQ3,
+    Color? quadrantQ4,
   }) => MuyuThemeExtension(
     focusSurface: focusSurface ?? this.focusSurface,
     coral: coral ?? this.coral,
     coralSurface: coralSurface ?? this.coralSurface,
     sync: sync ?? this.sync,
     disabled: disabled ?? this.disabled,
+    quadrantQ1: quadrantQ1 ?? this.quadrantQ1,
+    quadrantQ2: quadrantQ2 ?? this.quadrantQ2,
+    quadrantQ3: quadrantQ3 ?? this.quadrantQ3,
+    quadrantQ4: quadrantQ4 ?? this.quadrantQ4,
   );
 
   @override
@@ -40,6 +56,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
       coralSurface: Color.lerp(coralSurface, other.coralSurface, t)!,
       sync: Color.lerp(sync, other.sync, t)!,
       disabled: Color.lerp(disabled, other.disabled, t)!,
+      quadrantQ1: Color.lerp(quadrantQ1, other.quadrantQ1, t)!,
+      quadrantQ2: Color.lerp(quadrantQ2, other.quadrantQ2, t)!,
+      quadrantQ3: Color.lerp(quadrantQ3, other.quadrantQ3, t)!,
+      quadrantQ4: Color.lerp(quadrantQ4, other.quadrantQ4, t)!,
     );
   }
 }
@@ -70,6 +90,10 @@ const _error = Color(0xffa33b2e);
 const _errorSurface = Color(0xfffbeae7);
 const _sync = Color(0xff52a083);
 const _disabled = Color(0xffa3afaa);
+const _quadrantQ1 = Color(0xffb04a3a);
+const _quadrantQ2 = Color(0xffc47a20);
+const _quadrantQ3 = Color(0xff2e7663);
+const _quadrantQ4 = Color(0xff5f6f8a);
 
 TextTheme _muyuTextTheme() => const TextTheme(
   titleLarge: TextStyle(
@@ -230,6 +254,10 @@ ThemeData muyuLightTheme() {
         coralSurface: _coralSurface,
         sync: _sync,
         disabled: _disabled,
+        quadrantQ1: _quadrantQ1,
+        quadrantQ2: _quadrantQ2,
+        quadrantQ3: _quadrantQ3,
+        quadrantQ4: _quadrantQ4,
       ),
     ],
   );

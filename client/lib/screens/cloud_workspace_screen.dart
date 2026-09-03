@@ -282,7 +282,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
       CheckedPopupMenuItem<_TaskListMenuAction>(
         value: _TaskListMenuAction.toggleFailed,
         checked: _showFailed,
-        child: const Text('显示已失败任务'),
+        child: const Text('显示已取消任务'),
       ),
     ],
   );
@@ -524,61 +524,103 @@ class _CreateTaskBar extends StatefulWidget {
 
 class _CreateTaskBarState extends State<_CreateTaskBar> {
   final _title = TextEditingController();
-  final _label = TextEditingController();
   final _labels = <String>[];
+  DateTime? _dueAt;
   String? _selectedQuadrant;
-  String? _labelError;
   String? _createError;
   bool _creating = false;
-
-  static const _quadrantLabels = <String, String>{
-    'Q1': 'Q1 重要且紧急',
-    'Q2': 'Q2 重要不紧急',
-    'Q3': 'Q3 紧急不重要',
-    'Q4': 'Q4 不重要不紧急',
-  };
-  static const _maxLabelTotalLength = 320;
 
   @override
   void dispose() {
     _title.dispose();
-    _label.dispose();
     super.dispose();
   }
 
-  void _addLabel() {
-    final label = _label.text.trim();
-    if (label.isEmpty) return;
-    final normalized = label.toLowerCase();
-    setState(() => _labelError = null);
-    if (label.runes.length > 32) {
-      setState(() => _labelError = '标签不能超过 32 个字符');
-      return;
-    }
-    if (_labels.length >= 10) {
-      setState(() => _labelError = '最多添加 10 个标签');
-      return;
-    }
-    final totalLength = _labels.fold<int>(
-      0,
-      (total, item) => total + item.runes.length,
+  Future<void> _pickDueAt() async {
+    final initial = _dueAt ?? DateTime.now().add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime(initial.year, initial.month, initial.day),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
     );
-    if (totalLength + label.runes.length > _maxLabelTotalLength) {
-      setState(() => _labelError = '标签总长度不能超过 320 个字符');
-      return;
-    }
-    if (_labels.any((item) => item.toLowerCase() == normalized)) {
-      _label.clear();
-      return;
-    }
+    if (!mounted || date == null) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (!mounted || time == null) return;
+    setState(
+      () => _dueAt = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      ),
+    );
+  }
+
+  Future<void> _pickLabels() async {
+    final picked = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _TaskLabelPicker(
+        initialLabels: _labels,
+        availableLabels: _availableLabels(),
+      ),
+    );
+    if (!mounted || picked == null) return;
     setState(() {
-      _labels.add(label);
-      _label.clear();
+      _labels
+        ..clear()
+        ..addAll(picked);
     });
   }
 
-  void _removeLabel(String label) {
-    setState(() => _labels.remove(label));
+  Future<void> _pickQuadrant() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (_) => _TaskQuadrantPicker(selectedQuadrant: _selectedQuadrant),
+    );
+    if (!mounted || picked == null) return;
+    setState(() => _selectedQuadrant = picked);
+  }
+
+  List<String> _availableLabels() {
+    final labels = <String>{};
+    for (final task
+        in widget.sync.state.snapshot?.tasks ?? const <TaskItem>[]) {
+      labels.addAll(task.labels);
+    }
+    labels.addAll(_labels);
+    final values = labels.toList()
+      ..sort((left, right) => left.compareTo(right));
+    return values;
+  }
+
+  String _dueText(DateTime value) {
+    final local = value.toLocal();
+    const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
+    final weekday = weekdays[local.weekday - 1];
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$month月$day日 周$weekday $hour:$minute';
+  }
+
+  Color _quadrantColor(BuildContext context, String? quadrant) {
+    final extension = Theme.of(context).extension<MuyuThemeExtension>();
+    return switch (quadrant) {
+      'Q1' => extension?.quadrantQ1 ?? Theme.of(context).colorScheme.error,
+      'Q2' => extension?.quadrantQ2 ?? Theme.of(context).colorScheme.primary,
+      'Q3' => extension?.quadrantQ3 ?? Theme.of(context).colorScheme.primary,
+      'Q4' => extension?.quadrantQ4 ?? Theme.of(context).colorScheme.primary,
+      _ => Theme.of(context).colorScheme.onSurfaceVariant,
+    };
   }
 
   Future<void> _createTask() async {
@@ -593,13 +635,13 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
         title,
         quadrant: quadrant,
         labels: List.unmodifiable(_labels),
+        dueAt: _dueAt?.toUtc().toIso8601String(),
       );
       if (mounted) {
         _title.clear();
-        _label.clear();
         _labels.clear();
+        _dueAt = null;
         _selectedQuadrant = null;
-        _labelError = null;
         _createError = null;
         setState(() => _creating = false);
         Navigator.of(context).pop();
@@ -645,6 +687,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
             key: const Key('task-title-input'),
             controller: _title,
             enabled: widget.enabled && !_creating,
+            autofocus: true,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _createTask(),
             decoration: InputDecoration(
@@ -672,66 +715,322 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: MuyuSpacing.sm),
-          DropdownButtonFormField<String>(
-            key: const Key('task-create-quadrant-select'),
-            initialValue: _selectedQuadrant,
-            decoration: const InputDecoration(labelText: '四象限（必选）'),
-            hint: const Text('请选择象限'),
-            items: _quadrantLabels.entries
-                .map(
-                  (entry) => DropdownMenuItem(
-                    value: entry.key,
-                    child: Text(entry.value),
-                  ),
-                )
-                .toList(),
-            onChanged: !widget.enabled || _creating
-                ? null
-                : (value) => setState(() => _selectedQuadrant = value),
+          Row(
+            children: [
+              Flexible(
+                fit: FlexFit.loose,
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: _dueAt == null
+                      ? IconButton(
+                          key: const Key('task-create-due-button'),
+                          tooltip: '选择截止时间',
+                          onPressed: widget.enabled && !_creating
+                              ? _pickDueAt
+                              : null,
+                          style: IconButton.styleFrom(
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            foregroundColor: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            shape: const CircleBorder(),
+                          ),
+                          icon: const Icon(Icons.schedule_outlined),
+                        )
+                      : FilledButton.icon(
+                          key: const Key('task-create-due-button'),
+                          onPressed: widget.enabled && !_creating
+                              ? _pickDueAt
+                              : null,
+                          icon: const Icon(Icons.schedule, size: 18),
+                          label: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _dueText(_dueAt!),
+                              maxLines: 1,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            foregroundColor: Theme.of(context)
+                                .colorScheme
+                                .onSurface,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            minimumSize: const Size(0, 40),
+                            shape: const StadiumBorder(),
+                          ),
+                        ),
+                ),
+              ),
+              IconButton(
+                key: const Key('task-create-label-button'),
+                tooltip: '选择标签',
+                onPressed: widget.enabled && !_creating ? _pickLabels : null,
+                style: IconButton.styleFrom(
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
+                  foregroundColor: Theme.of(context).colorScheme.primary,
+                  shape: const CircleBorder(),
+                ),
+                icon: Icon(
+                  _labels.isEmpty ? Icons.star_border : Icons.star,
+                  color: _labels.isEmpty
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              IconButton(
+                key: const Key('task-create-quadrant-button'),
+                tooltip: '选择四象限（必选）',
+                onPressed: widget.enabled && !_creating ? _pickQuadrant : null,
+                style: IconButton.styleFrom(
+                  backgroundColor: _selectedQuadrant == null
+                      ? Theme.of(context).colorScheme.surfaceContainerHighest
+                      : _quadrantColor(context, _selectedQuadrant),
+                  foregroundColor: _selectedQuadrant == null
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.onPrimary,
+                  shape: const CircleBorder(),
+                ),
+                icon: Icon(
+                  _selectedQuadrant == null
+                      ? Icons.priority_high_outlined
+                      : Icons.priority_high,
+                  color: _selectedQuadrant == null
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
+            ],
+          ),
+          if (_labels.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: MuyuSpacing.xs),
+              child: Wrap(
+                spacing: MuyuSpacing.xs,
+                runSpacing: MuyuSpacing.xs,
+                children: [
+                  for (final label in _labels)
+                    InputChip(
+                      key: Key('task-create-label-chip-$label'),
+                      avatar: const Icon(Icons.star, size: 16),
+                      label: Text(label),
+                      onDeleted: widget.enabled && !_creating
+                          ? () => setState(() => _labels.remove(label))
+                          : null,
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TaskLabelPicker extends StatefulWidget {
+  const _TaskLabelPicker({
+    required this.initialLabels,
+    required this.availableLabels,
+  });
+
+  final List<String> initialLabels;
+  final List<String> availableLabels;
+
+  @override
+  State<_TaskLabelPicker> createState() => _TaskLabelPickerState();
+}
+
+class _TaskLabelPickerState extends State<_TaskLabelPicker> {
+  static const _maxLabelTotalLength = 320;
+
+  late final TextEditingController _label;
+  late final List<String> _availableLabels;
+  final _selectedLabels = <String>[];
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _label = TextEditingController();
+    _availableLabels = [...widget.availableLabels];
+    _selectedLabels.addAll(widget.initialLabels);
+  }
+
+  @override
+  void dispose() {
+    _label.dispose();
+    super.dispose();
+  }
+
+  void _addLabel() {
+    final label = _label.text.trim();
+    if (label.isEmpty) return;
+    final normalized = label.toLowerCase();
+    if (label.runes.length > 32) {
+      setState(() => _error = '标签不能超过 32 个字符');
+      return;
+    }
+    if (_selectedLabels.length >= 10) {
+      setState(() => _error = '最多添加 10 个标签');
+      return;
+    }
+    final totalLength = _selectedLabels.fold<int>(
+      0,
+      (total, item) => total + item.runes.length,
+    );
+    if (totalLength + label.runes.length > _maxLabelTotalLength) {
+      setState(() => _error = '标签总长度不能超过 320 个字符');
+      return;
+    }
+    if (_selectedLabels.any((item) => item.toLowerCase() == normalized)) {
+      _label.clear();
+      return;
+    }
+    setState(() {
+      _error = null;
+      _selectedLabels.add(label);
+      if (!_availableLabels.any((item) => item.toLowerCase() == normalized)) {
+        _availableLabels.add(label);
+        _availableLabels.sort();
+      }
+      _label.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.fromLTRB(
+      MuyuSpacing.lg,
+      MuyuSpacing.md,
+      MuyuSpacing.lg,
+      MuyuSpacing.lg + MediaQuery.viewInsetsOf(context).bottom,
+    ),
+    child: SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '选择标签',
+            style: Theme.of(context).textTheme.titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: MuyuSpacing.sm),
           TextField(
             key: const Key('task-create-label-input'),
             controller: _label,
-            enabled: widget.enabled && !_creating && _labels.length < 10,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _addLabel(),
             decoration: InputDecoration(
-              labelText: '标签（可选）',
-              errorText: _labelError,
+              labelText: '添加分类',
+              errorText: _error,
               suffixIcon: IconButton(
                 key: const Key('task-create-label-add'),
                 tooltip: '添加标签',
-                onPressed: widget.enabled && !_creating && _labels.length < 10
-                    ? _addLabel
-                    : null,
+                onPressed: _addLabel,
                 icon: const Icon(Icons.add),
               ),
             ),
           ),
-          if (_labels.isNotEmpty)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(top: MuyuSpacing.xs),
-                child: Wrap(
-                  spacing: MuyuSpacing.xs,
-                  runSpacing: MuyuSpacing.xs,
-                  children: [
-                    for (final label in _labels)
-                      InputChip(
-                        key: Key('task-create-label-chip-$label'),
-                        label: Text(label),
-                        onDeleted: widget.enabled && !_creating
-                            ? () => _removeLabel(label)
-                            : null,
-                      ),
-                  ],
-                ),
-              ),
+          if (_availableLabels.isNotEmpty) ...[
+            const SizedBox(height: MuyuSpacing.sm),
+            Wrap(
+              spacing: MuyuSpacing.xs,
+              runSpacing: MuyuSpacing.xs,
+              children: [
+                for (final label in _availableLabels)
+                  FilterChip(
+                    key: Key('task-create-label-option-$label'),
+                    label: Text(label),
+                    selected: _selectedLabels.contains(label),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          if (_selectedLabels.length < 10) {
+                            _selectedLabels.add(label);
+                          }
+                        } else {
+                          _selectedLabels.remove(label);
+                        }
+                      });
+                    },
+                  ),
+              ],
             ),
+          ],
+          const SizedBox(height: MuyuSpacing.md),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              key: const Key('task-create-label-done'),
+              onPressed: () =>
+                  Navigator.of(context)
+                      .pop(List<String>.unmodifiable(_selectedLabels)),
+              icon: const Icon(Icons.check),
+              label: const Text('完成'),
+            ),
+          ),
         ],
       ),
+    ),
+  );
+}
+
+class _TaskQuadrantPicker extends StatelessWidget {
+  const _TaskQuadrantPicker({required this.selectedQuadrant});
+
+  final String? selectedQuadrant;
+
+  static const _quadrants = <String, String>{
+    'Q1': 'Q1 重要且紧急',
+    'Q2': 'Q2 重要不紧急',
+    'Q3': 'Q3 紧急不重要',
+    'Q4': 'Q4 不重要不紧急',
+  };
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      MuyuSpacing.lg,
+      MuyuSpacing.md,
+      MuyuSpacing.lg,
+      MuyuSpacing.lg,
+    ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '选择四象限（必选）',
+          style: Theme.of(context).textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: MuyuSpacing.sm),
+        RadioGroup<String>(
+          groupValue: selectedQuadrant,
+          onChanged: (value) {
+            if (value != null) Navigator.of(context).pop(value);
+          },
+          child: Column(
+            children: [
+              for (final entry in _quadrants.entries)
+                RadioListTile<String>(
+                  key: Key('task-create-quadrant-option-${entry.key}'),
+                  value: entry.key,
+                  title: Text(entry.value),
+                ),
+            ],
+          ),
+        ),
+      ],
     ),
   );
 }

@@ -239,7 +239,11 @@ def test_home_sorts_current_tasks_by_due_urgency_then_update_time_and_id(db_engi
         session.get(Task, UUID(str(overdue["id"]))).updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
         session.get(Task, UUID(str(due_newer["id"]))).updated_at = datetime(2030, 1, 2, tzinfo=timezone.utc)
         session.get(Task, UUID(str(due_older["id"]))).updated_at = datetime(2030, 1, 1, tzinfo=timezone.utc)
-        session.get(Task, UUID(str(no_due["id"]))).updated_at = datetime(2040, 1, 1, tzinfo=timezone.utc)
+        # Keep this fixture as a legacy row so the null-date compatibility
+        # ordering remains covered after new creates receive a default date.
+        no_due_task = session.get(Task, UUID(str(no_due["id"])))
+        no_due_task.due_at = None
+        no_due_task.updated_at = datetime(2040, 1, 1, tzinfo=timezone.utc)
         session.commit()
 
     response = client.get("/api/v1/home", headers=headers)

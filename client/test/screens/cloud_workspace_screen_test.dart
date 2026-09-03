@@ -18,6 +18,7 @@ import 'package:muyu_client/screens/cloud_workspace_screen.dart';
 import 'package:muyu_client/screens/my_profile_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
+import 'package:muyu_client/theme/muyu_theme.dart';
 import 'package:muyu_client/workspace/device_authorization_repository.dart';
 
 TaskItem task(
@@ -61,6 +62,7 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   String? lastTitle;
   String? lastQuadrant;
   List<String>? lastLabels;
+  String? lastDueAt;
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
@@ -95,6 +97,7 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     lastTitle = title;
     lastQuadrant = quadrant;
     lastLabels = List.of(labels);
+    lastDueAt = dueAt;
     if (createCompleter != null) await createCompleter!.future;
     if (failCreate) throw Exception('create failed');
     final created = task(
@@ -366,6 +369,7 @@ void main() {
     final sync = await readyController(repo);
     await tester.pumpWidget(
       MaterialApp(
+        theme: muyuLightTheme(),
         home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
       ),
     );
@@ -382,7 +386,7 @@ void main() {
           .onPressed,
       isNull,
     );
-    await tester.tap(find.byKey(const Key('task-create-quadrant-select')));
+    await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Q2 重要不紧急').last);
     await tester.pump();
@@ -393,6 +397,97 @@ void main() {
     expect(repo.lastQuadrant, 'Q2');
     expect(repo.lastLabels, isEmpty);
     expect(find.text('Buy milk'), findsOneWidget);
+  });
+
+  testWidgets('creation icon controls collect deadline labels and quadrant', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final repo = FakeTaskRepository()
+      ..tasks.add(task('existing', 'Existing', labels: const ['工作']));
+    final sync = await readyController(repo);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: muyuLightTheme(),
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('create-task-fab')));
+    await tester.pumpAndSettle();
+    final editableTitle = find.descendant(
+      of: find.byKey(const Key('task-title-input')),
+      matching: find.byType(EditableText),
+    );
+    expect(
+      tester.widget<EditableText>(editableTitle).focusNode.hasFocus,
+      isTrue,
+    );
+    await tester.enterText(find.byKey(const Key('task-title-input')), 'Plan');
+
+    final labelButtonBeforeDue = tester.getTopLeft(
+      find.byKey(const Key('task-create-label-button')),
+    );
+    expect(labelButtonBeforeDue.dx, lessThan(140));
+
+    await tester.tap(find.byKey(const Key('task-create-due-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DatePickerDialog), findsOneWidget);
+    await tester.tap(find.text('OK').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(TimePickerDialog), findsOneWidget);
+    await tester.tap(find.text('OK').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('task-create-label-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('选择标签'), findsOneWidget);
+    expect(find.text('工作'), findsOneWidget);
+    await tester.tap(find.text('工作').last);
+    await tester.tap(find.byKey(const Key('task-create-label-done')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Q2 重要不紧急').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('task-create-due-button')),
+        matching: find.textContaining('月'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('task-create-due-button')),
+        matching: find.textContaining('日 周'),
+      ),
+      findsOneWidget,
+    );
+    final quadrantButton = tester.widget<IconButton>(
+      find.byKey(const Key('task-create-quadrant-button')),
+    );
+    final quadrantIcon = quadrantButton.icon as Icon;
+    expect(quadrantIcon.color, muyuLightTheme().colorScheme.onPrimary);
+    expect(
+      quadrantButton.style?.backgroundColor?.resolve(<WidgetState>{}),
+      muyuLightTheme().extension<MuyuThemeExtension>()!.quadrantQ2,
+    );
+    expect(find.byKey(const Key('task-create-quadrant-chip')), findsNothing);
+    await tester.tap(find.byKey(const Key('create-task-button')));
+    await tester.pumpAndSettle();
+
+    expect(repo.lastTitle, 'Plan');
+    expect(repo.lastQuadrant, 'Q2');
+    expect(repo.lastLabels, ['工作']);
+    expect(repo.lastDueAt, isNotNull);
   });
 
   testWidgets('create FAB opens after the initial stale sync is refreshed', (
@@ -440,7 +535,7 @@ void main() {
         'Keep me',
       );
       await tester.pump();
-      await tester.tap(find.byKey(const Key('task-create-quadrant-select')));
+      await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Q1 重要且紧急').last);
       await tester.pump();
@@ -656,7 +751,7 @@ void main() {
     expect(find.text('截止时间'), findsOneWidget);
     expect(find.text('显示副标题'), findsOneWidget);
     expect(find.text('显示已完成任务'), findsOneWidget);
-    expect(find.text('显示已失败任务'), findsOneWidget);
+    expect(find.text('显示已取消任务'), findsOneWidget);
     expect(find.text('任务审批'), findsNothing);
     expect(find.text('批量编辑'), findsNothing);
     expect(find.text('刷新'), findsNothing);
@@ -698,7 +793,7 @@ void main() {
     },
   );
 
-  testWidgets('清单 renders four groups and a floating create action', (
+  testWidgets('清单 renders dated groups and a floating create action', (
     tester,
   ) async {
     final repo = FakeTaskRepository()
@@ -720,7 +815,7 @@ void main() {
     );
     expect(
       find.byKey(const Key('task-section-header-unscheduled')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const Key('task-section-header-terminal')),

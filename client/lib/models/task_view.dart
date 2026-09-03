@@ -153,9 +153,8 @@ class TaskView {
     });
     final upcoming = active.where((task) {
       final due = task.dueAt?.toLocal();
-      return due != null && !_dateOnly(due).isBefore(today);
+      return due == null || !_dateOnly(due).isBefore(today);
     });
-    final unscheduled = active.where((task) => task.dueAt == null);
     return [
       TaskListGroup(
         key: 'past',
@@ -167,11 +166,6 @@ class TaskView {
         key: 'upcoming',
         title: '今天 / 即将到期',
         tasks: _sortForList(upcoming, sort),
-      ),
-      TaskListGroup(
-        key: 'unscheduled',
-        title: '无时间',
-        tasks: _sortForList(unscheduled, sort),
       ),
       TaskListGroup(
         key: 'terminal',

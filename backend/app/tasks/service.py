@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import UUID, uuid4
 
@@ -33,6 +33,7 @@ ALLOWED_PROGRESS = {20, 40, 60, 80}
 MAX_TASK_LABELS = 10
 MAX_TASK_LABEL_LENGTH = 32
 MAX_TASK_LABEL_CHARS = 320
+DEFAULT_TASK_DUE_DAYS = 14
 TRANSITIONS = {
     "TODO": {"IN_PROGRESS", "BLOCKED", "CANCELLED"},
     "IN_PROGRESS": {"BLOCKED", "REVIEW", "CANCELLED"},
@@ -128,6 +129,8 @@ class TaskService:
             if existing_task is None:
                 raise TaskConflictError("not_found", "task not found")
             return self._replay_operation(existing, fingerprint, existing_task)
+        if due_at is None:
+            due_at = self.now() + timedelta(days=DEFAULT_TASK_DUE_DAYS)
         task = Task(
             workspace_id=workspace_id,
             task_number=TaskNumberAllocator().allocate(self.session, self.now()),

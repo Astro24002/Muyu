@@ -219,9 +219,12 @@ void main() {
       isNull,
     );
 
-    await tester.tap(find.byKey(const Key('task-create-quadrant-select')));
+    await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Q2 重要不紧急').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('task-create-label-button')));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('task-create-label-input')),
       '工作',
@@ -232,6 +235,8 @@ void main() {
       '婚礼',
     );
     await tester.tap(find.byKey(const Key('task-create-label-add')));
+    await tester.tap(find.byKey(const Key('task-create-label-done')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('create-task-button')));
     await tester.pumpAndSettle();
 

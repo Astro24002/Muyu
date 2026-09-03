@@ -61,6 +61,48 @@ def test_non_owner_label_patch_is_pending_then_applied_as_one_array(db_engine) -
     assert approved.json()["task"]["labels"] == ["工作", "婚礼", "党员"]
 
 
+def test_deadline_cannot_be_cleared_by_owner_or_partner_over_http(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=_headers(owner),
+        json={
+            "request_id": str(uuid4()),
+            "title": "Deadline is required",
+            "quadrant": "Q1",
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    due_at = task["due_at"]
+
+    owner_clear = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=_headers(owner),
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"due_at": None},
+            "base_field_versions": {"due_at": task["field_versions"]["due_at"]},
+        },
+    )
+    assert owner_clear.status_code == 422, owner_clear.text
+    assert owner_clear.json()["code"] == "invalid_request"
+
+    partner_clear = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=_headers(partner),
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"due_at": None},
+            "base_field_versions": {"due_at": task["field_versions"]["due_at"]},
+        },
+    )
+    assert partner_clear.status_code == 403, partner_clear.text
+    assert partner_clear.json()["code"] == "approval_not_allowed"
+    assert client.get(f"/api/v1/tasks/{task['id']}", headers=_headers(owner)).json()["due_at"] == due_at
+
+
 def test_stale_label_approval_is_conflicted_without_partial_application(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)

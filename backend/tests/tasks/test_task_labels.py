@@ -152,3 +152,55 @@ def test_patch_rejects_null_labels_instead_of_treating_it_as_an_empty_array(db_e
         assert error.value.code == "invalid_request"
         session.rollback()
         assert session.get(Task, task.id).labels == ["工作"]
+
+
+def test_patch_rejects_clearing_the_task_deadline(db_engine) -> None:
+    with Session(db_engine) as session:
+        user, workspace = _workspace(session)
+        task = TaskService(session).create(
+            workspace.id,
+            user.id,
+            uuid4(),
+            "截止时间不可清空",
+            quadrant="Q1",
+        )
+        session.commit()
+        original_due_at = task.due_at
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).patch(
+                workspace.id,
+                user.id,
+                task.id,
+                uuid4(),
+                {"due_at": None},
+                {"due_at": 1},
+            )
+
+        assert error.value.code == "invalid_request"
+        session.rollback()
+        assert session.get(Task, task.id).due_at == original_due_at
+
+
+def test_patch_parses_iso_task_deadline_values(db_engine) -> None:
+    with Session(db_engine) as session:
+        user, workspace = _workspace(session)
+        task = TaskService(session).create(
+            workspace.id,
+            user.id,
+            uuid4(),
+            "更新截止时间",
+            quadrant="Q1",
+        )
+        session.commit()
+
+        updated = TaskService(session).patch(
+            workspace.id,
+            user.id,
+            task.id,
+            uuid4(),
+            {"due_at": "2026-09-20T18:30:00+00:00"},
+            {"due_at": 1},
+        )
+
+        assert updated.due_at == datetime(2026, 9, 20, 18, 30, tzinfo=timezone.utc)

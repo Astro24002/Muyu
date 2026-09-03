@@ -39,6 +39,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   bool _saving = false;
   bool _commenting = false;
   String? _pendingMessage;
+  String? _formError;
 
   @override
   void initState() {
@@ -196,12 +197,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       return;
     }
     final current = _current;
+    final dueAt = _dateValue(_dueAt.text);
+    final dueChanged = dueAt != current.dueAt?.toIso8601String();
+    if (dueChanged && dueAt == null) {
+      setState(() => _formError = '截止时间不能为空，请选择截止时间');
+      return;
+    }
+    if (_formError != null) setState(() => _formError = null);
     final fields = <String, Object?>{
       if (title != current.title) 'title': title,
       if (_description.text.trim() != current.description)
         'description': _description.text.trim(),
-      if (_dateValue(_dueAt.text) != current.dueAt?.toIso8601String())
-        'due_at': _dateValue(_dueAt.text),
+      if (dueChanged) 'due_at': dueAt,
       if (_dateValue(_plannedStartAt.text) !=
           current.plannedStartAt?.toIso8601String())
         'planned_start_at': _dateValue(_plannedStartAt.text),
@@ -602,6 +609,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
             if (_handlerError != null)
               Text(_handlerError!, key: const Key('task-handler-error')),
+            if (_formError != null)
+              Text(_formError!, key: const Key('task-form-error')),
             Text(
               task.taskNumber.isEmpty ? '任务' : '任务编号：${task.taskNumber}',
               key: const Key('task-number'),
@@ -708,7 +717,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               key: const Key('task-detail-due-at'),
               controller: _dueAt,
               enabled: widget.canWrite,
-              decoration: const InputDecoration(labelText: '截止时间（ISO 8601，可选）'),
+              decoration: const InputDecoration(labelText: '截止时间（ISO 8601，必填）'),
             ),
             const SizedBox(height: MuyuSpacing.sm),
             TextField(

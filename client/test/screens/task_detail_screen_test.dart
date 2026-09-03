@@ -11,6 +11,7 @@ TaskItem detailTask({
   String status = 'TODO',
   String currentHandlerId = 'user-1',
   String? resumeHandlerId,
+  DateTime? dueAt,
 }) => TaskItem(
   id: 'task-1',
   parentTaskId: null,
@@ -20,7 +21,7 @@ TaskItem detailTask({
   currentHandlerId: currentHandlerId,
   quadrant: 'Q1',
   plannedStartAt: null,
-  dueAt: null,
+  dueAt: dueAt,
   estimatedMinutes: null,
   completedAt: null,
   createdBy: 'user-1',
@@ -48,8 +49,8 @@ class RecordingRepository implements WorkspaceSyncRepository {
     cursor: 1,
     tasks: [detailTask()],
     members: const [
-      {'user_id': 'user-1'},
-      {'user_id': 'user-2'},
+      {'user_id': 'user-1', 'display_name': '15028180169'},
+      {'user_id': 'user-2', 'display_name': '小雨'},
     ],
     conflicts: const [
       {'id': 'conflict-1', 'task_id': 'task-1', 'status': 'OPEN'},
@@ -146,6 +147,29 @@ class RecordingRepository implements WorkspaceSyncRepository {
 }
 
 void main() {
+  testWidgets('shows member usernames in the handler selector', (tester) async {
+    final repository = RecordingRepository();
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: detailTask(), sync: sync),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('task-handler-select')));
+    await tester.tap(find.byKey(const Key('task-handler-select')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('15028180169'), findsWidgets);
+    expect(find.text('小雨'), findsOneWidget);
+    expect(find.text('user-1'), findsNothing);
+  });
+
   testWidgets(
     'detail actions use current status version and expose comment/conflict controls',
     (tester) async {
@@ -197,6 +221,52 @@ void main() {
       );
     },
   );
+
+  testWidgets('does not allow an existing task deadline to be cleared', (
+    tester,
+  ) async {
+    final task = detailTask(dueAt: DateTime.utc(2026, 9, 10, 18));
+    final repository = RecordingRepository();
+    final sync = WorkspaceSyncController(repository);
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1'},
+          {'user_id': 'user-2'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.ensureVisible(find.byKey(const Key('task-detail-due-at')));
+    await tester.enterText(find.byKey(const Key('task-detail-due-at')), '');
+    await tester.ensureVisible(find.byKey(const Key('task-save-button')));
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.updatedFields, isNull);
+    expect(
+      find.byKey(const Key('task-form-error'), skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const Key('task-form-error'), skipOffstage: false),
+          )
+          .data,
+      '截止时间不能为空，请选择截止时间',
+    );
+  });
 
   testWidgets('keeps a revoked current handler visible but disabled', (
     tester,

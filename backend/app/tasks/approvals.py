@@ -792,6 +792,11 @@ class TaskApprovalService:
         if request_type == TaskApprovalRequestType.TASK_UPDATE:
             if not changes or set(changes) - TASK_UPDATE_FIELDS or set(changes) != set(versions):
                 raise TaskApprovalError("approval_not_allowed", "task update fields and versions are invalid")
+            if "due_at" in changes and (
+                changes["due_at"] is None
+                or (isinstance(changes["due_at"], str) and not changes["due_at"].strip())
+            ):
+                raise TaskApprovalError("approval_not_allowed", "due_at cannot be cleared")
             if "progress" in changes and changes["progress"] not in {None, 20, 40, 60, 80}:
                 raise TaskApprovalError("approval_not_allowed", "progress must be 20, 40, 60, or 80")
             if "labels" in changes:

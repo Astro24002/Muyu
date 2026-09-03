@@ -170,6 +170,22 @@ class TaskService:
         unknown = set(changes) - MUTABLE_FIELDS
         if unknown:
             raise TaskConflictError("invalid_request", f"unknown task fields: {sorted(unknown)}")
+        if "due_at" in changes and (
+            changes["due_at"] is None
+            or (isinstance(changes["due_at"], str) and not changes["due_at"].strip())
+        ):
+            raise TaskConflictError("invalid_request", "due_at cannot be cleared")
+        for field in ("due_at", "planned_start_at"):
+            value = changes.get(field)
+            if value is None or isinstance(value, datetime):
+                continue
+            if isinstance(value, str):
+                try:
+                    changes[field] = datetime.fromisoformat(value)
+                except ValueError as error:
+                    raise TaskConflictError("invalid_request", f"invalid {field}") from error
+                continue
+            raise TaskConflictError("invalid_request", f"invalid {field}")
         if "current_handler_id" in changes:
             try:
                 changes["current_handler_id"] = UUID(str(changes["current_handler_id"]))

@@ -226,6 +226,29 @@ def test_create_schema_rejects_removed_assignee_approval_type() -> None:
         )
 
 
+def test_task_update_approval_rejects_clearing_the_task_deadline(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session)
+        task = _task(session, workspace, owner)
+        request_id = uuid4()
+
+        with pytest.raises(TaskConflictError) as error:
+            TaskApprovalService(session).create(
+                workspace.id,
+                requester.id,
+                request_id,
+                task.id,
+                TaskApprovalRequestType.TASK_UPDATE,
+                {"due_at": None},
+                {"due_at": 1},
+            )
+
+        assert error.value.code == "approval_not_allowed"
+        assert session.scalar(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.request_id == request_id)
+        ) is None
+
+
 @pytest.mark.parametrize("invalid_field", ["blocked_reason", "resume_handler_id", "waiting_for_user_id"])
 def test_invalid_blocked_approval_is_rejected_before_task_or_request_mutation(
     db_engine, invalid_field: str

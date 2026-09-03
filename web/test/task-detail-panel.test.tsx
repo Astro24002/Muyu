@@ -97,6 +97,55 @@ describe('TaskDetailPanel', () => {
     expect(screen.getByLabelText('描述')).toHaveValue('更新后的下一步');
   });
 
+  it('sends only changed fields when the task owner edits a task', async () => {
+    const onSave = vi.fn().mockResolvedValue({ ...task, title: '只改标题', cursor: 4 });
+    const actions = makeActions(onSave);
+    render(<TaskDetailPanel task={task} members={makeState().snapshot!.members} syncState={makeState()} actions={actions} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '只改标题' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ title: '只改标题' }));
+  });
+
+  it('does not allow an existing task deadline to be cleared', async () => {
+    const onSave = vi.fn().mockResolvedValue({ ...task, cursor: 4 });
+    const actions = makeActions(onSave);
+    render(<TaskDetailPanel task={task} members={makeState().snapshot!.members} syncState={makeState()} actions={actions} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('截止时间'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('截止时间不能为空');
+  });
+
+  it('sends only the changed quadrant when the viewer is not the task owner', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const actions = { ...makeActions(onSave), currentUserId: 'partner' };
+    const state = makeState();
+    render(<TaskDetailPanel task={task} members={state.snapshot!.members} syncState={state} actions={actions} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ quadrant: 'Q1' }));
+  });
+
+  it('blocks mixed special and regular changes in a non-owner approval request', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const actions = { ...makeActions(onSave), currentUserId: 'partner' };
+    const state = makeState();
+    render(<TaskDetailPanel task={task} members={state.snapshot!.members} syncState={state} actions={actions} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '新标题' } });
+    fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('四象限或负责人变更需要单独提交审批');
+  });
+
   it('delegates status, comment, delay, comment deletion and close actions', async () => {
     const onClose = vi.fn();
     const actions = makeActions();
@@ -138,7 +187,7 @@ describe('TaskDetailPanel', () => {
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '本地修改' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ title: '本地修改', description: task.description }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ title: '本地修改' }));
 
     const serverTask = { ...task, title: '服务器标题', version: 4 };
     rerender(<TaskDetailPanel task={serverTask} members={state.snapshot!.members} syncState={makeState({ snapshot: { ...state.snapshot!, tasks: [serverTask] } })} actions={actions} onClose={vi.fn()} />);
@@ -237,7 +286,7 @@ describe('TaskDetailPanel', () => {
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '第一次修改' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ title: '第一次修改', description: task.description }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ title: '第一次修改' }));
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '提交后再次修改' } });
     resolveSave({ ...task, title: '第一次修改', cursor: 4 });

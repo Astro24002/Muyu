@@ -107,7 +107,11 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
     if (dirtyFields.current.has('title')) changes.title = draft.title.trim();
     if (dirtyFields.current.has('description')) changes.description = draft.description;
     if (draft.dueAt !== toDateTimeLocalValue(task.due_at)) {
-      changes.due_at = draft.dueAt === '' ? null : toIsoDate(draft.dueAt);
+      if (draft.dueAt.trim() === '') {
+        setError('截止时间不能为空，请选择截止时间。');
+        return;
+      }
+      changes.due_at = toIsoDate(draft.dueAt);
     }
     if (draft.currentHandler !== task.current_handler_id) changes.current_handler_id = draft.currentHandler;
     if (draft.quadrant !== task.quadrant) changes.quadrant = draft.quadrant;
@@ -265,7 +269,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
         </label>
 
         <label className="task-detail-field">
-          <span>截止</span>
+          <span>截止（必填）</span>
           <input
             aria-label="截止时间"
             type="datetime-local"
@@ -273,7 +277,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
             disabled={!canWrite}
             onChange={(event) => updateDraft('dueAt', event.target.value)}
           />
-          <small className="task-detail-field__hint">{task.due_at ? `已设 ${formatDueDate(task.due_at)}` : '尚未设置'}</small>
+          <small className="task-detail-field__hint">{task.due_at ? `已设 ${formatDueDate(task.due_at)}` : '请选择截止时间'}</small>
         </label>
       </div>
 

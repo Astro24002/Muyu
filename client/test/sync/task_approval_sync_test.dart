@@ -110,6 +110,39 @@ class ApprovalSyncFake implements WorkspaceSyncRepository {
       );
 
   @override
+  Future<ApprovalActionResult> rejectApproval(
+    String approvalId, {
+    String? workspaceId,
+    required String requestId,
+    String? reason,
+  }) async =>
+      approvalResult ??
+      ApprovalActionResult(
+        approvalRequest: TaskApprovalRequest.fromJson({
+          ...pendingRequest().toJson(),
+          'status': 'REJECTED',
+          'resolved_cursor': 5,
+        }),
+        cursor: 5,
+      );
+
+  @override
+  Future<ApprovalActionResult> cancelApproval(
+    String approvalId, {
+    String? workspaceId,
+    required String requestId,
+  }) async =>
+      approvalResult ??
+      ApprovalActionResult(
+        approvalRequest: TaskApprovalRequest.fromJson({
+          ...pendingRequest().toJson(),
+          'status': 'CANCELLED',
+          'resolved_cursor': 5,
+        }),
+        cursor: 5,
+      );
+
+  @override
   Stream<WorkspaceChanged> openWorkspaceHints() => const Stream.empty();
 
   @override
@@ -149,36 +182,54 @@ void main() {
     expect(controller.state.cursor, 5);
   });
 
-  test('approval result rejects an unbound or foreign comment before cursor reconciliation', () async {
-    for (final workspaceId in <String?>[null, 'workspace-foreign']) {
-      final repository = ApprovalSyncFake()
-        ..approvalResult = ApprovalActionResult(
-          approvalRequest: TaskApprovalRequest.fromJson({
-            ...pendingRequest().toJson(),
-            'status': 'APPROVED',
-            'resolved_cursor': 9,
-          }),
-          comment: TaskComment(
-            id: 'comment-1',
-            workspaceId: workspaceId,
-            taskId: 'task-1',
-            authorUserId: 'user-b',
-            body: 'deleted',
-            version: 2,
-          ),
-          cursor: 9,
-        );
-      final controller = WorkspaceSyncController(repository);
-      await controller.refresh();
+  test('all approval actions reject comments not bound to the request before cursor reconciliation', () async {
+    final malformedComments = <Map<String, String?>>[
+      {'workspaceId': null, 'commentId': 'comment-1'},
+      {'workspaceId': 'workspace-foreign', 'commentId': 'comment-1'},
+      {'workspaceId': 'workspace-1', 'commentId': 'comment-1'},
+      {'workspaceId': 'workspace-1', 'commentId': 'comment-other'},
+    ];
+    for (final action in ['approve', 'reject', 'cancel']) {
+      for (final malformed in malformedComments) {
+        final approvalCommentId = malformed['commentId'] == 'comment-other'
+            ? 'comment-expected'
+            : null;
+        final repository = ApprovalSyncFake()
+          ..approvalResult = ApprovalActionResult(
+            approvalRequest: TaskApprovalRequest.fromJson({
+              ...pendingRequest().toJson(),
+              'comment_id': approvalCommentId,
+              'status': action == 'approve'
+                  ? 'APPROVED'
+                  : action == 'reject'
+                  ? 'REJECTED'
+                  : 'CANCELLED',
+              'resolved_cursor': 9,
+            }),
+            comment: TaskComment(
+              id: malformed['commentId']!,
+              workspaceId: malformed['workspaceId'],
+              taskId: 'task-1',
+              authorUserId: 'user-b',
+              body: 'deleted',
+              version: 2,
+            ),
+            cursor: 9,
+          );
+        final controller = WorkspaceSyncController(repository);
+        await controller.refresh();
 
-      await expectLater(
-        controller.approveApproval('approval-1'),
-        throwsA(isA<FormatException>()),
-      );
+        Future<ApprovalActionResult> invoke() => switch (action) {
+          'approve' => controller.approveApproval('approval-1'),
+          'reject' => controller.rejectApproval('approval-1'),
+          _ => controller.cancelApproval('approval-1'),
+        };
+        await expectLater(invoke(), throwsA(isA<FormatException>()));
 
-      expect(repository.requestedCursors, isEmpty);
-      expect(controller.state.cursor, 4);
-      expect(controller.state.approvalRequests, isEmpty);
+        expect(repository.requestedCursors, isEmpty);
+        expect(controller.state.cursor, 4);
+        expect(controller.state.approvalRequests, isEmpty);
+      }
     }
   });
 

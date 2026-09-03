@@ -642,7 +642,8 @@ class WorkspaceSyncController extends ChangeNotifier {
     if (comment == null) return;
     if (comment.workspaceId != current.workspaceId ||
         comment.taskId != approval.taskId ||
-        (approval.commentId != null && approval.commentId != comment.id)) {
+        approval.commentId == null ||
+        approval.commentId != comment.id) {
       throw const FormatException('comment does not match approval workspace');
     }
   }

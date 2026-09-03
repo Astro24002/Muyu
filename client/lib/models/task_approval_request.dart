@@ -198,6 +198,7 @@ class ApprovalActionResult {
 class TaskComment implements TaskMutationResult {
   const TaskComment({
     required this.id,
+    this.workspaceId,
     required this.taskId,
     required this.authorUserId,
     required this.body,
@@ -208,6 +209,7 @@ class TaskComment implements TaskMutationResult {
   });
 
   final String id;
+  final String? workspaceId;
   final String taskId;
   final String authorUserId;
   final String body;
@@ -218,6 +220,7 @@ class TaskComment implements TaskMutationResult {
 
   factory TaskComment.fromJson(Map<String, dynamic> json) => TaskComment(
     id: json['id'] as String,
+    workspaceId: json['workspace_id'] as String?,
     taskId: json['task_id'] as String,
     authorUserId: json['author_user_id'] as String,
     body: json['body'] as String? ?? '',
@@ -229,6 +232,7 @@ class TaskComment implements TaskMutationResult {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    'workspace_id': workspaceId,
     'task_id': taskId,
     'author_user_id': authorUserId,
     'body': body,

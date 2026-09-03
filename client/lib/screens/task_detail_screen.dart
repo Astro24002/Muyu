@@ -345,6 +345,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<void> _transition(String status) async {
     if (!widget.canWrite) return;
     final task = _current;
+    final actorUserId = widget.sync.state.snapshot?.viewerUserId;
+    if (!isTaskTransitionAllowed(
+      status: task.status,
+      targetStatus: status,
+      currentHandlerId: task.currentHandlerId,
+      reviewerUserId: task.reviewerUserId,
+      actorUserId: actorUserId,
+    )) {
+      setState(() => _handlerError = '当前用户不能执行该状态操作');
+      return;
+    }
     final members = widget.sync.state.snapshot?.members ?? const [];
     final activeHandlerIds = _activeHandlerIds(members);
     final selectedResumeHandlerId =
@@ -354,6 +365,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     final isBlockedRecovery =
         normalizeTaskStatus(task.status) == 'BLOCKED' &&
         status == 'IN_PROGRESS';
+    final isReviewReturn =
+        normalizeTaskStatus(task.status) == 'REVIEW' && status == 'IN_PROGRESS';
     if ((status == 'BLOCKED' || isBlockedRecovery) &&
         !activeHandlerIds.contains(selectedResumeHandlerId)) {
       setState(() => _handlerError = '恢复负责人已不可用，请选择有效成员');
@@ -399,6 +412,51 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       );
       if (blockedReason == null) return;
     }
+    if (!mounted) return;
+    String? reviewRejectionReason;
+    if (isReviewReturn) {
+      final reason = TextEditingController();
+      reviewRejectionReason = await showDialog<String>(
+        context: context,
+        builder: (context) {
+          String? errorText;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('退回待验收任务'),
+              content: TextField(
+                key: const Key('review-rejection-reason'),
+                controller: reason,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: '退回原因',
+                  errorText: errorText,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  key: const Key('review-return-submit'),
+                  onPressed: () {
+                    final value = reason.text.trim();
+                    if (value.isEmpty) {
+                      setDialogState(() => errorText = '请填写退回原因');
+                      return;
+                    }
+                    Navigator.pop(context, value);
+                  },
+                  child: const Text('确认退回'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+      reason.dispose();
+      if (reviewRejectionReason == null) return;
+    }
     try {
       final result = await widget.sync.transition(
         task.id,
@@ -410,6 +468,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   selectedResumeHandlerId != task.resumeHandlerId
             ? selectedResumeHandlerId
             : null,
+        reviewRejectionReason: reviewRejectionReason,
       );
       if (result is PendingApproval && mounted) {
         setState(() => _pendingMessage = '等待负责人审批');
@@ -506,6 +565,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       final resumeHandlerIds = _handlerOptionIds(
         activeHandlerIds,
         selectedResumeHandlerId,
+      );
+      final transitionStatuses = taskTransitionTargets(
+        status: task.status,
+        currentHandlerId: task.currentHandlerId,
+        reviewerUserId: task.reviewerUserId,
+        actorUserId: viewerId,
       );
       return Scaffold(
         appBar: AppBar(
@@ -724,7 +789,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               spacing: MuyuSpacing.sm,
               runSpacing: MuyuSpacing.sm,
               children: [
-                for (final status in taskStatuses)
+                for (final status in transitionStatuses)
                   OutlinedButton(
                     key: Key('task-status-${status.toLowerCase()}'),
                     onPressed: !widget.canWrite || task.deletedAt != null

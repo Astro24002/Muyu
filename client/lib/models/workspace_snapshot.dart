@@ -42,9 +42,8 @@ class WorkspaceSnapshot {
       approvalRequests:
           (json['approval_requests'] as List<dynamic>? ?? const [])
               .map(
-                (item) => TaskApprovalRequest.fromJson(
-                  item as Map<String, dynamic>,
-                ),
+                (item) =>
+                    TaskApprovalRequest.fromJson(item as Map<String, dynamic>),
               )
               .toList(),
       fetchedAt: json['fetched_at'] == null
@@ -60,9 +59,11 @@ class WorkspaceSnapshot {
   bool isValidForWorkspace() {
     if (workspaceId.isEmpty || cursor < 0) return false;
     if (tasks.any(
-      (task) =>
-          task.workspaceId != null && task.workspaceId != workspaceId,
+      (task) => task.workspaceId != null && task.workspaceId != workspaceId,
     )) {
+      return false;
+    }
+    if (comments.any((comment) => comment.workspaceId != workspaceId)) {
       return false;
     }
     if (conflicts.any((conflict) {

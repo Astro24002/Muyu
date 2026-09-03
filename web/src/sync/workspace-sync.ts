@@ -1,7 +1,7 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
 import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
-import { isCanonicalTaskStatus, isTaskQuadrant, parseTaskItem, upsertTask } from '../tasks/task-model';
+import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskItem, upsertTask } from '../tasks/task-model';
 
 export interface WorkspaceSyncState {
   snapshot: WorkspaceSnapshot | null;
@@ -167,8 +167,9 @@ export class WorkspaceSyncController {
     }));
   }
 
-  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string } = {}): Promise<TaskWriteResult | undefined> {
-    const task = this.currentState.snapshot?.tasks.find((item) => item.id === taskId);
+  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string; reviewRejectionReason?: string } = {}): Promise<TaskWriteResult | undefined> {
+    const snapshot = this.currentState.snapshot;
+    const task = snapshot?.tasks.find((item) => item.id === taskId);
     if (!task) {
       this.setState({ error: '任务不存在，请刷新后重试。' });
       return undefined;
@@ -177,7 +178,23 @@ export class WorkspaceSyncController {
       this.setState({ error: '无法更新任务状态，请检查网络后重试。' });
       return undefined;
     }
-    return this.write('无法更新任务状态，请检查网络后重试。', () => this.api.transitionTask(taskId, { requestId: this.requestIdFactory(), targetStatus, baseStatusVersion: task.status_version, ...payload }));
+    if (!isTaskTransitionAllowed(task, targetStatus, snapshot?.viewer_user_id)) {
+      this.setState({ error: '当前用户不能执行该状态操作。' });
+      return undefined;
+    }
+    const isReviewReturn = normalizeTaskStatus(task.status) === 'REVIEW' && targetStatus === 'IN_PROGRESS';
+    const reviewRejectionReason = payload.reviewRejectionReason?.trim();
+    if (isReviewReturn && !reviewRejectionReason) {
+      this.setState({ error: '退回待验收任务需要填写退回原因。' });
+      return undefined;
+    }
+    return this.write('无法更新任务状态，请检查网络后重试。', () => this.api.transitionTask(taskId, {
+      requestId: this.requestIdFactory(),
+      targetStatus,
+      baseStatusVersion: task.status_version,
+      ...payload,
+      ...(isReviewReturn ? { reviewRejectionReason } : {}),
+    }));
   }
 
   async addComment(taskId: string, body: string): Promise<void> {
@@ -451,7 +468,7 @@ export class WorkspaceSyncController {
   private mergeComment(comment: TaskComment, cursor = this.currentState.cursor, updateCursor = false, taskId?: string): void {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
-    const normalizedComment = normalizeCommentResource(comment, taskId);
+    const normalizedComment = normalizeCommentResource(comment, snapshot.workspace_id, taskId);
     const comments = [...(snapshot.comments ?? [])].filter((item) => item.id !== normalizedComment.id);
     comments.push(normalizedComment);
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
@@ -484,7 +501,7 @@ export class WorkspaceSyncController {
     if (!snapshot) return;
     const approval = normalizeApprovalResource(result.approval_request, snapshot.workspace_id);
     const task = result.task ? normalizeTaskResource(result.task, snapshot.workspace_id) : undefined;
-    const comment = result.comment ? normalizeCommentResource(result.comment, approval.task_id) : undefined;
+    const comment = result.comment ? normalizeCommentResource(result.comment, snapshot.workspace_id, approval.task_id) : undefined;
     const approvals = [...(snapshot.approval_requests ?? [])].filter((item) => item.id !== approval.id);
     approvals.push(approval);
     const tasks = task ? upsertTask(snapshot.tasks, task) : snapshot.tasks;
@@ -541,7 +558,7 @@ export class WorkspaceSyncController {
     const snapshot = this.currentState.snapshot;
     const details = error.details;
     if (!snapshot || !isRecord(details)) return false;
-    if (!isValidCursor(details.cursor)) return false;
+    if (!isValidCursor(details.cursor) || details.cursor < this.currentState.cursor) return false;
     const rawConflicts = details.conflicts;
     if (!Array.isArray(rawConflicts) || rawConflicts.length === 0 || !rawConflicts.every(isRecord)) return false;
     const incoming = conflictsFromError(error);
@@ -811,7 +828,7 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
     || !Array.isArray(conflicts)
     || !conflicts.every((item) => isRecord(item) && conflictWorkspaceMatches(item, workspaceId))
     || !Array.isArray(comments)
-    || !comments.every(isTaskComment)
+    || !comments.every((item) => isTaskComment(item) && item.workspace_id === workspaceId)
     || !Array.isArray(approvalRequests)
     || !approvalRequests.every((item) => isApprovalRequest(item) && item.workspace_id === workspaceId)) {
     throw new Error('workspace snapshot is invalid');
@@ -858,11 +875,13 @@ function normalizeApprovalResource(value: unknown, workspaceId: string): TaskApp
   return candidate;
 }
 
-function normalizeCommentResource(value: unknown, taskId?: string): TaskComment {
+function normalizeCommentResource(value: unknown, workspaceId: string, taskId?: string): TaskComment {
   if (!isRecord(value)) throw new Error('comment response is not an object');
   const { cursor: _ackCursor, ...candidate } = value;
-  if (!isTaskComment(candidate) || (taskId !== undefined && candidate.task_id !== taskId)) {
-    throw new Error('comment response belongs to another task');
+  if (!isTaskComment(candidate)
+    || candidate.workspace_id !== workspaceId
+    || (taskId !== undefined && candidate.task_id !== taskId)) {
+    throw new Error('comment response belongs to another workspace or task');
   }
   return candidate;
 }
@@ -946,6 +965,8 @@ function isTaskComment(value: unknown): value is TaskComment {
   return isRecord(value)
     && typeof value.id === 'string'
     && value.id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
     && typeof value.task_id === 'string'
     && value.task_id.length > 0
     && typeof value.author_user_id === 'string'
@@ -975,7 +996,7 @@ function isValidChangeResource(resourceType: string, resource: unknown, workspac
     return isTaskConflict(resource, workspaceId) && resource.workspace_id === workspaceId;
   }
   if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
-  if (resourceType === 'comment') return isTaskComment(resource);
+  if (resourceType === 'comment') return isTaskComment(resource) && resource.workspace_id === workspaceId;
   return false;
 }
 

@@ -466,7 +466,7 @@ def comment_task(task_id: UUID, body: CommentRequest, request: Request, backgrou
         session.rollback()
         raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, cursor)
-    return {"id": str(comment.id), "task_id": str(comment.task_id), "body": comment.body, "created_at": comment.created_at.isoformat(), "cursor": cursor}
+    return comment_json(comment) | {"cursor": cursor}
 
 
 @router.get("/tasks/{task_id}/comments")

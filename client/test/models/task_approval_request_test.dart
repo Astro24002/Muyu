@@ -98,6 +98,7 @@ void main() {
         comments: [
           TaskComment(
             id: 'comment-1',
+            workspaceId: 'workspace-1',
             taskId: 'task-1',
             authorUserId: 'user-b',
             body: 'Removed comment',

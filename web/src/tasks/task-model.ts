@@ -43,6 +43,14 @@ export interface TaskConflict {
 
 export const TASK_QUADRANTS: readonly TaskQuadrant[] = ['Q1', 'Q2', 'Q3', 'Q4'];
 export const LEGACY_STATUS_MAP = { WAITING: 'BLOCKED', COMPLETED: 'DONE' } as const;
+export const TASK_STATUS_TRANSITIONS: Readonly<Record<CanonicalTaskStatus, readonly CanonicalTaskStatus[]>> = {
+  TODO: ['IN_PROGRESS', 'BLOCKED', 'CANCELLED'],
+  IN_PROGRESS: ['BLOCKED', 'REVIEW', 'CANCELLED'],
+  BLOCKED: ['IN_PROGRESS', 'CANCELLED'],
+  REVIEW: ['DONE', 'IN_PROGRESS', 'CANCELLED'],
+  DONE: ['TODO', 'IN_PROGRESS', 'CANCELLED'],
+  CANCELLED: ['TODO', 'IN_PROGRESS'],
+};
 const MAX_TASK_LABELS = 10;
 const MAX_TASK_LABEL_LENGTH = 32;
 const MAX_TASK_LABEL_CHARS = 320;
@@ -70,6 +78,28 @@ export function isCanonicalTaskStatus(value: unknown): value is CanonicalTaskSta
     || value === 'REVIEW'
     || value === 'DONE'
     || value === 'CANCELLED';
+}
+
+export function taskTransitionTargets(task: Pick<TaskItem, 'status' | 'current_handler_id' | 'reviewer_user_id'>, actorUserId?: string | null): CanonicalTaskStatus[] {
+  const currentStatus = normalizeTaskStatus(task.status);
+  if (!isCanonicalTaskStatus(currentStatus)) return [];
+  return TASK_STATUS_TRANSITIONS[currentStatus].filter((targetStatus) => {
+    if (currentStatus !== 'REVIEW' || (targetStatus !== 'DONE' && targetStatus !== 'IN_PROGRESS')) return true;
+    return Boolean(
+      actorUserId
+      && actorUserId === task.reviewer_user_id
+      && actorUserId !== task.current_handler_id,
+    );
+  });
+}
+
+export function isTaskTransitionAllowed(
+  task: Pick<TaskItem, 'status' | 'current_handler_id' | 'reviewer_user_id'>,
+  targetStatus: unknown,
+  actorUserId?: string | null,
+): targetStatus is CanonicalTaskStatus {
+  return isCanonicalTaskStatus(targetStatus)
+    && taskTransitionTargets(task, actorUserId).includes(targetStatus);
 }
 
 export function parseTaskLabels(value: unknown): string[] {

@@ -47,6 +47,7 @@ def test_snapshot_contains_viewer_approvals_and_comments(db_engine) -> None:
         assert snapshot["viewer_user_id"] == str(partner.id)
         assert snapshot["approval_requests"][0]["id"] == str(approval.id)
         assert snapshot["comments"][0]["id"] == str(comment.id)
+        assert snapshot["comments"][0]["workspace_id"] == str(workspace.id)
 
 
 def test_approval_and_comment_tombstone_are_typed_changes(db_engine) -> None:
@@ -72,4 +73,5 @@ def test_approval_and_comment_tombstone_are_typed_changes(db_engine) -> None:
         assert "comment" in resource_types
         comment_change = next(item for item in changes["changes"] if item["resource_type"] == "comment")
         assert comment_change["resource"]["deleted_at"] is not None
+        assert comment_change["resource"]["workspace_id"] == str(workspace.id)
         assert any(item["resource_id"] == str(approval.id) for item in changes["changes"])

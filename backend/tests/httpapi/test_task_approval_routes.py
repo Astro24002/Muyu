@@ -477,6 +477,7 @@ def test_owner_comment_delete_is_pending_and_comment_author_approves(db_engine) 
         json={"request_id": str(uuid4()), "body": "Audit me"},
     )
     assert comment.status_code == 201, comment.text
+    assert comment.json()["workspace_id"] == created["workspace_id"]
 
     pending = client.request(
         "DELETE",

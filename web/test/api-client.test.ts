@@ -91,4 +91,29 @@ describe('ApiClient', () => {
       body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作', '婚礼'] }),
     }));
   });
+
+  it('sends a review return reason with a status transition', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'task-1', cursor: 2 }), { status: 200 }),
+    );
+
+    await new ApiClient().transitionTask('task-1', {
+      requestId: 'request-1',
+      targetStatus: 'IN_PROGRESS',
+      baseStatusVersion: 3,
+      reviewRejectionReason: '请补充验收材料',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks/task-1/transition', expect.objectContaining({
+      body: JSON.stringify({
+        request_id: 'request-1',
+        target_status: 'IN_PROGRESS',
+        base_status_version: 3,
+        blocked_reason: undefined,
+        resume_handler_id: undefined,
+        waiting_for_user_id: undefined,
+        review_rejection_reason: '请补充验收材料',
+      }),
+    }));
+  });
 });

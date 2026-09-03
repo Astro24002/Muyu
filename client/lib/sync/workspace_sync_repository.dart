@@ -41,6 +41,7 @@ abstract class WorkspaceSyncRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     required String requestId,
   }) {
     throw UnimplementedError();
@@ -229,6 +230,7 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     required String requestId,
   }) async {
     final value = await _api.request(
@@ -241,6 +243,7 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
         'blocked_reason': blockedReason,
         'resume_handler_id': resumeHandlerId,
         'waiting_for_user_id': waitingForUserId,
+        'review_rejection_reason': reviewRejectionReason,
       },
       authenticated: true,
       headers: {'x-request-id': requestId},

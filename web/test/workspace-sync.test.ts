@@ -1003,6 +1003,38 @@ describe('WorkspaceSyncController', () => {
     expect(controller.state.snapshot?.comments).toEqual([]);
   });
 
+  it.each([
+    ['missing workspace identity', (resource: Record<string, unknown>) => { delete resource.workspace_id; }],
+    ['foreign workspace identity', (resource: Record<string, unknown>) => { resource.workspace_id = 'workspace-foreign'; }],
+  ])('recovers without advancing for a comment change with %s', async (_label, mutate) => {
+    const resource: Record<string, unknown> = { ...comment('comment-foreign', task.id), workspace_id: 'workspace-1' };
+    mutate(resource);
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'comment',
+        resource_id: 'comment-foreign',
+        action: 'UPDATED',
+        operation_id: null,
+        resource,
+      }],
+    });
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered snapshot' }] });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.comments).toEqual([]);
+  });
+
   it('recovers when a known change uses an invalid action value', async () => {
     const api = apiStub();
     api.getWorkspaceChanges.mockResolvedValue({
@@ -1119,6 +1151,7 @@ function approval(id: string, workspaceId: string, status: TaskApprovalRequest['
 function comment(id: string, taskId: string): TaskComment {
   return {
     id,
+    workspace_id: 'workspace-1',
     task_id: taskId,
     author_user_id: 'user-1',
     body: 'Old comment',

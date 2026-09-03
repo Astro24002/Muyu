@@ -87,6 +87,7 @@ class ApprovalSyncFake implements WorkspaceSyncRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     required String requestId,
   }) async => PendingApproval(approvalRequest: request);
 
@@ -161,6 +162,7 @@ void main() {
       'action': 'updated',
       'resource': {
         'id': 'comment-1',
+        'workspace_id': 'workspace-1',
         'task_id': 'task-1',
         'author_user_id': 'user-b',
         'body': 'Deleted',
@@ -173,5 +175,62 @@ void main() {
 
     expect(approvalChange.approvalRequest!.id, approval.id);
     expect(commentChange.comment!.deletedBy, 'user-a');
+  });
+
+  test('comment changes must carry the requested workspace identity', () {
+    final missingWorkspace = {
+      'workspace_id': 'workspace-1',
+      'cursor': 3,
+      'changes': [
+        {
+          'cursor': 3,
+          'resource_type': 'comment',
+          'resource_id': 'comment-1',
+          'action': 'updated',
+          'resource': {
+            'id': 'comment-1',
+            'task_id': 'task-1',
+            'author_user_id': 'user-b',
+            'body': 'Foreign',
+            'version': 1,
+            'deleted_at': null,
+            'deleted_by': null,
+            'created_at': '2026-08-27T00:00:00Z',
+          },
+        },
+      ],
+    };
+    expect(
+      () => WorkspaceChanges.fromJson(missingWorkspace),
+      throwsA(isA<FormatException>()),
+    );
+
+    final foreignWorkspace = WorkspaceChanges.fromJson({
+      'workspace_id': 'workspace-1',
+      'cursor': 3,
+      'changes': [
+        {
+          'cursor': 3,
+          'resource_type': 'comment',
+          'resource_id': 'comment-1',
+          'action': 'updated',
+          'resource': {
+            'id': 'comment-1',
+            'workspace_id': 'workspace-foreign',
+            'task_id': 'task-1',
+            'author_user_id': 'user-b',
+            'body': 'Foreign',
+            'version': 1,
+            'deleted_at': null,
+            'deleted_by': null,
+            'created_at': '2026-08-27T00:00:00Z',
+          },
+        },
+      ],
+    });
+    expect(
+      foreignWorkspace.isValidFor(workspaceId: 'workspace-1', afterCursor: 2),
+      isFalse,
+    );
   });
 }

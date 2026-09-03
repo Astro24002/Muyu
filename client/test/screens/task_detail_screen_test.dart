@@ -96,12 +96,13 @@ class RecordingRepository implements WorkspaceSyncRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     required String requestId,
   }) async {
     transitionedTo = targetStatus;
     transitionBaseVersion = baseStatusVersion;
     transitionResumeHandlerId = resumeHandlerId;
-    return detailTask().copyWith(status: targetStatus);
+    return detailTask(status: targetStatus);
   }
 
   @override
@@ -159,10 +160,12 @@ void main() {
 
       await tester.drag(find.byType(ListView), const Offset(0, -500));
       await tester.pump();
-      await tester.ensureVisible(find.byKey(const Key('task-status-done')));
-      await tester.tap(find.byKey(const Key('task-status-done')));
+      await tester.ensureVisible(
+        find.byKey(const Key('task-status-in_progress')),
+      );
+      await tester.tap(find.byKey(const Key('task-status-in_progress')));
       await tester.pumpAndSettle();
-      expect(repository.transitionedTo, 'DONE');
+      expect(repository.transitionedTo, 'IN_PROGRESS');
       expect(repository.transitionBaseVersion, 7);
 
       await tester.ensureVisible(find.byKey(const Key('task-comment-input')));

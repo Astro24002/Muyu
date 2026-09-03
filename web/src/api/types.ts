@@ -45,6 +45,7 @@ export interface TaskItem {
 
 export interface TaskComment {
   id: string;
+  workspace_id: string;
   task_id: string;
   author_user_id: string;
   body: string;

@@ -126,6 +126,11 @@ class WorkspaceChange {
               (resourceMap['workspace_id'] as String).isEmpty)) {
         throw const FormatException('task change workspace_id is required');
       }
+      if (resourceType == 'comment' &&
+          (resourceMap['workspace_id'] is! String ||
+              (resourceMap['workspace_id'] as String).isEmpty)) {
+        throw const FormatException('comment change workspace_id is required');
+      }
     }
     try {
       return WorkspaceChange(
@@ -271,7 +276,9 @@ class WorkspaceChanges {
           change.approvalRequest!.workspaceId == workspaceId;
     }
     if (change.resourceType == 'comment') {
-      return change.comment != null && change.comment!.id == change.resourceId;
+      return change.comment != null &&
+          change.comment!.id == change.resourceId &&
+          change.comment!.workspaceId == workspaceId;
     }
     return true;
   }

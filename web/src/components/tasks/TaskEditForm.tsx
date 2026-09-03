@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { AppliedTaskWriteResult } from '../../api/client';
 import type { CanonicalTaskStatus, TaskItem, TaskStatus } from '../../api/types';
 import type { TaskDetailActions } from '../../tasks/task-detail-actions';
-import { isTaskQuadrant, normalizeTaskStatus, parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
+import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskLabels, parseTaskLabelsInput, taskTransitionTargets, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
 import { Button } from '../ui/Button';
 
 export interface TaskMember {
@@ -15,11 +15,11 @@ export interface TaskMember {
 export interface TaskEditFormProps {
   task: TaskItem;
   members: TaskMember[];
-  actions: Pick<TaskDetailActions, 'onSave' | 'onTransition'>;
+  actions: Pick<TaskDetailActions, 'onSave' | 'onTransition' | 'currentUserId'>;
   canWrite?: boolean;
 }
 
-type DraftField = 'title' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'progress';
+type DraftField = 'title' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'reviewRejectionReason' | 'progress';
 
 interface TaskDraft {
   title: string;
@@ -31,10 +31,10 @@ interface TaskDraft {
   labels: string;
   blockedReason: string;
   resumeHandler: string;
+  reviewRejectionReason: string;
   progress: string;
 }
 
-const statuses: CanonicalTaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE', 'CANCELLED'];
 const progressValues = [20, 40, 60, 80];
 
 export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEditFormProps): JSX.Element {
@@ -44,6 +44,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const dirtyFields = useRef<Set<DraftField>>(new Set());
   const draftRef = useRef<TaskDraft>(draft);
   const busyActionRef = useRef<'save' | 'transition' | null>(null);
+  const actorUserId = actions.currentUserId;
 
   useEffect(() => {
     setDraft((current) => {
@@ -131,9 +132,18 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const transition = (): void => {
     const activeHandlerIds = getActiveHandlerIds(members);
     const taskStatus = normalizeTaskStatus(task.status);
+    if (!isTaskTransitionAllowed(task, draft.status, actorUserId)) {
+      setError('当前用户不能执行该状态操作。');
+      return;
+    }
     const isBlockedRecovery = taskStatus === 'BLOCKED' && draft.status === 'IN_PROGRESS';
+    const isReviewReturn = taskStatus === 'REVIEW' && draft.status === 'IN_PROGRESS';
     if (draft.status === 'BLOCKED' && (!draft.blockedReason.trim() || !draft.resumeHandler)) {
       setError('进入阻塞状态需要阻塞原因和恢复负责人。');
+      return;
+    }
+    if (isReviewReturn && !draft.reviewRejectionReason.trim()) {
+      setError('退回待验收任务需要填写退回原因。');
       return;
     }
     if ((draft.status === 'BLOCKED' || isBlockedRecovery) && !activeHandlerIds.has(draft.resumeHandler)) {
@@ -146,11 +156,13 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
       ...(draft.resumeHandler && (draft.status === 'BLOCKED' || isBlockedRecovery)
         ? { resumeHandlerId: draft.resumeHandler }
         : {}),
+      ...(isReviewReturn ? { reviewRejectionReason: draft.reviewRejectionReason.trim() } : {}),
     };
     const submittedDraft = draft;
     const submittedFields: DraftField[] = ['status'];
     if ('blockedReason' in payload) submittedFields.push('blockedReason');
     if ('resumeHandlerId' in payload) submittedFields.push('resumeHandler');
+    if ('reviewRejectionReason' in payload) submittedFields.push('reviewRejectionReason');
     const dirtySubmittedFields = submittedFields.filter((field) => dirtyFields.current.has(field));
 
     run('transition', () => Object.keys(payload).length === 0
@@ -172,8 +184,12 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   };
 
   const handlerOptions = getHandlerOptions(task, members, [draft.currentHandler, draft.resumeHandler]);
+  const taskStatus = normalizeTaskStatus(task.status);
+  const currentStatus = isCanonicalTaskStatus(taskStatus) ? taskStatus : undefined;
+  const transitionStatuses = taskTransitionTargets(task, actorUserId);
   const transitionDisabled = !canWrite || busyAction !== null;
-  const showBlockedFields = draft.status === 'BLOCKED' || normalizeTaskStatus(task.status) === 'BLOCKED';
+  const showBlockedFields = draft.status === 'BLOCKED' || taskStatus === 'BLOCKED';
+  const showReviewReturnReason = taskStatus === 'REVIEW' && draft.status === 'IN_PROGRESS';
   const showProgress = draft.status === 'IN_PROGRESS' || task.status === 'IN_PROGRESS';
 
   return (
@@ -209,7 +225,8 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
               disabled={!canWrite}
               onChange={(event) => updateDraft('status', event.target.value as TaskStatus)}
             >
-              {statuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
+              {currentStatus ? <option value={currentStatus} disabled>{statusLabel(currentStatus)}</option> : null}
+              {transitionStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
             </select>
           </label>
         </div>
@@ -308,6 +325,19 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
             </select>
           </label>
         ) : null}
+
+        {showReviewReturnReason ? (
+          <label className="task-detail-field">
+            <span>退回原因</span>
+            <input
+              aria-label="退回原因"
+              type="text"
+              value={draft.reviewRejectionReason}
+              disabled={!canWrite}
+              onChange={(event) => updateDraft('reviewRejectionReason', event.target.value)}
+            />
+          </label>
+        ) : null}
       </div>
 
       <div className="task-edit-form__actions">
@@ -334,6 +364,7 @@ function createDraft(task: TaskItem): TaskDraft {
     labels: safeLabels(task.labels).join(', '),
     blockedReason: task.blocked_reason ?? '',
     resumeHandler: task.resume_handler_id ?? task.current_handler_id,
+    reviewRejectionReason: '',
     progress: String(task.progress ?? 20),
   };
 }
@@ -348,6 +379,7 @@ function preserveDirtyFields(next: TaskDraft, current: TaskDraft, dirtyFields: S
   if (dirtyFields.has('labels')) next.labels = current.labels;
   if (dirtyFields.has('blockedReason')) next.blockedReason = current.blockedReason;
   if (dirtyFields.has('resumeHandler')) next.resumeHandler = current.resumeHandler;
+  if (dirtyFields.has('reviewRejectionReason')) next.reviewRejectionReason = current.reviewRejectionReason;
   if (dirtyFields.has('progress')) next.progress = current.progress;
 }
 

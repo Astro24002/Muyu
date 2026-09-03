@@ -143,6 +143,40 @@ void main() {
     );
   });
 
+  test(
+    'transition sends a review rejection reason with the status mutation',
+    () async {
+      late http.Request request;
+      final repository = CloudTaskRepository(
+        ApiClient(
+          baseUrl: 'https://api.example',
+          httpClient: MockClient((incoming) async {
+            request = incoming;
+            return http.Response(
+              jsonEncode(taskJson),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+
+      await repository.transition(
+        'task-1',
+        targetStatus: 'IN_PROGRESS',
+        baseStatusVersion: 3,
+        reviewRejectionReason: '请补充验收材料',
+        requestId: 'request-1',
+      );
+
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(request.url.path, '/api/v1/tasks/task-1/transition');
+      expect(body['target_status'], 'IN_PROGRESS');
+      expect(body['review_rejection_reason'], '请补充验收材料');
+      expect(request.headers['x-request-id'], 'request-1');
+    },
+  );
+
   test('202 task update returns a pending approval without a task', () async {
     late http.Request request;
     final repository = CloudTaskRepository(

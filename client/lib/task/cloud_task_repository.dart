@@ -75,6 +75,7 @@ class CloudTaskRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     String? requestId,
   }) async {
     final id = requestId ?? newRequestId();
@@ -85,6 +86,7 @@ class CloudTaskRepository {
       'blocked_reason': blockedReason,
       'resume_handler_id': resumeHandlerId,
       'waiting_for_user_id': waitingForUserId,
+      'review_rejection_reason': reviewRejectionReason,
     });
     final result = _taskMutation(value);
     if (result == null) {

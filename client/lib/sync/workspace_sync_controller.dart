@@ -10,6 +10,7 @@ import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
+import '../tasks/task_status.dart';
 import 'workspace_cache.dart';
 import 'workspace_sync_repository.dart';
 
@@ -144,7 +145,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         _applyTask(tasks, change, current.workspaceId);
         _applyConflict(conflicts, change, current.workspaceId);
         _applyApproval(approvals, change, current.workspaceId);
-        _applyComment(comments, change);
+        _applyComment(comments, change, current.workspaceId);
       }
       state = WorkspaceSyncState(
         snapshot: WorkspaceSnapshot(
@@ -178,6 +179,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
   }) async {
     final repository = _repository;
     final matches =
@@ -185,6 +187,28 @@ class WorkspaceSyncController extends ChangeNotifier {
         const [];
     final task = matches.isEmpty ? null : matches.first;
     if (repository == null || task == null) return null;
+    final actorUserId = state.snapshot?.viewerUserId;
+    if (!isTaskTransitionAllowed(
+      status: task.status,
+      targetStatus: targetStatus,
+      currentHandlerId: task.currentHandlerId,
+      reviewerUserId: task.reviewerUserId,
+      actorUserId: actorUserId,
+    )) {
+      state = state.copyWith(errorMessage: '当前用户不能执行该状态操作。');
+      notifyListeners();
+      return null;
+    }
+    final isReviewReturn =
+        normalizeTaskStatus(task.status) == 'REVIEW' &&
+        targetStatus == 'IN_PROGRESS';
+    final normalizedReviewReason = reviewRejectionReason?.trim();
+    if (isReviewReturn &&
+        (normalizedReviewReason == null || normalizedReviewReason.isEmpty)) {
+      state = state.copyWith(errorMessage: '退回待验收任务需要填写退回原因。');
+      notifyListeners();
+      return null;
+    }
     try {
       final result = await repository.transition(
         taskId,
@@ -193,6 +217,9 @@ class WorkspaceSyncController extends ChangeNotifier {
         blockedReason: blockedReason,
         resumeHandlerId: resumeHandlerId,
         waitingForUserId: waitingForUserId,
+        reviewRejectionReason: isReviewReturn
+            ? normalizedReviewReason
+            : reviewRejectionReason,
         requestId: _requestId(),
       );
       if (result is TaskItem) {
@@ -557,6 +584,10 @@ class WorkspaceSyncController extends ChangeNotifier {
   void _mergeComment(TaskComment comment) {
     final current = state.snapshot;
     if (current == null) return;
+    if (comment.workspaceId != current.workspaceId) {
+      _setError(const FormatException('comment belongs to another workspace'));
+      return;
+    }
     final comments = [...current.comments]
       ..removeWhere((item) => item.id == comment.id)
       ..add(comment);
@@ -566,6 +597,11 @@ class WorkspaceSyncController extends ChangeNotifier {
   void _mergeApprovalResult(ApprovalActionResult result) {
     final current = state.snapshot;
     if (current == null) return;
+    if (result.comment != null &&
+        result.comment!.workspaceId != current.workspaceId) {
+      _setError(const FormatException('comment belongs to another workspace'));
+      return;
+    }
     final approvals = [...current.approvalRequests]
       ..removeWhere((item) => item.id == result.approvalRequest.id)
       ..add(result.approvalRequest);
@@ -645,7 +681,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       return false;
     }
     final targetCursor = details['cursor'];
-    if (targetCursor is! int || targetCursor < 0) {
+    if (targetCursor is! int || targetCursor < current.cursor) {
       await refresh();
       return false;
     }
@@ -872,8 +908,10 @@ class WorkspaceSyncController extends ChangeNotifier {
   static void _applyComment(
     List<TaskComment> comments,
     WorkspaceChange change,
+    String workspaceId,
   ) {
     if (change.resourceType != 'comment' || change.comment == null) return;
+    if (change.comment!.workspaceId != workspaceId) return;
     final index = comments.indexWhere((item) => item.id == change.resourceId);
     if (change.action == 'deleted') {
       if (index != -1) comments[index] = change.comment!;

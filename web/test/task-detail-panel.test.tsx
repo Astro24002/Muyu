@@ -19,7 +19,7 @@ const task: TaskItem = {
 };
 
 const comment: TaskComment = {
-  id: 'comment-1', task_id: task.id, author_user_id: 'partner', body: '我会在今晚确认。', version: 1,
+  id: 'comment-1', workspace_id: 'workspace-1', task_id: task.id, author_user_id: 'partner', body: '我会在今晚确认。', version: 1,
   deleted_at: null, deleted_by: null, created_at: '2026-09-01T08:00:00Z',
 };
 

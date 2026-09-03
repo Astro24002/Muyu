@@ -143,6 +143,7 @@ def comment_json(comment: Any) -> dict[str, Any]:
 
     return {
         "id": str(comment.id),
+        "workspace_id": str(comment.workspace_id),
         "task_id": str(comment.task_id),
         "author_user_id": str(comment.author_user_id),
         "body": comment.body,

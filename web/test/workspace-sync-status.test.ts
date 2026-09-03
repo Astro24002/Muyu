@@ -169,6 +169,32 @@ describe('workspace sync six-state status boundary', () => {
     expect(controller.state.error).toBe('无法更新任务状态，请检查网络后重试。');
   });
 
+  it('allows REVIEW decisions only for the server-provided reviewer and requires a return reason', async () => {
+    const reviewTask = { ...task('REVIEW'), id: 'task-review' } as TaskItem;
+    const api = {
+      getWorkspaceSnapshot: vi.fn()
+        .mockResolvedValueOnce({ ...snapshot('REVIEW'), tasks: [reviewTask], viewer_user_id: 'user-1' })
+        .mockResolvedValueOnce({ ...snapshot('REVIEW'), tasks: [reviewTask], viewer_user_id: 'user-2' }),
+      getWorkspaceChanges: vi.fn().mockResolvedValue({ workspace_id: 'workspace-1', cursor: 5, changes: [] }),
+      transitionTask: vi.fn().mockResolvedValue({ ...reviewTask, status: 'IN_PROGRESS', cursor: 5 }),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.transitionTask(reviewTask.id, 'DONE');
+    expect(api.transitionTask).not.toHaveBeenCalled();
+
+    await controller.loadSnapshot();
+    await controller.transitionTask(reviewTask.id, 'IN_PROGRESS');
+    expect(api.transitionTask).not.toHaveBeenCalled();
+
+    await controller.transitionTask(reviewTask.id, 'IN_PROGRESS', { reviewRejectionReason: '请补充验收材料' });
+    expect(api.transitionTask).toHaveBeenCalledWith(reviewTask.id, expect.objectContaining({
+      targetStatus: 'IN_PROGRESS',
+      reviewRejectionReason: '请补充验收材料',
+    }));
+  });
+
   it('merges task conflicts from cursor changes and removes them when resolved', async () => {
     let pullCount = 0;
     const openConflict = {
@@ -403,6 +429,36 @@ describe('workspace sync six-state status boundary', () => {
       getWorkspaceChanges: vi.fn(),
       patchTask: vi.fn().mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', {
         cursor: 'not-a-cursor',
+        conflicts: [{
+          id: 'conflict-1',
+          workspace_id: 'workspace-1',
+          task_id: currentTask.id,
+          field: 'title',
+          status: 'OPEN',
+          current_snapshot: currentTask,
+        }],
+      })),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.patchTask(currentTask.id, { title: 'Proposed title' });
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(9);
+    expect(controller.state.conflicts).toEqual([]);
+  });
+
+  it('refreshes instead of applying a 409 projection older than the local cursor', async () => {
+    const currentTask = { ...task('TODO'), title: 'Stale projection' } as TaskItem;
+    const api = {
+      getWorkspaceSnapshot: vi.fn()
+        .mockResolvedValueOnce({ ...snapshot('TODO'), cursor: 5 })
+        .mockResolvedValueOnce({ ...snapshot('DONE'), cursor: 9, conflicts: [] }),
+      getWorkspaceChanges: vi.fn(),
+      patchTask: vi.fn().mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', {
+        cursor: 4,
         conflicts: [{
           id: 'conflict-1',
           workspace_id: 'workspace-1',

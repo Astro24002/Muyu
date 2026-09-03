@@ -121,6 +121,7 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     required String requestId,
   }) async => task(taskId, targetStatus);
 

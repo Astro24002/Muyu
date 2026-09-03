@@ -3,20 +3,28 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/task.dart';
+import 'package:muyu_client/models/task_approval_request.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/sync/workspace_cache.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
-TaskItem task(String title, {String? workspaceId = 'w1'}) => TaskItem(
+TaskItem task(
+  String title, {
+  String? workspaceId = 'w1',
+  String status = 'TODO',
+  String currentHandlerId = 'user-1',
+  String? reviewerUserId,
+}) => TaskItem(
   id: 'task-1',
   workspaceId: workspaceId,
   parentTaskId: null,
   title: title,
   description: '',
-  status: 'TODO',
-  currentHandlerId: 'user-1',
+  status: status,
+  currentHandlerId: currentHandlerId,
+  reviewerUserId: reviewerUserId,
   quadrant: 'Q1',
   plannedStartAt: null,
   dueAt: null,
@@ -41,6 +49,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   Object? updateError;
   Object? transitionError;
   String? lastRequestId;
+  String? lastTargetStatus;
+  String? lastReviewRejectionReason;
   String? createRequestId;
 
   @override
@@ -117,11 +127,14 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     String? blockedReason,
     String? resumeHandlerId,
     String? waitingForUserId,
+    String? reviewRejectionReason,
     required String requestId,
   }) async {
     final error = transitionError;
     if (error != null) throw error;
     lastRequestId = requestId;
+    lastTargetStatus = targetStatus;
+    lastReviewRejectionReason = reviewRejectionReason;
     return task(targetStatus);
   }
 
@@ -234,7 +247,7 @@ void main() {
     final repository = FakeSyncRepository();
     final controller = WorkspaceSyncController(repository);
     await controller.refresh();
-    await controller.transition('task-1', 'DONE');
+    await controller.transition('task-1', 'IN_PROGRESS');
     expect(
       repository.lastRequestId,
       matches(
@@ -245,12 +258,55 @@ void main() {
     );
   });
 
+  test('only the server-provided reviewer can decide a REVIEW task and must give a return reason', () async {
+    final repository = FakeSyncRepository();
+    final controller = WorkspaceSyncController(repository);
+    final reviewTask = task(
+      'Awaiting review',
+      status: 'REVIEW',
+      currentHandlerId: 'user-1',
+      reviewerUserId: 'user-2',
+    );
+    controller.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 11,
+        viewerUserId: 'user-1',
+        tasks: [reviewTask],
+      ),
+      isStale: false,
+    );
+
+    await controller.transition('task-1', 'DONE');
+    expect(repository.lastTargetStatus, isNull);
+
+    controller.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 11,
+        viewerUserId: 'user-2',
+        tasks: [reviewTask],
+      ),
+      isStale: false,
+    );
+    await controller.transition('task-1', 'IN_PROGRESS');
+    expect(repository.lastTargetStatus, isNull);
+
+    await controller.transition(
+      'task-1',
+      'IN_PROGRESS',
+      reviewRejectionReason: '请补充验收材料',
+    );
+    expect(repository.lastTargetStatus, 'IN_PROGRESS');
+    expect(repository.lastReviewRejectionReason, '请补充验收材料');
+  });
+
   test('transition refreshes the authoritative cursor after a write', () async {
     final repository = FakeSyncRepository();
     final controller = WorkspaceSyncController(repository);
     await controller.refresh();
 
-    await controller.transition('task-1', 'DONE');
+    await controller.transition('task-1', 'IN_PROGRESS');
 
     expect(repository.requestedAfterCursors, [11]);
     expect(controller.state.cursor, 12);
@@ -611,6 +667,100 @@ void main() {
       expect(repository.requestedAfterCursors, [11]);
       expect(cache.cached?.cursor, 12);
       expect(cache.cached?.conflicts, hasLength(1));
+    },
+  );
+
+  test('refreshes instead of applying a 409 projection older than the local cursor', () async {
+    final currentTask = task('Stale projection');
+    final repository = FakeSyncRepository()
+      ..updateError = ApiException(
+        statusCode: 409,
+        code: 'field_conflict',
+        message: 'changed',
+        details: {
+          'cursor': 10,
+          'conflicts': [
+            {
+              'id': 'conflict-1',
+              'workspace_id': 'w1',
+              'task_id': currentTask.id,
+              'field': 'title',
+              'status': 'OPEN',
+              'current_snapshot': currentTask.toJson(),
+            },
+          ],
+        },
+      )
+      ..queuedSnapshots.addAll([
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Initial')],
+        ),
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 20,
+          tasks: [task('Authoritative')],
+        ),
+      ]);
+    final controller = WorkspaceSyncController(repository);
+
+    await controller.refresh();
+    await expectLater(
+      controller.update('task-1', fields: {'title': 'Proposed title'}),
+      throwsA(isA<ApiException>()),
+    );
+
+    expect(repository.snapshotCalls, 2);
+    expect(controller.state.cursor, 20);
+    expect(controller.state.snapshot!.tasks.single.title, 'Authoritative');
+    expect(controller.state.snapshot!.conflicts, isEmpty);
+  });
+
+  test(
+    'rejects a foreign comment change before advancing the cursor',
+    () async {
+      final foreignComment = TaskComment(
+        id: 'comment-foreign',
+        workspaceId: 'w-foreign',
+        taskId: 'task-1',
+        authorUserId: 'user-2',
+        body: 'Foreign',
+        version: 1,
+      );
+      final repository = FakeSyncRepository()
+        ..queuedSnapshots.addAll([
+          WorkspaceSnapshot(
+            workspaceId: 'w1',
+            cursor: 11,
+            tasks: [task('Initial')],
+          ),
+          WorkspaceSnapshot(
+            workspaceId: 'w1',
+            cursor: 20,
+            tasks: [task('Authoritative')],
+          ),
+        ])
+        ..queuedChanges.add(
+          WorkspaceChanges(
+            workspaceId: 'w1',
+            cursor: 12,
+            changes: [
+              WorkspaceChange.commentUpdated(
+                cursor: 12,
+                comment: foreignComment,
+              ),
+            ],
+          ),
+        );
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+      await controller.pull();
+
+      expect(repository.snapshotCalls, 2);
+      expect(controller.state.cursor, 20);
+      expect(controller.state.comments, isEmpty);
     },
   );
 

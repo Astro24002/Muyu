@@ -11,7 +11,9 @@ export interface WebSessionSummary {
   expires_at: string;
 }
 export interface WebSessionRevokeAllResult { revoked_count: number }
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'WAITING' | 'DONE' | 'CANCELLED';
+export type CanonicalTaskStatus = 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'REVIEW' | 'DONE' | 'CANCELLED';
+/** Legacy values remain readable at the API/test-fixture boundary only. */
+export type TaskStatus = CanonicalTaskStatus | 'WAITING' | 'COMPLETED';
 export type TaskQuadrant = 'Q1' | 'Q2' | 'Q3' | 'Q4';
 export type TaskApprovalRequestType =
   | 'TASK_UPDATE'

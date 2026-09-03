@@ -66,7 +66,7 @@ describe('TaskDetailPanel', () => {
     expect(screen.getByRole('heading', { name: '原始标题' })).toBeInTheDocument();
     expect(screen.getByLabelText('描述')).toHaveValue('下一步描述');
     expect(screen.getByLabelText(/负责人/)).toHaveValue('viewer');
-    expect(screen.getByText('待开始')).toBeInTheDocument();
+    expect(screen.getByText('待进行')).toBeInTheDocument();
     expect(screen.getByText(/截止/)).toBeInTheDocument();
     expect(screen.getByText('评论')).toBeInTheDocument();
     expect(screen.getByText('延期')).toBeInTheDocument();

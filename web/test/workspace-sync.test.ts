@@ -43,6 +43,34 @@ describe('WorkspaceSyncController', () => {
     expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
   });
 
+  it('rejects a snapshot containing a task from another workspace', async () => {
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValue({
+      ...snapshot(),
+      tasks: [{ ...task, workspace_id: 'workspace-foreign' }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+
+    expect(controller.state.snapshot).toBeNull();
+    expect(controller.state.error).toBe('无法加载工作区，请检查网络后重试。');
+  });
+
+  it('accepts a snapshot with an unnamed workspace', async () => {
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValue({
+      ...snapshot(),
+      workspace: { id: 'workspace-1', name: null, status: 'ACTIVE' },
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+
+    expect(controller.state.error).toBeNull();
+    expect(controller.state.snapshot?.workspace).toEqual({ id: 'workspace-1', name: null, status: 'ACTIVE' });
+  });
+
   it('reloads the snapshot when the server expires the cursor', async () => {
     const api = apiStub();
     api.getWorkspaceChanges.mockRejectedValue(new ApiError(410, 'sync_cursor_expired', 'expired'));
@@ -101,10 +129,56 @@ describe('WorkspaceSyncController', () => {
     });
   });
 
+  it('does not merge a write acknowledgement from another workspace', async () => {
+    const api = apiStub();
+    api.patchTask.mockResolvedValue({ ...task, workspace_id: 'workspace-foreign', title: 'Foreign write', cursor: 6 });
+    const controller = new WorkspaceSyncController(api as never, { requestIdFactory: () => '00000000-0000-4000-8000-000000000005' });
+    await controller.loadSnapshot();
+
+    await controller.patchTask(task.id, { title: 'Foreign write' });
+
+    expect(controller.state.snapshot?.tasks).toEqual([task]);
+    expect(controller.state).toMatchObject({ stale: true, error: '无法更新任务，请检查网络后重试。' });
+  });
+
+  it('does not merge an approval acknowledgement from another workspace', async () => {
+    const foreignApproval = approval('approval-foreign', 'workspace-foreign');
+    const api = {
+      ...apiStub(),
+      createApprovalRequest: vi.fn().mockResolvedValue({ ...foreignApproval, cursor: 6 }),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    await controller.createApprovalRequest(task.id, {
+      requestType: 'TASK_UPDATE',
+      proposedChanges: { title: 'Foreign approval' },
+      baseFieldVersions: { title: 3 },
+    });
+
+    expect(controller.state.snapshot?.approval_requests).toEqual([]);
+    expect(controller.state).toMatchObject({ stale: true, error: '无法提交审批请求，请检查网络后重试。' });
+  });
+
+  it('does not merge a comment acknowledgement for another task', async () => {
+    const foreignComment = comment('comment-foreign', 'task-foreign');
+    const api = {
+      ...apiStub(),
+      deleteTaskComment: vi.fn().mockResolvedValue({ ...foreignComment, cursor: 6 }),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    await controller.deleteTaskComment(task.id, foreignComment.id, 1);
+
+    expect(controller.state.snapshot?.comments).toEqual([]);
+    expect(controller.state).toMatchObject({ stale: true, error: '无法删除评论，请检查网络后重试。' });
+  });
+
   it('reconciles the cursor after a comment ACK', async () => {
     const api = apiStub();
     api.addTaskComment = vi.fn().mockResolvedValue({ id: 'comment-1', cursor: 6 });
-    api.getWorkspaceChanges.mockResolvedValue({ workspace_id: 'workspace-1', cursor: 6, changes: [{ cursor: 6, resource_type: 'comment', resource_id: 'comment-1', action: 'CREATED', operation_id: null, resource: null }] });
+    api.getWorkspaceChanges.mockResolvedValue({ workspace_id: 'workspace-1', cursor: 6, changes: [{ cursor: 6, resource_type: 'comment', resource_id: 'comment-1', action: 'CREATED', operation_id: null, resource: comment('comment-1', task.id) }] });
     const controller = new WorkspaceSyncController(api as never, { requestIdFactory: () => '00000000-0000-4000-8000-000000000004' });
     await controller.loadSnapshot();
     await controller.addComment(task.id, 'A note');
@@ -114,7 +188,20 @@ describe('WorkspaceSyncController', () => {
 
   it('keeps a field conflict visible after a 409 response', async () => {
     const api = apiStub();
-    api.patchTask.mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', { conflicts: [{ id: 'conflict-1', task_id: task.id, field: 'title', base: 'Original', current: 'Current', proposed: 'Modified' }] }));
+    api.patchTask.mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', {
+      cursor: 5,
+      conflicts: [{
+        id: 'conflict-1',
+        workspace_id: 'workspace-1',
+        task_id: task.id,
+        field: 'title',
+        base: 'Original',
+        current: 'Current',
+        proposed: 'Modified',
+        status: 'OPEN',
+        current_snapshot: task,
+      }],
+    }));
     const controller = new WorkspaceSyncController(api as never, { requestIdFactory: () => '00000000-0000-4000-8000-000000000002' });
     await controller.loadSnapshot();
 
@@ -766,6 +853,98 @@ describe('WorkspaceSyncController', () => {
     expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
     expect(controller.state.cursor).toBe(8);
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Recovered snapshot');
+  });
+
+  it.each([
+    ['null task resource', 'task', null],
+    ['null approval resource', 'approval_request', null],
+    ['null comment resource', 'comment', null],
+    ['unknown resource type', 'future_resource', { id: 'future-1' }],
+  ])('recovers without advancing for a %s', async (_label, resourceType, resource) => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: resourceType,
+        resource_id: resourceType === 'task' ? task.id : 'future-1',
+        action: 'UPDATED',
+        operation_id: null,
+        resource,
+      }],
+    });
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered snapshot' }] });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Recovered snapshot');
+  });
+
+  it('recovers without advancing for an unknown task conflict status', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'task_conflict',
+        resource_id: 'conflict-1',
+        action: 'UPDATED',
+        operation_id: null,
+        resource: {
+          id: 'conflict-1',
+          workspace_id: 'workspace-1',
+          task_id: task.id,
+          field: 'title',
+          status: 'UNKNOWN',
+        },
+      }],
+    });
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), tasks: [{ ...task, title: 'Recovered snapshot' }] });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Recovered snapshot');
+    expect(controller.state.conflicts).toEqual([]);
+  });
+
+  it('recovers instead of accepting a 409 projection with only a legacy state field', async () => {
+    const api = apiStub();
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce({ ...snapshot(8), conflicts: [] });
+    api.patchTask.mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', {
+      cursor: 6,
+      conflicts: [{
+        id: 'conflict-1',
+        workspace_id: 'workspace-1',
+        task_id: task.id,
+        field: 'title',
+        state: 'OPEN',
+        current_snapshot: task,
+      }],
+    }));
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.patchTask(task.id, { title: 'Proposed title' });
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(8);
+    expect(controller.state.conflicts).toEqual([]);
   });
 
   it('recovers without applying a malformed approval resource', async () => {

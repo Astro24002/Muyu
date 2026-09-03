@@ -123,7 +123,7 @@ describe('deriveTodayModel', () => {
 
     const model = deriveTodayModel(tasks, approvals, 'viewer', now);
 
-    expect(model.waiting).toEqual([waiting]);
+    expect(model.blocked).toEqual([waiting]);
     expect(model.pendingApprovals.map((approval) => approval.id)).toEqual(['incoming-pending']);
   });
 

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import ConflictStatus, MembershipStatus, Resolution, TaskApprovalRequestStatus, TaskApprovalRequestType, TaskStatus
-from app.db.models import ActivityEvent, Task, TaskOperation, TaskStatusHistory, User, Workspace, WorkspaceCursor, WorkspaceMembership
+from app.db.models import ActivityEvent, Task, TaskOperation, TaskStatusHistory, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
 from app.tasks.approvals import TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.schemas import TransitionRequest
@@ -289,12 +289,13 @@ def test_proposed_status_conflict_applies_review_return_metadata(db_engine) -> N
         conflict = error.value.conflict[0]
         current_status_version = task.status_version
         current_lifecycle_version = task.lifecycle_version
+        resolution_request_id = uuid4()
         resolved = service.resolve_conflict(
             workspace.id,
             reviewer.id,
             task.id,
             conflict.id,
-            uuid4(),
+            resolution_request_id,
             "proposed",
         )
 
@@ -307,6 +308,39 @@ def test_proposed_status_conflict_applies_review_return_metadata(db_engine) -> N
         histories = session.scalars(select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id)).all()
         assert histories[-1].from_status == TaskStatus.REVIEW
         assert histories[-1].to_status == TaskStatus.IN_PROGRESS
+        resolution_events = session.scalars(
+            select(ActivityEvent).where(
+                ActivityEvent.task_id == task.id,
+                ActivityEvent.request_id == resolution_request_id,
+            )
+        ).all()
+        assert len(resolution_events) == 1
+        assert resolution_events[0].event_type == "CONFLICT_RESOLVED"
+        assert resolution_events[0].payload["after"]["status"] == "IN_PROGRESS"
+        before_replay = (
+            len(session.scalars(select(TaskOperation).where(TaskOperation.task_id == task.id)).all()),
+            len(session.scalars(select(ActivityEvent).where(ActivityEvent.task_id == task.id)).all()),
+            len(histories),
+            len(session.scalars(select(WorkspaceChangeLog).where(WorkspaceChangeLog.workspace_id == workspace.id)).all()),
+            session.scalar(select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace.id)),
+        )
+        replayed = service.resolve_conflict(
+            workspace.id,
+            reviewer.id,
+            task.id,
+            conflict.id,
+            resolution_request_id,
+            "proposed",
+        )
+        assert replayed.status == TaskStatus.IN_PROGRESS
+        assert replayed.review_rejection_reason == "补充截图"
+        assert (
+            len(session.scalars(select(TaskOperation).where(TaskOperation.task_id == task.id)).all()),
+            len(session.scalars(select(ActivityEvent).where(ActivityEvent.task_id == task.id)).all()),
+            len(session.scalars(select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id)).all()),
+            len(session.scalars(select(WorkspaceChangeLog).where(WorkspaceChangeLog.workspace_id == workspace.id)).all()),
+            session.scalar(select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace.id)),
+        ) == before_replay
 
 
 def test_lifecycle_complete_submits_review(db_engine) -> None:

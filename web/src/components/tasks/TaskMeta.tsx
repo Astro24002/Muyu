@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import type { TaskItem } from '../../api/types';
+import { normalizeTaskStatus } from '../../tasks/task-model';
 
 export interface TaskMetaProps {
   task: TaskItem;
@@ -26,7 +27,7 @@ export function TaskMeta({ task, now = new Date(), className }: TaskMetaProps): 
         {task.due_at ? `截止 ${formatTaskDate(task.due_at)}` : '未设置截止时间'}
       </time>
       {dueState ? <span className={`task-meta__due task-meta__due--${dueState}`}>{dueState === 'overdue' ? '已过期' : '临期'}</span> : null}
-      {task.status === 'WAITING' ? <span>阻塞：{task.blocked_reason ?? '未说明'}</span> : null}
+      {normalizeTaskStatus(task.status) === 'BLOCKED' ? <span>阻塞：{task.blocked_reason ?? '未说明'}</span> : null}
     </div>
   );
 }

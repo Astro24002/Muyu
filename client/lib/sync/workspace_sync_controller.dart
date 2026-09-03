@@ -205,9 +205,13 @@ class WorkspaceSyncController extends ChangeNotifier {
       }
       return result;
     } catch (error) {
+      final isFieldConflict =
+          error is ApiException &&
+          error.statusCode == 409 &&
+          error.code == 'field_conflict';
       if (await _mergeApiConflict(error)) return null;
       state = state.copyWith(
-        isStale: error is! Exception || state.snapshot != null,
+        isStale: isFieldConflict ? state.isStale : state.snapshot != null,
         errorMessage: '$error',
       );
       notifyListeners();
@@ -640,12 +644,10 @@ class WorkspaceSyncController extends ChangeNotifier {
       await refresh();
       return false;
     }
-    if (details.containsKey('cursor')) {
-      final cursor = details['cursor'];
-      if (cursor is! int || cursor < 0) {
-        await refresh();
-        return false;
-      }
+    final targetCursor = details['cursor'];
+    if (targetCursor is! int || targetCursor < 0) {
+      await refresh();
+      return false;
     }
     final rawConflicts = details['conflicts'];
     if (rawConflicts is! List || rawConflicts.isEmpty) {
@@ -674,32 +676,30 @@ class WorkspaceSyncController extends ChangeNotifier {
         final conflictId = conflict['id'];
         final taskId = conflict['task_id'];
         final field = conflict['field'];
-        final status = conflict['status'] ?? conflict['state'];
+        final status = conflict['status'];
         if (conflictId is! String ||
             conflictId.isEmpty ||
             taskId is! String ||
             taskId.isEmpty ||
             field is! String ||
             field.isEmpty ||
-            (status != null && status is! String)) {
+            conflict['workspace_id'] != current.workspaceId ||
+            status != 'OPEN') {
           await refresh();
           return false;
         }
         final currentSnapshot = conflict['current_snapshot'];
-        if (currentSnapshot != null) {
-          if (currentSnapshot is! Map) {
-            await refresh();
-            return false;
-          }
+        if (currentSnapshot is! Map ||
+            currentSnapshot['workspace_id'] != current.workspaceId ||
+            !_isCanonicalTaskStatus(currentSnapshot['status'])) {
+          await refresh();
+          return false;
+        }
+        try {
           final task = TaskItem.fromJson(
             Map<String, dynamic>.from(currentSnapshot),
           );
-          if (task.workspaceId != null &&
-              task.workspaceId != current.workspaceId) {
-            await refresh();
-            return false;
-          }
-          if (task.id != taskId) {
+          if (task.workspaceId != current.workspaceId || task.id != taskId) {
             await refresh();
             return false;
           }
@@ -709,6 +709,9 @@ class WorkspaceSyncController extends ChangeNotifier {
           } else {
             tasks[index] = task;
           }
+        } catch (_) {
+          await refresh();
+          return false;
         }
         parsed.add(conflict);
       }
@@ -720,8 +723,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     for (final conflict in parsed) {
       final id = conflict['id'];
       conflicts.removeWhere((item) => item['id'] == id);
-      final status = conflict['status'] ?? conflict['state'];
-      if (status == null || status == 'OPEN') conflicts.add(conflict);
+      if (conflict['status'] == 'OPEN') conflicts.add(conflict);
     }
     final next = WorkspaceSnapshot(
       workspaceId: current.workspaceId,
@@ -738,9 +740,21 @@ class WorkspaceSyncController extends ChangeNotifier {
     await _writeCache(next);
     notifyListeners();
 
-    final cursor = details['cursor'];
-    if (cursor is int && cursor > current.cursor) await pull();
+    if (targetCursor > current.cursor) {
+      await _reconcileConflictCursor(targetCursor);
+    }
     return true;
+  }
+
+  Future<void> _reconcileConflictCursor(int targetCursor) async {
+    while (state.snapshot != null && state.cursor < targetCursor) {
+      final before = state.cursor;
+      await pull();
+      if (state.snapshot == null || state.cursor <= before) {
+        await refresh();
+        return;
+      }
+    }
   }
 
   Future<void> _restoreCachedSnapshot() async {
@@ -783,7 +797,7 @@ class WorkspaceSyncController extends ChangeNotifier {
   ) {
     final task = change.task;
     if (change.resourceType != 'task' || task == null) return;
-    if (task.workspaceId != null && task.workspaceId != workspaceId) return;
+    if (task.workspaceId != workspaceId) return;
     final index = tasks.indexWhere((item) => item.id == change.resourceId);
     if (change.action == 'deleted') {
       if (index != -1) tasks[index] = task;
@@ -793,6 +807,14 @@ class WorkspaceSyncController extends ChangeNotifier {
       tasks[index] = task;
     }
   }
+
+  static bool _isCanonicalTaskStatus(Object? value) =>
+      value == 'TODO' ||
+      value == 'IN_PROGRESS' ||
+      value == 'BLOCKED' ||
+      value == 'REVIEW' ||
+      value == 'DONE' ||
+      value == 'CANCELLED';
 
   static void _applyConflict(
     List<Map<String, dynamic>> conflicts,

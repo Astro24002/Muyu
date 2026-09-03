@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_view.dart';
+import 'package:muyu_client/tasks/task_status.dart';
 
 Map<String, dynamic> taskJson(String status) => {
   'id': 'task-contract',
@@ -46,5 +47,19 @@ void main() {
   test('normalizes legacy statuses when reading a task snapshot', () {
     expect(TaskItem.fromJson(taskJson('WAITING')).status, 'BLOCKED');
     expect(TaskItem.fromJson(taskJson('COMPLETED')).status, 'DONE');
+  });
+
+  test('maps every canonical status to its approved label', () {
+    expect(taskStatusLabels, {
+      'TODO': '待进行',
+      'IN_PROGRESS': '进行中',
+      'BLOCKED': '阻塞中',
+      'REVIEW': '待验收',
+      'DONE': '已完成',
+      'CANCELLED': '已取消',
+    });
+    for (final status in taskStatuses) {
+      expect(taskStatusLabel(status), taskStatusLabels[status]);
+    }
   });
 }

@@ -61,20 +61,20 @@ describe('TodayPage', () => {
   it('renders the action sections in the prescribed order and wires approval navigation', () => {
     const focus = makeTask({ id: 'focus', title: '继续整理周末晚餐', status: 'IN_PROGRESS', progress: 40, updated_at: '2026-08-31T10:00:00Z' });
     const next = makeTask({ id: 'next', title: '买橄榄油', due_at: '2026-09-02T12:00:00Z' });
-    const waiting = makeTask({ id: 'waiting', title: '等伙伴确认菜单', status: 'WAITING', blocked_reason: '等待伙伴确认' });
-    const { sync } = createFakeSync([focus, next, waiting], [makeApproval()]);
+    const blocked = makeTask({ id: 'blocked', title: '等伙伴确认菜单', status: 'BLOCKED', blocked_reason: '等待伙伴确认' });
+    const { sync } = createFakeSync([focus, next, blocked], [makeApproval()]);
     const onOpenTask = vi.fn();
 
     render(<TodayPage sync={sync} onOpenTask={onOpenTask} onCreateTask={vi.fn()} />);
 
     expect(Array.from(document.querySelectorAll('[data-today-section]')).map((node) => node.getAttribute('data-today-section')))
-      .toEqual(['intro', 'sync', 'focus', 'next', 'waiting', 'approval', 'composer']);
+      .toEqual(['intro', 'sync', 'focus', 'next', 'blocked', 'approval', 'composer']);
     expect(screen.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeInTheDocument();
     expect(screen.getByTestId('today-date')).toHaveTextContent('2026');
     expect(screen.getByText('刚刚同步')).toBeInTheDocument();
     expect(screen.getByText(focus.title)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '接下来' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '等待中' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '阻塞中' })).toBeInTheDocument();
     expect(screen.getByText('有 1 个变更等你确认')).toBeInTheDocument();
     expect(screen.getByText('不用清空列表，完成真正重要的一步就好')).toBeInTheDocument();
     expect(document.querySelector('[data-kpi-card]')).toBeNull();
@@ -91,7 +91,7 @@ describe('TodayPage', () => {
     expect(document.querySelector('[data-today-section="focus"]')).toBeNull();
     expect(screen.getByText('今天没有需要处理的任务')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '记下一件事' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '等待中' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '阻塞中' })).toBeNull();
   });
 
   it('completes a next task through the sync controller without opening it', () => {

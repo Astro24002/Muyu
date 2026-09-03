@@ -173,6 +173,7 @@ describe('workspace sync six-state status boundary', () => {
     let pullCount = 0;
     const openConflict = {
       id: 'conflict-1',
+      workspace_id: 'workspace-1',
       task_id: 'task-todo',
       field: 'status',
       base: 'TODO',
@@ -363,7 +364,7 @@ describe('workspace sync six-state status boundary', () => {
     const conflict = {
       id: 'conflict-1',
       workspace_id: 'workspace-1',
-      task_id: currentTask.id,
+      task_id: currentTask['id'] as string,
       field: 'title',
       base: 'Original',
       current: 'Current title',
@@ -384,7 +385,7 @@ describe('workspace sync six-state status boundary', () => {
     const controller = new WorkspaceSyncController(api as never);
 
     await controller.loadSnapshot();
-    await controller.patchTask(currentTask.id, { title: 'Proposed title' });
+    await controller.patchTask(currentTask['id'] as string, { title: 'Proposed title' });
 
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Current title');
     expect(controller.state.snapshot?.conflicts).toHaveLength(1);
@@ -417,6 +418,48 @@ describe('workspace sync six-state status boundary', () => {
 
     await controller.loadSnapshot();
     await controller.patchTask(currentTask.id, { title: 'Proposed title' });
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(9);
+    expect(controller.state.conflicts).toEqual([]);
+  });
+
+  it.each([
+    ['cursor', (conflict: Record<string, unknown>) => conflict, (details: Record<string, unknown>) => { delete details.cursor; }],
+    ['workspace identity', (conflict: Record<string, unknown>) => { delete conflict.workspace_id; return conflict; }, (_details: Record<string, unknown>) => {}],
+    ['OPEN status', (conflict: Record<string, unknown>) => { delete conflict.status; return conflict; }, (_details: Record<string, unknown>) => {}],
+    ['canonical OPEN status field', (conflict: Record<string, unknown>) => { conflict.state = 'OPEN'; delete conflict.status; return conflict; }, (_details: Record<string, unknown>) => {}],
+    ['current snapshot', (conflict: Record<string, unknown>) => { delete conflict.current_snapshot; return conflict; }, (_details: Record<string, unknown>) => {}],
+    ['canonical task status', (conflict: Record<string, unknown>) => {
+      conflict.current_snapshot = { ...conflict.current_snapshot as Record<string, unknown>, status: 'WAITING' };
+      return conflict;
+    }, (_details: Record<string, unknown>) => {}],
+  ])('refreshes instead of caching an incomplete 409 projection missing %s', async (_label, mutateConflict, mutateDetails) => {
+    const currentTask = task('TODO');
+    currentTask.title = 'Current title';
+    const currentTaskId = currentTask.id as string;
+    const conflict: Record<string, unknown> = {
+      id: 'conflict-1',
+      workspace_id: 'workspace-1',
+      task_id: currentTaskId,
+      field: 'title',
+      status: 'OPEN',
+      current_snapshot: currentTask,
+    };
+    const details: Record<string, unknown> = { cursor: 6, conflicts: [mutateConflict(conflict)] };
+    mutateDetails(details);
+    const api = {
+      getWorkspaceSnapshot: vi.fn()
+        .mockResolvedValueOnce({ ...snapshot('TODO'), cursor: 5 })
+        .mockResolvedValueOnce({ ...snapshot('DONE'), cursor: 9, conflicts: [] }),
+      getWorkspaceChanges: vi.fn(),
+      patchTask: vi.fn().mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', details)),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.patchTask(currentTaskId, { title: 'Proposed title' });
 
     expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
     expect(controller.state.cursor).toBe(9);

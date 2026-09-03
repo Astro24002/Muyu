@@ -541,17 +541,12 @@ export class WorkspaceSyncController {
     const snapshot = this.currentState.snapshot;
     const details = error.details;
     if (!snapshot || !isRecord(details)) return false;
-    if (Object.prototype.hasOwnProperty.call(details, 'cursor') && !isValidCursor(details.cursor)) return false;
+    if (!isValidCursor(details.cursor)) return false;
     const rawConflicts = details.conflicts;
     if (!Array.isArray(rawConflicts) || rawConflicts.length === 0 || !rawConflicts.every(isRecord)) return false;
     const incoming = conflictsFromError(error);
     if (incoming.length !== rawConflicts.length) return false;
-    const valid = incoming.every((conflict) => {
-      if (!isTaskConflict(conflict, snapshot.workspace_id, false)) return false;
-      if (conflict.current_snapshot === undefined || conflict.current_snapshot === null) return true;
-      return isTaskItem(conflict.current_snapshot)
-        && conflict.current_snapshot.workspace_id === snapshot.workspace_id;
-    });
+    const valid = rawConflicts.every((conflict) => isCompleteConflictProjection(conflict, snapshot.workspace_id));
     if (!valid) return false;
     const cursorBefore = this.currentState.cursor;
     const conflicts = normalizeConflicts(snapshot.conflicts)
@@ -972,13 +967,16 @@ function isWorkspaceMember(value: unknown): value is WorkspaceSnapshot['members'
 }
 
 function isValidChangeResource(resourceType: string, resource: unknown, workspaceId: string): boolean {
-  if (resource === null) return true;
+  // A null resource is only meaningful for action-first conflict tombstones.
+  if (resource === null) return resourceType === 'task_conflict';
   if (!isRecord(resource)) return false;
   if (resourceType === 'task') return isTaskItem(resource) && resource.workspace_id === workspaceId;
-  if (resourceType === 'task_conflict') return isTaskConflict(resource, workspaceId);
+  if (resourceType === 'task_conflict') {
+    return isTaskConflict(resource, workspaceId) && resource.workspace_id === workspaceId;
+  }
   if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'comment') return isTaskComment(resource);
-  return true;
+  return false;
 }
 
 function isTaskConflict(value: unknown, workspaceId?: string, requireStatus = true): value is TaskConflict {
@@ -990,7 +988,11 @@ function isTaskConflict(value: unknown, workspaceId?: string, requireStatus = tr
     && typeof value.field === 'string'
     && value.field.length > 0
     && (workspaceId === undefined || conflictWorkspaceMatches(value, workspaceId))
-    && (!requireStatus || typeof (value.status ?? value.state) === 'string');
+    && (!requireStatus || isConflictStatus(value.status ?? value.state));
+}
+
+function isConflictStatus(value: unknown): value is 'OPEN' | 'RESOLVED' | 'REJECTED' {
+  return value === 'OPEN' || value === 'RESOLVED' || value === 'REJECTED';
 }
 
 function conflictWorkspaceMatches(value: Record<string, unknown>, workspaceId: string): boolean {
@@ -1000,6 +1002,15 @@ function conflictWorkspaceMatches(value: Record<string, unknown>, workspaceId: s
   if (!isRecord(currentSnapshot)) return false;
   if (currentSnapshot.workspace_id !== undefined && currentSnapshot.workspace_id !== workspaceId) return false;
   return currentSnapshot.id === undefined || currentSnapshot.id === value.task_id;
+}
+
+function isCompleteConflictProjection(value: unknown, workspaceId: string): boolean {
+  if (!isTaskConflict(value, workspaceId) || value.workspace_id !== workspaceId || value.status !== 'OPEN') return false;
+  const currentSnapshot = value.current_snapshot;
+  return isTaskItem(currentSnapshot)
+    && currentSnapshot.workspace_id === workspaceId
+    && isCanonicalTaskStatus(currentSnapshot.status)
+    && currentSnapshot.id === value.task_id;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

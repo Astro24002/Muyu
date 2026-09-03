@@ -159,6 +159,109 @@ void main() {
     );
   });
 
+  test('rejects null and unknown non-conflict change resources', () {
+    for (final resourceType in ['task', 'approval_request', 'comment']) {
+      expect(
+        () => WorkspaceChanges.fromJson({
+          'workspace_id': 'workspace-1',
+          'cursor': 7,
+          'changes': [
+            {
+              'cursor': 7,
+              'resource_type': resourceType,
+              'resource_id': '$resourceType-1',
+              'action': 'UPDATED',
+              'resource': null,
+            },
+          ],
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    }
+
+    expect(
+      () => WorkspaceChanges.fromJson({
+        'workspace_id': 'workspace-1',
+        'cursor': 7,
+        'changes': [
+          {
+            'cursor': 7,
+            'resource_type': 'future_resource',
+            'resource_id': 'future-1',
+            'action': 'UPDATED',
+            'resource': {'id': 'future-1'},
+          },
+        ],
+      }),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('rejects a task change without workspace identity', () {
+    final resource = taskJson(id: 'task-1', status: 'TODO');
+    expect(
+      () => WorkspaceChanges.fromJson({
+        'workspace_id': 'workspace-1',
+        'cursor': 7,
+        'changes': [
+          {
+            'cursor': 7,
+            'resource_type': 'task',
+            'resource_id': 'task-1',
+            'action': 'UPDATED',
+            'resource': resource,
+          },
+        ],
+      }),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('retains null task_conflict tombstones at the parsing boundary', () {
+    final changes = WorkspaceChanges.fromJson({
+      'workspace_id': 'workspace-1',
+      'cursor': 7,
+      'changes': [
+        {
+          'cursor': 7,
+          'resource_type': 'task_conflict',
+          'resource_id': 'conflict-1',
+          'action': 'UPDATED',
+          'resource': null,
+        },
+      ],
+    });
+
+    expect(changes.changes.single.conflict, isNull);
+  });
+
+  test('rejects an unknown task conflict status in a changes envelope', () {
+    final changes = WorkspaceChanges.fromJson({
+      'workspace_id': 'workspace-1',
+      'cursor': 7,
+      'changes': [
+        {
+          'cursor': 7,
+          'resource_type': 'task_conflict',
+          'resource_id': 'conflict-1',
+          'action': 'UPDATED',
+          'resource': {
+            'id': 'conflict-1',
+            'workspace_id': 'workspace-1',
+            'task_id': 'task-1',
+            'field': 'title',
+            'status': 'UNKNOWN',
+          },
+        },
+      ],
+    });
+
+    expect(
+      changes.isValidFor(workspaceId: 'workspace-1', afterCursor: 6),
+      isFalse,
+    );
+  });
+
   test('retains resource workspace identity while parsing changes', () {
     final parsed = WorkspaceChanges.fromJson({
       'workspace_id': 'workspace-1',
@@ -179,4 +282,31 @@ void main() {
 
     expect(parsed.changes.single.task?.workspaceId, 'workspace-1');
   });
+
+  test(
+    'rejects a task change whose resource identity does not match its task',
+    () {
+      final changes = WorkspaceChanges(
+        workspaceId: 'workspace-1',
+        cursor: 7,
+        changes: [
+          WorkspaceChange(
+            cursor: 7,
+            resourceType: 'task',
+            resourceId: 'task-1',
+            action: 'updated',
+            task: TaskItem.fromJson({
+              ...taskJson(id: 'task-2', status: 'TODO'),
+              'workspace_id': 'workspace-1',
+            }),
+          ),
+        ],
+      );
+
+      expect(
+        changes.isValidFor(workspaceId: 'workspace-1', afterCursor: 6),
+        isFalse,
+      );
+    },
+  );
 }

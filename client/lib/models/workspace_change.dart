@@ -82,6 +82,9 @@ class WorkspaceChange {
     if (resourceType is! String || resourceType.isEmpty) {
       throw const FormatException('change resource_type is required');
     }
+    if (!WorkspaceChanges._resourceTypes.contains(resourceType)) {
+      throw const FormatException('change resource_type is unknown');
+    }
     final resourceId = json['resource_id'];
     if (resourceId is! String || resourceId.isEmpty) {
       throw const FormatException('change resource_id is required');
@@ -99,6 +102,9 @@ class WorkspaceChange {
     }
     final resource = json['resource'];
     Map<String, dynamic>? resourceMap;
+    if (resource == null && resourceType != 'task_conflict') {
+      throw const FormatException('non-conflict change resource is required');
+    }
     if (resource != null) {
       if (resource is! Map) {
         throw const FormatException(
@@ -114,6 +120,11 @@ class WorkspaceChange {
         throw const FormatException(
           'change resource id does not match resource_id',
         );
+      }
+      if (resourceType == 'task' &&
+          (resourceMap['workspace_id'] is! String ||
+              (resourceMap['workspace_id'] as String).isEmpty)) {
+        throw const FormatException('task change workspace_id is required');
       }
     }
     try {
@@ -213,47 +224,64 @@ class WorkspaceChanges {
 
   static bool _belongsToWorkspace(WorkspaceChange change, String workspaceId) {
     if (!_actions.contains(change.action.toUpperCase())) return false;
-    if (change.resourceType == 'task' && change.task != null) {
+    if (!_resourceTypes.contains(change.resourceType)) return false;
+    if (change.resourceType == 'task') {
+      if (change.task == null) return false;
+      if (change.task!.id != change.resourceId) return false;
       final resourceWorkspaceId = change.task!.workspaceId;
-      if (resourceWorkspaceId != null && resourceWorkspaceId != workspaceId) {
-        return false;
-      }
+      if (resourceWorkspaceId != workspaceId) return false;
     }
-    if (change.resourceType == 'task_conflict' && change.conflict != null) {
+    if (change.resourceType == 'task_conflict' && change.conflict == null) {
+      // A null conflict resource is an action-first tombstone.
+      return true;
+    }
+    if (change.resourceType == 'task_conflict') {
       final resourceWorkspaceId = change.conflict!['workspace_id'];
-      if (change.conflict!.containsKey('workspace_id') &&
-          resourceWorkspaceId != workspaceId) {
+      if (resourceWorkspaceId != workspaceId) {
         return false;
       }
       final conflictId = change.conflict!['id'];
       final taskId = change.conflict!['task_id'];
       final field = change.conflict!['field'];
-      final status = change.conflict!['status'] ?? change.conflict!['state'];
-      if (conflictId is! String || conflictId.isEmpty ||
+      final status = change.conflict!['status'];
+      if (conflictId is! String ||
+          conflictId.isEmpty ||
           conflictId != change.resourceId ||
-          taskId is! String || taskId.isEmpty ||
-          field is! String || field.isEmpty ||
-          status is! String) {
+          taskId is! String ||
+          taskId.isEmpty ||
+          field is! String ||
+          field.isEmpty ||
+          status is! String ||
+          !_conflictStatuses.contains(status)) {
         return false;
       }
       final currentSnapshot = change.conflict!['current_snapshot'];
       if (currentSnapshot != null) {
         if (currentSnapshot is! Map ||
-            (currentSnapshot.containsKey('workspace_id') &&
-                currentSnapshot['workspace_id'] != workspaceId) ||
+            currentSnapshot['workspace_id'] != workspaceId ||
             (currentSnapshot['id'] != null &&
                 currentSnapshot['id'] != taskId)) {
           return false;
         }
       }
     }
-    if (change.resourceType == 'approval_request' &&
-        change.approvalRequest != null &&
-        change.approvalRequest!.workspaceId != workspaceId) {
-      return false;
+    if (change.resourceType == 'approval_request') {
+      return change.approvalRequest != null &&
+          change.approvalRequest!.id == change.resourceId &&
+          change.approvalRequest!.workspaceId == workspaceId;
+    }
+    if (change.resourceType == 'comment') {
+      return change.comment != null && change.comment!.id == change.resourceId;
     }
     return true;
   }
 
+  static const _resourceTypes = {
+    'task',
+    'task_conflict',
+    'approval_request',
+    'comment',
+  };
+  static const _conflictStatuses = {'OPEN', 'RESOLVED', 'REJECTED'};
   static const _actions = {'CREATED', 'UPDATED', 'DELETED', 'RESTORED'};
 }

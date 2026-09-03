@@ -3,7 +3,10 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
+from app.db.models import ActivityEvent, TaskOperation, TaskStatusHistory, WorkspaceChangeLog, WorkspaceCursor
 from app.main import create_app
 
 from .test_device_readonly_permissions import _headers, _ready_workspace
@@ -16,6 +19,29 @@ def _client(db_engine) -> TestClient:
     app.state.ready = True
     app.state.sms_provider = FakeSmsProvider()
     return TestClient(app)
+
+
+def _side_effect_counts(db_engine, workspace_id: str, task_id: str) -> tuple[int, int, int, int, int]:
+    with Session(db_engine) as session:
+        return (
+            session.scalar(
+                select(func.count()).select_from(TaskOperation).where(TaskOperation.task_id == task_id)
+            ),
+            session.scalar(
+                select(func.count()).select_from(ActivityEvent).where(ActivityEvent.task_id == task_id)
+            ),
+            session.scalar(
+                select(func.count()).select_from(TaskStatusHistory).where(TaskStatusHistory.task_id == task_id)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(WorkspaceChangeLog)
+                .where(WorkspaceChangeLog.workspace_id == workspace_id)
+            ),
+            session.scalar(
+                select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace_id)
+            ),
+        )
 
 
 def test_non_owner_patch_creates_pending_approval_and_owner_can_apply(db_engine) -> None:
@@ -180,15 +206,17 @@ def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> Non
         },
     ).json()
 
+    request_id = str(uuid4())
+    body = {
+        "request_id": request_id,
+        "target_status": "IN_PROGRESS",
+        "base_status_version": submitted["status_version"] - 1,
+        "review_rejection_reason": "补充验收材料",
+    }
     stale = client.post(
         f"/api/v1/tasks/{created['id']}/transition",
         headers=reviewer_headers,
-        json={
-            "request_id": str(uuid4()),
-            "target_status": "IN_PROGRESS",
-            "base_status_version": submitted["status_version"] - 1,
-            "review_rejection_reason": "补充验收材料",
-        },
+        json=body,
     )
     assert stale.status_code == 409, stale.text
     http_conflict = stale.json()["details"]["conflicts"][0]
@@ -209,6 +237,24 @@ def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> Non
     assert http_conflict["lifecycle_version"] == submitted["lifecycle_version"]
     assert http_conflict["field_versions"] == submitted["field_versions"]
     assert http_conflict["proposed_payload"]["review_rejection_reason"] == "补充验收材料"
+
+    resolved = client.post(
+        f"/api/v1/tasks/{created['id']}/conflicts/{http_conflict['id']}/resolve",
+        headers=reviewer_headers,
+        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["status"] == "IN_PROGRESS"
+    assert resolved.json()["review_rejection_reason"] == "补充验收材料"
+    before_replay = _side_effect_counts(db_engine, created["workspace_id"], created["id"])
+    replay = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=reviewer_headers,
+        json=body,
+    )
+    assert replay.status_code == 409, replay.text
+    assert replay.json() == stale.json()
+    assert _side_effect_counts(db_engine, created["workspace_id"], created["id"]) == before_replay
 
 
 def test_stale_patch_request_replays_the_original_409_across_http_sessions(db_engine) -> None:
@@ -250,9 +296,11 @@ def test_stale_patch_request_replays_the_original_409_across_http_sessions(db_en
         json={"request_id": str(uuid4()), "resolution": "current"},
     )
     assert resolved.status_code == 200, resolved.text
+    before_replay = _side_effect_counts(db_engine, task["workspace_id"], task["id"])
     replay = replay_client.patch(f"/api/v1/tasks/{task['id']}", headers=headers, json=body)
     assert replay.status_code == 409, replay.text
     assert replay.json() == first.json()
+    assert _side_effect_counts(db_engine, task["workspace_id"], task["id"]) == before_replay
     assert first.json()["details"]["conflicts"][0]["current_snapshot"]["title"] == "Current title"
     assert isinstance(first.json()["details"]["cursor"], int)
 
@@ -297,9 +345,11 @@ def test_stale_status_request_replays_the_original_409_across_http_sessions(db_e
     )
     assert resolved.status_code == 200, resolved.text
     assert resolved.json()["status"] == "BLOCKED"
+    before_replay = _side_effect_counts(db_engine, created["workspace_id"], created["id"])
     replay = replay_client.post(f"/api/v1/tasks/{created['id']}/transition", headers=headers, json=body)
     assert replay.status_code == 409, replay.text
     assert replay.json() == first.json()
+    assert _side_effect_counts(db_engine, created["workspace_id"], created["id"]) == before_replay
     assert first.json()["details"]["conflicts"][0]["proposed_payload"]["target_status"] == "BLOCKED"
     assert isinstance(first.json()["details"]["cursor"], int)
 
@@ -344,9 +394,11 @@ def test_conflict_replay_stays_409_after_proposed_handler_transfer_changes_owner
     assert resolved.status_code == 200, resolved.text
     assert resolved.json()["current_handler_id"] == owner["user"]["id"]
 
+    before_replay = _side_effect_counts(db_engine, created["workspace_id"], created["id"])
     replay = replay_client.patch(f"/api/v1/tasks/{created['id']}", headers=partner_headers, json=body)
     assert replay.status_code == 409, replay.text
     assert replay.json() == first.json()
+    assert _side_effect_counts(db_engine, created["workspace_id"], created["id"]) == before_replay
 
 
 def test_stale_blocked_status_409_uses_full_conflict_projection(db_engine) -> None:

@@ -9,8 +9,9 @@ import 'package:muyu_client/sync/workspace_cache.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
-TaskItem task(String title) => TaskItem(
+TaskItem task(String title, {String? workspaceId = 'w1'}) => TaskItem(
   id: 'task-1',
+  workspaceId: workspaceId,
   parentTaskId: null,
   title: title,
   description: '',
@@ -38,6 +39,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   final queuedChanges = <WorkspaceChanges>[];
   final queuedSnapshots = <WorkspaceSnapshot>[];
   Object? updateError;
+  Object? transitionError;
   String? lastRequestId;
   String? createRequestId;
 
@@ -117,6 +119,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     String? waitingForUserId,
     required String requestId,
   }) async {
+    final error = transitionError;
+    if (error != null) throw error;
     lastRequestId = requestId;
     return task(targetStatus);
   }
@@ -262,6 +266,7 @@ void main() {
 
       final openConflict = <String, dynamic>{
         'id': 'conflict-1',
+        'workspace_id': 'w1',
         'task_id': 'task-1',
         'field': 'status',
         'base': 'TODO',
@@ -432,6 +437,76 @@ void main() {
     },
   );
 
+  test(
+    'recovers instead of advancing for malformed non-conflict changes',
+    () async {
+      final invalidResponses = [
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [
+            const WorkspaceChange(
+              cursor: 12,
+              resourceType: 'task',
+              resourceId: 'task-1',
+              action: 'updated',
+            ),
+          ],
+        ),
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [
+            const WorkspaceChange(
+              cursor: 12,
+              resourceType: 'future_resource',
+              resourceId: 'future-1',
+              action: 'updated',
+            ),
+          ],
+        ),
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [
+            WorkspaceChange(
+              cursor: 12,
+              resourceType: 'task',
+              resourceId: 'task-1',
+              action: 'updated',
+              task: task('Missing identity', workspaceId: null),
+            ),
+          ],
+        ),
+      ];
+
+      for (final invalid in invalidResponses) {
+        final repository = FakeSyncRepository();
+        repository.queuedSnapshots.addAll([
+          WorkspaceSnapshot(
+            workspaceId: 'w1',
+            cursor: 11,
+            tasks: [task('Initial')],
+          ),
+          WorkspaceSnapshot(
+            workspaceId: 'w1',
+            cursor: 20,
+            tasks: [task('Recovered')],
+          ),
+        ]);
+        repository.queuedChanges.add(invalid);
+        final controller = WorkspaceSyncController(repository);
+
+        await controller.refresh();
+        await controller.pull();
+
+        expect(repository.snapshotCalls, 2);
+        expect(controller.state.cursor, 20);
+        expect(controller.state.snapshot!.tasks.single.title, 'Recovered');
+      }
+    },
+  );
+
   test('uses action-first conflict tombstone semantics for non-null deleted and null updates', () async {
     final openConflict = <String, dynamic>{
       'id': 'conflict-1',
@@ -539,6 +614,105 @@ void main() {
     },
   );
 
+  test('reconciles a 409 projection through every changes page', () async {
+    final currentTask = task('Current title');
+    final conflict = <String, dynamic>{
+      'id': 'conflict-1',
+      'workspace_id': 'w1',
+      'task_id': currentTask.id,
+      'field': 'title',
+      'status': 'OPEN',
+      'current_snapshot': currentTask.toJson(),
+    };
+    final repository = FakeSyncRepository()
+      ..updateError = ApiException(
+        statusCode: 409,
+        code: 'field_conflict',
+        message: 'changed',
+        details: {
+          'cursor': 13,
+          'conflicts': [conflict],
+        },
+      );
+    repository.queuedChanges.addAll([
+      WorkspaceChanges(
+        workspaceId: 'w1',
+        cursor: 12,
+        changes: [WorkspaceChange.taskUpdated(cursor: 12, task: currentTask)],
+      ),
+      WorkspaceChanges(
+        workspaceId: 'w1',
+        cursor: 13,
+        changes: [
+          WorkspaceChange.taskUpdated(
+            cursor: 13,
+            task: currentTask.copyWith(title: 'Committed title'),
+          ),
+        ],
+      ),
+    ]);
+    final controller = WorkspaceSyncController(repository);
+
+    await controller.refresh();
+    await controller.update('task-1', fields: {'title': 'Proposed title'});
+
+    expect(repository.requestedAfterCursors, [11, 12]);
+    expect(controller.state.cursor, 13);
+    expect(controller.state.snapshot!.tasks.single.title, 'Committed title');
+    expect(controller.state.snapshot!.conflicts, hasLength(1));
+  });
+
+  test('refreshes when a 409 cursor cannot make progress', () async {
+    final currentTask = task('Current title');
+    final repository = FakeSyncRepository()
+      ..updateError = ApiException(
+        statusCode: 409,
+        code: 'field_conflict',
+        message: 'changed',
+        details: {
+          'cursor': 13,
+          'conflicts': [
+            {
+              'id': 'conflict-1',
+              'workspace_id': 'w1',
+              'task_id': currentTask.id,
+              'field': 'title',
+              'status': 'OPEN',
+              'current_snapshot': currentTask.toJson(),
+            },
+          ],
+        },
+      );
+    repository.queuedSnapshots.addAll([
+      WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 11,
+        tasks: [task('Initial')],
+      ),
+      WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 20,
+        tasks: [task('Authoritative')],
+      ),
+    ]);
+    repository.queuedChanges.add(
+      WorkspaceChanges(
+        workspaceId: 'w1',
+        cursor: 12,
+        changes: [WorkspaceChange.taskUpdated(cursor: 12, task: currentTask)],
+      ),
+    );
+    final controller = WorkspaceSyncController(repository);
+
+    await controller.refresh();
+    await controller.update('task-1', fields: {'title': 'Proposed title'});
+
+    expect(repository.snapshotCalls, 2);
+    expect(controller.state.cursor, 20);
+    expect(controller.state.snapshot!.tasks.single.title, 'Authoritative');
+    expect(controller.state.snapshot!.conflicts, isEmpty);
+  });
+
   test(
     'recovers from a foreign 409 conflict projection without caching it',
     () async {
@@ -632,6 +806,52 @@ void main() {
       expect(repository.snapshotCalls, 2);
       expect(controller.state.snapshot!.tasks.single.title, 'Recovered');
       expect(controller.state.snapshot!.conflicts, isEmpty);
+    },
+  );
+
+  test(
+    'keeps recovered state usable after a malformed transition 409 projection',
+    () async {
+      final repository = FakeSyncRepository()
+        ..transitionError = ApiException(
+          statusCode: 409,
+          code: 'field_conflict',
+          message: 'changed',
+          details: {
+            'conflicts': [
+              {
+                'id': 'conflict-1',
+                'workspace_id': 'w1',
+                'task_id': 'task-1',
+                'field': 'status',
+                'status': 'OPEN',
+                'current_snapshot': task('Initial').toJson(),
+              },
+            ],
+          },
+        );
+      repository.queuedSnapshots.addAll([
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Initial')],
+        ),
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 20,
+          tasks: [task('Recovered')],
+        ),
+      ]);
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+      final result = await controller.transition('task-1', 'IN_PROGRESS');
+
+      expect(result, isNull);
+      expect(repository.snapshotCalls, 2);
+      expect(controller.state.snapshot!.tasks.single.title, 'Recovered');
+      expect(controller.state.cursor, 20);
+      expect(controller.state.isStale, isFalse);
     },
   );
 

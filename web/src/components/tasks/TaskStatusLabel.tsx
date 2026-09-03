@@ -1,30 +1,37 @@
 import type { JSX } from 'react';
-import type { TaskStatus } from '../../api/types';
+import type { CanonicalTaskStatus, TaskStatus } from '../../api/types';
+import { isCanonicalTaskStatus, normalizeTaskStatus } from '../../tasks/task-model';
 
 export interface TaskStatusLabelProps {
   status: TaskStatus;
   className?: string;
 }
 
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  TODO: '待开始',
+const STATUS_LABELS: Record<CanonicalTaskStatus, string> = {
+  TODO: '待进行',
   IN_PROGRESS: '进行中',
-  WAITING: '等待中',
+  BLOCKED: '阻塞中',
+  REVIEW: '待验收',
   DONE: '已完成',
   CANCELLED: '已取消',
 };
 
 export function TaskStatusLabel({ status, className }: TaskStatusLabelProps): JSX.Element {
+  const normalized = normalizeTaskStatus(status);
+  const displayStatus = isCanonicalTaskStatus(normalized) ? normalized : status;
   return (
     <span
-      className={['task-status-label', `task-status-label--${status.toLowerCase()}`, className].filter(Boolean).join(' ')}
-      data-task-status={status}
+      className={['task-status-label', `task-status-label--${displayStatus.toLowerCase()}`, className].filter(Boolean).join(' ')}
+      data-task-status={displayStatus}
     >
-      {STATUS_LABELS[status]}
+      {taskStatusText(status)}
     </span>
   );
 }
 
 export function taskStatusText(status: TaskStatus): string {
-  return STATUS_LABELS[status];
+  const normalized = normalizeTaskStatus(status);
+  return isCanonicalTaskStatus(normalized)
+    ? STATUS_LABELS[normalized]
+    : String(normalized);
 }

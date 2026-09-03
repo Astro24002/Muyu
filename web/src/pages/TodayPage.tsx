@@ -60,10 +60,10 @@ export function TodayPage({ sync, onOpenTask, onCreateTask }: TodayPageProps): J
         )}
       </section>
 
-      {model.waiting.length > 0 ? (
-        <section className="today-page__section" data-today-section="waiting">
-          <SectionHeading>等待中</SectionHeading>
-          <TaskList tasks={model.waiting} emptyMessage="暂时没有等待中的任务" onOpen={onOpenTask} onComplete={completeTask} busy={busy} />
+      {model.blocked.length > 0 ? (
+        <section className="today-page__section" data-today-section="blocked">
+          <SectionHeading>阻塞中</SectionHeading>
+          <TaskList tasks={model.blocked} emptyMessage="暂时没有阻塞中的任务" onOpen={onOpenTask} onComplete={completeTask} busy={busy} />
         </section>
       ) : null}
 

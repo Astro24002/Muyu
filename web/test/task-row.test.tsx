@@ -49,7 +49,7 @@ describe('TaskRow', () => {
     expect(screen.getByRole('heading', { name: task.title })).toBeInTheDocument();
     expect(screen.getByText(/Q2/)).toBeInTheDocument();
     expect(screen.getByText('截止 2026-09-01')).toBeInTheDocument();
-    expect(screen.getByText('待开始')).toBeInTheDocument();
+    expect(screen.getByText('待进行')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '完成' })).toBeEnabled();
   });
 
@@ -97,13 +97,13 @@ describe('TaskRow', () => {
   it('keeps waiting, due, and completed semantics in text', () => {
     const { rerender } = render(
       <TaskRow
-        task={makeTask({ status: 'WAITING', blocked_reason: '等待伙伴确认', due_at: '2026-08-31T08:00:00Z' })}
+        task={makeTask({ status: 'BLOCKED', blocked_reason: '等待伙伴确认', due_at: '2026-08-31T08:00:00Z' })}
         onOpen={vi.fn()}
         onComplete={vi.fn()}
         busy={false}
       />,
     );
-    expect(screen.getByText('等待中')).toBeInTheDocument();
+    expect(screen.getByText('阻塞中')).toBeInTheDocument();
     expect(screen.getByText(/阻塞：等待伙伴确认/)).toBeInTheDocument();
     expect(screen.getByText('已过期')).toBeInTheDocument();
 

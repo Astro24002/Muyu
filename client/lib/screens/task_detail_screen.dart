@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
+import '../tasks/task_status.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
 
@@ -350,16 +351,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         _selectedResumeHandlerId ??
         task.resumeHandlerId ??
         task.currentHandlerId;
-    final isWaitingRecovery =
-        task.status == 'WAITING' && status == 'IN_PROGRESS';
-    if ((status == 'WAITING' || isWaitingRecovery) &&
+    final isBlockedRecovery =
+        normalizeTaskStatus(task.status) == 'BLOCKED' &&
+        status == 'IN_PROGRESS';
+    if ((status == 'BLOCKED' || isBlockedRecovery) &&
         !activeHandlerIds.contains(selectedResumeHandlerId)) {
       setState(() => _handlerError = '恢复负责人已不可用，请选择有效成员');
       return;
     }
     setState(() => _handlerError = null);
     String? blockedReason;
-    if (status == 'WAITING') {
+    if (status == 'BLOCKED') {
       blockedReason = await showDialog<String>(
         context: context,
         builder: (context) {
@@ -402,9 +404,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         task.id,
         status,
         blockedReason: blockedReason,
-        resumeHandlerId: status == 'WAITING'
+        resumeHandlerId: status == 'BLOCKED'
             ? selectedResumeHandlerId
-            : isWaitingRecovery &&
+            : isBlockedRecovery &&
                   selectedResumeHandlerId != task.resumeHandlerId
             ? selectedResumeHandlerId
             : null,
@@ -659,8 +661,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               decoration: const InputDecoration(labelText: '预计工时（分钟）'),
             ),
             const SizedBox(height: MuyuSpacing.lg),
-            Text('状态：${task.status}'),
-            if (task.status == 'IN_PROGRESS')
+            Text('状态：${taskStatusLabel(task.status)}'),
+            if (normalizeTaskStatus(task.status) == 'IN_PROGRESS')
               DropdownButtonFormField<int>(
                 key: const Key('task-progress-select'),
                 initialValue: const [20, 40, 60, 80].contains(progress)
@@ -699,7 +701,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     ? null
                     : _changeHandler,
               ),
-            if (task.status == 'WAITING')
+            if (normalizeTaskStatus(task.status) == 'BLOCKED')
               DropdownButtonFormField<String>(
                 key: const Key('task-resume-handler-select'),
                 initialValue: selectedResumeHandlerId,
@@ -722,19 +724,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               spacing: MuyuSpacing.sm,
               runSpacing: MuyuSpacing.sm,
               children: [
-                for (final status in const [
-                  'IN_PROGRESS',
-                  'WAITING',
-                  'DONE',
-                  'CANCELLED',
-                  'TODO',
-                ])
+                for (final status in taskStatuses)
                   OutlinedButton(
                     key: Key('task-status-${status.toLowerCase()}'),
                     onPressed: !widget.canWrite || task.deletedAt != null
                         ? null
                         : () => _transition(status),
-                    child: Text(status),
+                    child: Text(taskStatusLabel(status)),
                   ),
                 OutlinedButton(
                   key: const Key('task-delay-button'),

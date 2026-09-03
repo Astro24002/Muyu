@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { AppliedTaskWriteResult } from '../../api/client';
-import type { TaskItem, TaskStatus } from '../../api/types';
+import type { CanonicalTaskStatus, TaskItem, TaskStatus } from '../../api/types';
 import type { TaskDetailActions } from '../../tasks/task-detail-actions';
-import { isTaskQuadrant, parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
+import { isTaskQuadrant, normalizeTaskStatus, parseTaskLabels, parseTaskLabelsInput, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
 import { Button } from '../ui/Button';
 
 export interface TaskMember {
@@ -34,7 +34,7 @@ interface TaskDraft {
   progress: string;
 }
 
-const statuses: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCELLED'];
+const statuses: CanonicalTaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE', 'CANCELLED'];
 const progressValues = [20, 40, 60, 80];
 
 export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEditFormProps): JSX.Element {
@@ -130,19 +130,20 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
 
   const transition = (): void => {
     const activeHandlerIds = getActiveHandlerIds(members);
-    const isWaitingRecovery = task.status === 'WAITING' && draft.status === 'IN_PROGRESS';
-    if (draft.status === 'WAITING' && (!draft.blockedReason.trim() || !draft.resumeHandler)) {
-      setError('进入等待状态需要阻塞原因和恢复负责人。');
+    const taskStatus = normalizeTaskStatus(task.status);
+    const isBlockedRecovery = taskStatus === 'BLOCKED' && draft.status === 'IN_PROGRESS';
+    if (draft.status === 'BLOCKED' && (!draft.blockedReason.trim() || !draft.resumeHandler)) {
+      setError('进入阻塞状态需要阻塞原因和恢复负责人。');
       return;
     }
-    if ((draft.status === 'WAITING' || isWaitingRecovery) && !activeHandlerIds.has(draft.resumeHandler)) {
+    if ((draft.status === 'BLOCKED' || isBlockedRecovery) && !activeHandlerIds.has(draft.resumeHandler)) {
       setError('请选择有效的恢复负责人。');
       return;
     }
 
     const payload = {
       ...(draft.blockedReason.trim() ? { blockedReason: draft.blockedReason.trim() } : {}),
-      ...(draft.resumeHandler && (draft.status === 'WAITING' || isWaitingRecovery)
+      ...(draft.resumeHandler && (draft.status === 'BLOCKED' || isBlockedRecovery)
         ? { resumeHandlerId: draft.resumeHandler }
         : {}),
     };
@@ -172,7 +173,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
 
   const handlerOptions = getHandlerOptions(task, members, [draft.currentHandler, draft.resumeHandler]);
   const transitionDisabled = !canWrite || busyAction !== null;
-  const showWaitingFields = draft.status === 'WAITING' || task.status === 'WAITING';
+  const showBlockedFields = draft.status === 'BLOCKED' || normalizeTaskStatus(task.status) === 'BLOCKED';
   const showProgress = draft.status === 'IN_PROGRESS' || task.status === 'IN_PROGRESS';
 
   return (
@@ -265,7 +266,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
           />
         </label>
 
-        {showWaitingFields ? (
+          {showBlockedFields ? (
           <>
             <label className="task-detail-field">
               <span>阻塞原因</span>
@@ -326,7 +327,7 @@ function createDraft(task: TaskItem): TaskDraft {
   return {
     title: task.title,
     description: task.description,
-    status: task.status,
+    status: normalizeTaskStatus(task.status) as TaskStatus,
     currentHandler: task.current_handler_id,
     dueAt: toDateTimeLocalValue(task.due_at),
     quadrant: isTaskQuadrant(task.quadrant) ? task.quadrant : '',
@@ -424,14 +425,15 @@ function formatDueDate(value: string): string {
 }
 
 function statusLabel(status: TaskStatus): string {
-  const labels: Record<TaskStatus, string> = {
-    TODO: '待开始',
+  const labels: Record<CanonicalTaskStatus, string> = {
+    TODO: '待进行',
     IN_PROGRESS: '进行中',
-    WAITING: '等待中',
+    BLOCKED: '阻塞中',
+    REVIEW: '待验收',
     DONE: '已完成',
     CANCELLED: '已取消',
   };
-  return labels[status];
+  return labels[status as CanonicalTaskStatus] ?? status;
 }
 
 function errorMessage(cause: unknown): string {

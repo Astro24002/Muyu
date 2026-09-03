@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/task.dart';
 import '../models/task_view.dart';
+import '../tasks/task_status.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
 
@@ -372,14 +373,17 @@ class TaskListRow extends StatelessWidget {
         parts.add('延期${today.difference(dueDate).inDays}天');
       }
     }
-    if (task.status == 'IN_PROGRESS' && task.progress != null) {
+    if (normalizeTaskStatus(task.status) == 'IN_PROGRESS' &&
+        task.progress != null) {
       parts.add('进度 ${task.progress}%');
     }
     if (subtasks.isNotEmpty) {
       final completed = subtasks.where((item) => item.status == 'DONE').length;
       parts.add('子任务 $completed/${subtasks.length}');
     }
-    if (task.status == 'WAITING') parts.add(task.blockedReason ?? '等待中');
+    if (normalizeTaskStatus(task.status) == 'BLOCKED') {
+      parts.add(task.blockedReason ?? taskStatusLabel('BLOCKED'));
+    }
     return parts.join(' · ');
   }
 
@@ -405,7 +409,8 @@ class _TaskStatusIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final extension = theme.extension<MuyuThemeExtension>();
-    if (status == 'DONE') {
+    final normalized = normalizeTaskStatus(status);
+    if (normalized == 'DONE') {
       return Icon(
         Icons.check_circle,
         color: extension?.sync ?? theme.colorScheme.secondary,
@@ -413,22 +418,22 @@ class _TaskStatusIcon extends StatelessWidget {
         semanticLabel: '已完成',
       );
     }
-    if (status == 'CANCELLED') {
+    if (normalized == 'CANCELLED') {
       return Icon(
         Icons.cancel,
         color: theme.colorScheme.error,
         size: 24,
-        semanticLabel: '已失败',
+        semanticLabel: taskStatusLabel(normalized),
       );
     }
-    final color = status == 'WAITING'
+    final color = normalized == 'BLOCKED'
         ? extension?.coral ?? theme.colorScheme.secondary
         : theme.colorScheme.primary;
     return Icon(
       Icons.radio_button_unchecked,
       color: color,
       size: 24,
-      semanticLabel: status == 'WAITING' ? '等待中' : '未完成',
+      semanticLabel: taskStatusLabel(normalized),
     );
   }
 }
@@ -560,7 +565,7 @@ class TaskSummaryCard extends StatelessWidget {
     if (pending) {
       parts.add('等待负责人审批');
     } else {
-      parts.add(task.status);
+      parts.add(taskStatusLabel(task.status));
     }
     parts.add(task.quadrant);
     if (task.labels.isNotEmpty) {
@@ -569,8 +574,8 @@ class TaskSummaryCard extends StatelessWidget {
     if (task.dueAt != null) {
       parts.add('截止 ${_dateText(task.dueAt!)}');
     }
-    if (task.status == 'WAITING') {
-      parts.add(task.blockedReason ?? '等待中');
+    if (normalizeTaskStatus(task.status) == 'BLOCKED') {
+      parts.add(task.blockedReason ?? taskStatusLabel('BLOCKED'));
     }
     return parts.join(' · ');
   }

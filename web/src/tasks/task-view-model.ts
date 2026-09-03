@@ -1,11 +1,12 @@
-import type { TaskApprovalRequest, TaskItem, TaskStatus } from '../api/types';
+import type { CanonicalTaskStatus, TaskApprovalRequest, TaskItem, TaskStatus } from '../api/types';
+import { isCanonicalTaskStatus, normalizeTaskStatus } from './task-model';
 
-export const TASK_STATUSES: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'WAITING', 'DONE', 'CANCELLED'];
+export const TASK_STATUSES: CanonicalTaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE', 'CANCELLED'];
 
 export interface TodayModel {
   focus: TaskItem | null;
   next: TaskItem[];
-  waiting: TaskItem[];
+  blocked: TaskItem[];
   pendingApprovals: TaskApprovalRequest[];
 }
 
@@ -13,18 +14,21 @@ export function filterMyTasks(tasks: TaskItem[], userId: string): TaskItem[] {
   return tasks.filter((task) => task.current_handler_id === userId);
 }
 
-export function groupTasksByStatus(tasks: TaskItem[]): Record<TaskStatus, TaskItem[]> {
-  const groups = Object.fromEntries(TASK_STATUSES.map((status) => [status, [] as TaskItem[]])) as Record<TaskStatus, TaskItem[]>;
-  for (const task of tasks) if (groups[task.status]) groups[task.status].push(task);
+export function groupTasksByStatus(tasks: TaskItem[]): Record<CanonicalTaskStatus, TaskItem[]> {
+  const groups = Object.fromEntries(TASK_STATUSES.map((status) => [status, [] as TaskItem[]])) as Record<CanonicalTaskStatus, TaskItem[]>;
+  for (const task of tasks) {
+    const status = normalizeTaskStatus(task.status);
+    if (isCanonicalTaskStatus(status)) groups[status].push(task);
+  }
   return groups;
 }
 
 export function deriveTaskSummary(tasks: TaskItem[], now = new Date()) {
   const cutoff = now.getTime() + 24 * 60 * 60 * 1000;
-  const active = tasks.filter((task) => task.status !== 'DONE' && task.status !== 'CANCELLED');
+  const active = tasks.filter((task) => !isTerminalTask(task.status));
   return {
     mine: tasks.length,
-    blocked: tasks.filter((task) => task.status === 'WAITING').length,
+    blocked: tasks.filter((task) => isBlockedStatus(task.status)).length,
     dueSoon: active.filter((task) => { const due = task.due_at ? Date.parse(task.due_at) : NaN; return due >= now.getTime() && due <= cutoff; }).length,
     overdue: active.filter((task) => task.due_at !== null && Date.parse(task.due_at) < now.getTime()).length,
     openConflicts: 0,
@@ -47,14 +51,14 @@ export function deriveTodayModel(
     .sort(compareFocusTasks)[0] ?? null;
   const focusId = focus?.id;
 
-  const waiting = visibleTasks.filter((task) => task.status === 'WAITING');
+  const blocked = visibleTasks.filter((task) => isBlockedStatus(task.status));
   const next = visibleTasks
-    .filter((task) => task.id !== focusId && task.status !== 'WAITING' && !isTerminalTask(task.status))
+    .filter((task) => task.id !== focusId && !isBlockedStatus(task.status) && !isTerminalTask(task.status))
     .sort(compareDueDates)
     .slice(0, 8);
   const pendingApprovals = approvals.filter((approval) => approval.status === 'PENDING' && approval.approver_id === viewerId);
 
-  return { focus, next, waiting, pendingApprovals };
+  return { focus, next, blocked, pendingApprovals };
 }
 
 function belongsToViewer(task: TaskItem, viewerId: string): boolean {
@@ -62,7 +66,12 @@ function belongsToViewer(task: TaskItem, viewerId: string): boolean {
 }
 
 function isTerminalTask(status: TaskStatus): boolean {
-  return status === 'DONE' || status === 'CANCELLED';
+  const normalized = normalizeTaskStatus(status);
+  return normalized === 'DONE' || normalized === 'CANCELLED';
+}
+
+function isBlockedStatus(status: unknown): boolean {
+  return status === 'BLOCKED' || status === 'WAITING';
 }
 
 function compareFocusTasks(left: TaskItem, right: TaskItem): number {

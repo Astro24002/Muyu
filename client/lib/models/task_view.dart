@@ -1,4 +1,5 @@
 import 'task.dart';
+import '../tasks/task_status.dart';
 
 enum TaskListSort { dueAt, quadrant, updatedAt, createdAt }
 
@@ -26,13 +27,7 @@ class TaskListGroup {
 }
 
 class TaskView {
-  static const statuses = <String>[
-    'TODO',
-    'IN_PROGRESS',
-    'WAITING',
-    'DONE',
-    'CANCELLED',
-  ];
+  static const statuses = taskStatuses;
 
   static const quadrants = <String>['Q1', 'Q2', 'Q3', 'Q4'];
 
@@ -44,7 +39,7 @@ class TaskView {
     return {
       for (final status in statuses)
         status: List.unmodifiable(
-          source.where((task) => task.status == status),
+          source.where((task) => normalizeTaskStatus(task.status) == status),
         ),
     };
   }
@@ -147,8 +142,9 @@ class TaskView {
     ).where((task) => task.deletedAt == null && task.parentTaskId == null);
     final active = filtered.where((task) => _isUnfinished(task.status));
     final terminal = filtered.where((task) {
-      if (task.status == 'DONE') return showCompleted;
-      if (task.status == 'CANCELLED') return showFailed;
+      final status = normalizeTaskStatus(task.status);
+      if (status == 'DONE') return showCompleted;
+      if (status == 'CANCELLED') return showFailed;
       return false;
     });
     final past = active.where((task) {
@@ -179,7 +175,7 @@ class TaskView {
       ),
       TaskListGroup(
         key: 'terminal',
-        title: '已完成 / 已失败',
+        title: '已完成 / 已取消',
         tasks: _sortForList(terminal, sort, terminal: true),
       ),
     ];
@@ -225,8 +221,10 @@ class TaskView {
     return List.unmodifiable(sorted);
   }
 
-  static bool _isUnfinished(String status) =>
-      status != 'DONE' && status != 'CANCELLED';
+  static bool _isUnfinished(String status) {
+    final normalized = normalizeTaskStatus(status);
+    return normalized != 'DONE' && normalized != 'CANCELLED';
+  }
 
   static DateTime _dateOnly(DateTime value) =>
       DateTime(value.year, value.month, value.day);
@@ -234,9 +232,7 @@ class TaskView {
   static int _quadrantIndex(String value) => quadrants.indexOf(value);
 
   static Map<String, int> summary(Iterable<TaskItem> tasks, DateTime now) {
-    final active = tasks.where(
-      (task) => task.status != 'DONE' && task.status != 'CANCELLED',
-    );
+    final active = tasks.where((task) => _isUnfinished(task.status));
     final dueSoon = active.where((task) {
       final due = task.dueAt;
       return due != null &&
@@ -248,7 +244,9 @@ class TaskView {
         .length;
     return {
       'mine': tasks.length,
-      'blocked': tasks.where((task) => task.status == 'WAITING').length,
+      'blocked': tasks
+          .where((task) => normalizeTaskStatus(task.status) == 'BLOCKED')
+          .length,
       'dueSoon': dueSoon,
       'overdue': overdue,
     };

@@ -727,6 +727,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ),
             const SizedBox(height: MuyuSpacing.lg),
             Text('状态：${taskStatusLabel(task.status)}'),
+            if (normalizeTaskStatus(task.status) == 'REVIEW') ...[
+              Text(
+                '验收人：${handlerLabels[task.reviewerUserId] ?? task.reviewerUserId ?? '未指定'}',
+                key: const Key('task-reviewer-summary'),
+              ),
+              if (task.reviewRejectionReason != null &&
+                  task.reviewRejectionReason!.trim().isNotEmpty)
+                Text(
+                  '退回原因：${task.reviewRejectionReason}',
+                  key: const Key('task-review-rejection-reason'),
+                ),
+            ],
             if (normalizeTaskStatus(task.status) == 'IN_PROGRESS')
               DropdownButtonFormField<int>(
                 key: const Key('task-progress-select'),
@@ -795,7 +807,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     onPressed: !widget.canWrite || task.deletedAt != null
                         ? null
                         : () => _transition(status),
-                    child: Text(taskStatusLabel(status)),
+                    child: Text(
+                      taskStatusActionLabel(
+                        currentStatus: task.status,
+                        targetStatus: status,
+                      ),
+                    ),
                   ),
                 OutlinedButton(
                   key: const Key('task-delay-button'),

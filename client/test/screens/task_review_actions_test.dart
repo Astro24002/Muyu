@@ -89,6 +89,11 @@ void main() {
 
       expect(find.byKey(const Key('task-status-done')), findsOneWidget);
       expect(find.byKey(const Key('task-status-in_progress')), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '通过验收'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '退回修改'), findsOneWidget);
+      expect(find.text('验收人：reviewer'), findsOneWidget);
+      expect(find.text('已完成'), findsNothing);
+      expect(find.text('进行中'), findsNothing);
     },
   );
 }

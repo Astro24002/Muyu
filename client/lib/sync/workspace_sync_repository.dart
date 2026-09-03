@@ -5,11 +5,15 @@ import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
+import '../models/home.dart';
 
 abstract class WorkspaceSyncRepository {
   Future<WorkspaceSnapshot> snapshot();
 
   Future<WorkspaceChanges> changes({required int afterCursor});
+
+  /// The bounded action-first projection is optional for older API versions.
+  Future<HomeResponse?> home() async => null;
 
   Future<TaskItem> create({
     required String title,
@@ -221,6 +225,16 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
           authenticated: true,
         ) as Map<String, dynamic>,
       );
+
+  @override
+  Future<HomeResponse?> home() async {
+    final value = await _api.request(
+      'GET',
+      '/api/v1/home',
+      authenticated: true,
+    );
+    return HomeResponse.fromJson(value);
+  }
 
   @override
   Future<TaskMutationResult> transition(

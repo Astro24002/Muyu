@@ -16,6 +16,16 @@ const taskStatusLabels = <String, String>{
   'CANCELLED': '已取消',
 };
 
+enum TaskStatusTone {
+  todo,
+  inProgress,
+  blocked,
+  review,
+  done,
+  cancelled,
+  unknown,
+}
+
 const taskStatusTransitions = <String, List<String>>{
   'TODO': ['IN_PROGRESS', 'BLOCKED', 'CANCELLED'],
   'IN_PROGRESS': ['BLOCKED', 'REVIEW', 'CANCELLED'],
@@ -70,4 +80,27 @@ bool isTaskTransitionAllowed({
 ).contains(targetStatus);
 
 String taskStatusLabel(String status) =>
-    taskStatusLabels[normalizeTaskStatus(status)] ?? status;
+    taskStatusLabels[normalizeTaskStatus(status)] ?? '未知状态';
+
+TaskStatusTone taskStatusTone(String status) =>
+    switch (normalizeTaskStatus(status)) {
+      'TODO' => TaskStatusTone.todo,
+      'IN_PROGRESS' => TaskStatusTone.inProgress,
+      'BLOCKED' => TaskStatusTone.blocked,
+      'REVIEW' => TaskStatusTone.review,
+      'DONE' => TaskStatusTone.done,
+      'CANCELLED' => TaskStatusTone.cancelled,
+      _ => TaskStatusTone.unknown,
+    };
+
+String taskStatusActionLabel({
+  required String currentStatus,
+  required String targetStatus,
+}) {
+  final current = normalizeTaskStatus(currentStatus);
+  final target = normalizeTaskStatus(targetStatus);
+  if (current == 'IN_PROGRESS' && target == 'REVIEW') return '提交验收';
+  if (current == 'REVIEW' && target == 'DONE') return '通过验收';
+  if (current == 'REVIEW' && target == 'IN_PROGRESS') return '退回修改';
+  return taskStatusLabel(target);
+}

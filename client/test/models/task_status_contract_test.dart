@@ -62,4 +62,8 @@ void main() {
       expect(taskStatusLabel(status), taskStatusLabels[status]);
     }
   });
+
+  test('does not expose an unknown internal status in the UI', () {
+    expect(taskStatusLabel('UNKNOWN'), '未知状态');
+  });
 }

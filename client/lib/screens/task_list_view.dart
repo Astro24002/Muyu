@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/task.dart';
 import '../models/task_view.dart';
+import '../models/home.dart';
 import '../tasks/task_status.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
@@ -115,6 +116,11 @@ class _TaskListViewState extends State<TaskListView> {
                 key: const Key('task-list-error'),
               ),
             ),
+          if (widget.state.home != null)
+            _HomeActionSummary(
+              home: widget.state.home!,
+              onTaskTap: widget.onTaskTap,
+            ),
           if (visibleTaskCount == 0)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xxl),
@@ -142,6 +148,148 @@ class _TaskListViewState extends State<TaskListView> {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _HomeActionSummary extends StatelessWidget {
+  const _HomeActionSummary({required this.home, required this.onTaskTap});
+
+  final HomeResponse home;
+  final TaskNavigationCallback onTaskTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final sections =
+        <({String key, String title, HomeTaskSection section, IconData icon})>[
+          (
+            key: 'current',
+            title: '当前任务',
+            section: home.currentTasks,
+            icon: Icons.play_circle_outline,
+          ),
+          (
+            key: 'blocked',
+            title: '当前阻塞',
+            section: home.blockedTasks,
+            icon: Icons.pause_circle_outline,
+          ),
+          (
+            key: 'review',
+            title: '待我验收',
+            section: home.reviewTasks,
+            icon: Icons.fact_check_outlined,
+          ),
+        ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          borderRadius: const BorderRadius.all(Radius.circular(6)),
+        ),
+        child: Column(
+          children: [
+            for (final item in sections)
+              if (item.section.items.isNotEmpty ||
+                  item.section.hasMore ||
+                  item.key == 'current')
+                _HomeActionSection(
+                  key: Key('home-action-section-${item.key}'),
+                  title: item.title,
+                  icon: item.icon,
+                  section: item.section,
+                  onTaskTap: onTaskTap,
+                ),
+            if (home.pendingApprovalCount > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  MuyuSpacing.md,
+                  MuyuSpacing.xs,
+                  MuyuSpacing.md,
+                  MuyuSpacing.md,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '待处理审批 ${home.pendingApprovalCount}',
+                    key: const Key('home-pending-approval-count'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeActionSection extends StatelessWidget {
+  const _HomeActionSection({
+    super.key,
+    required this.title,
+    required this.icon,
+    required this.section,
+    required this.onTaskTap,
+  });
+
+  final String title;
+  final IconData icon;
+  final HomeTaskSection section;
+  final TaskNavigationCallback onTaskTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = '${section.items.length}${section.hasMore ? '+' : ''}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            MuyuSpacing.md,
+            MuyuSpacing.sm,
+            MuyuSpacing.md,
+            MuyuSpacing.xs,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: MuyuSpacing.xs),
+              Text(
+                '$title $count',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ],
+          ),
+        ),
+        for (final task in section.items)
+          Material(
+            color: Colors.transparent,
+            child: ListTile(
+              key: Key('home-action-task-${task.id}'),
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: MuyuSpacing.md,
+              ),
+              title: Text(
+                task.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(taskStatusLabel(task.status)),
+              onTap: () => onTaskTap(task),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -315,7 +463,7 @@ class TaskListRow extends StatelessWidget {
                   ? Theme.of(context).textTheme.bodyLarge?.color
                         ?.withValues(alpha: 0.5)
                   : null,
-              decoration: task.status == 'DONE'
+              decoration: normalizeTaskStatus(task.status) == 'DONE'
                   ? TextDecoration.lineThrough
                   : TextDecoration.none,
             ),
@@ -397,7 +545,8 @@ class TaskListRow extends StatelessWidget {
   }
 
   static bool _isTerminal(String status) =>
-      status == 'DONE' || status == 'CANCELLED';
+      normalizeTaskStatus(status) == 'DONE' ||
+      normalizeTaskStatus(status) == 'CANCELLED';
 }
 
 class _TaskStatusIcon extends StatelessWidget {
@@ -410,27 +559,33 @@ class _TaskStatusIcon extends StatelessWidget {
     final theme = Theme.of(context);
     final extension = theme.extension<MuyuThemeExtension>();
     final normalized = normalizeTaskStatus(status);
-    if (normalized == 'DONE') {
-      return Icon(
+    final tone = taskStatusTone(normalized);
+    final (icon, color) = switch (tone) {
+      TaskStatusTone.done => (
         Icons.check_circle,
-        color: extension?.sync ?? theme.colorScheme.secondary,
-        size: 24,
-        semanticLabel: '已完成',
-      );
-    }
-    if (normalized == 'CANCELLED') {
-      return Icon(
-        Icons.cancel,
-        color: theme.colorScheme.error,
-        size: 24,
-        semanticLabel: taskStatusLabel(normalized),
-      );
-    }
-    final color = normalized == 'BLOCKED'
-        ? extension?.coral ?? theme.colorScheme.secondary
-        : theme.colorScheme.primary;
+        extension?.sync ?? theme.colorScheme.secondary,
+      ),
+      TaskStatusTone.cancelled => (Icons.cancel, theme.colorScheme.error),
+      TaskStatusTone.blocked => (
+        Icons.pause_circle_outline,
+        extension?.coral ?? theme.colorScheme.secondary,
+      ),
+      TaskStatusTone.review => (
+        Icons.fact_check_outlined,
+        theme.colorScheme.primary,
+      ),
+      TaskStatusTone.inProgress => (
+        Icons.play_circle_outline,
+        theme.colorScheme.primary,
+      ),
+      TaskStatusTone.todo => (
+        Icons.radio_button_unchecked,
+        theme.colorScheme.primary,
+      ),
+      TaskStatusTone.unknown => (Icons.help_outline, theme.colorScheme.error),
+    };
     return Icon(
-      Icons.radio_button_unchecked,
+      icon,
       color: color,
       size: 24,
       semanticLabel: taskStatusLabel(normalized),
@@ -516,7 +671,7 @@ class TaskSummaryCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(
                         fontWeight: FontWeight.w600,
-                        decoration: task.status == 'DONE'
+                        decoration: normalizeTaskStatus(task.status) == 'DONE'
                             ? TextDecoration.lineThrough
                             : TextDecoration.none,
                         color: _isTerminal(task.status)
@@ -589,5 +744,6 @@ class TaskSummaryCard extends StatelessWidget {
   }
 
   static bool _isTerminal(String status) =>
-      status == 'DONE' || status == 'CANCELLED';
+      normalizeTaskStatus(status) == 'DONE' ||
+      normalizeTaskStatus(status) == 'CANCELLED';
 }

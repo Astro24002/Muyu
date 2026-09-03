@@ -10,6 +10,7 @@ import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
+import '../models/home.dart';
 import '../tasks/task_status.dart';
 import 'workspace_cache.dart';
 import 'workspace_sync_repository.dart';
@@ -20,12 +21,14 @@ class WorkspaceSyncState {
     this.isStale = true,
     this.loading = false,
     this.errorMessage,
+    this.home,
   });
 
   final WorkspaceSnapshot? snapshot;
   final bool isStale;
   final bool loading;
   final String? errorMessage;
+  final HomeResponse? home;
 
   int get cursor => snapshot?.cursor ?? 0;
 
@@ -38,13 +41,19 @@ class WorkspaceSyncState {
     WorkspaceSnapshot? snapshot,
     bool? isStale,
     bool? loading,
-    String? errorMessage,
+    Object? errorMessage = _unset,
+    Object? home = _unset,
   }) => WorkspaceSyncState(
     snapshot: snapshot ?? this.snapshot,
     isStale: isStale ?? this.isStale,
     loading: loading ?? this.loading,
-    errorMessage: errorMessage,
+    errorMessage: identical(errorMessage, _unset)
+        ? this.errorMessage
+        : errorMessage as String?,
+    home: identical(home, _unset) ? this.home : home as HomeResponse?,
   );
+
+  static const _unset = Object();
 }
 
 class WorkspaceSyncController extends ChangeNotifier {
@@ -102,7 +111,12 @@ class WorkspaceSyncController extends ChangeNotifier {
       if (!snapshot.isValidForWorkspace()) {
         throw const FormatException('workspace snapshot contains foreign data');
       }
-      state = WorkspaceSyncState(snapshot: snapshot, isStale: false);
+      final home = await _loadHome(snapshot.workspaceId);
+      state = WorkspaceSyncState(
+        snapshot: snapshot,
+        isStale: false,
+        home: home,
+      );
       await _writeCache(snapshot);
     } catch (error) {
       state = state.copyWith(isStale: true, errorMessage: '$error');
@@ -147,6 +161,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         _applyApproval(approvals, change, current.workspaceId);
         _applyComment(comments, change, current.workspaceId);
       }
+      final home = await _loadHome(current.workspaceId);
       state = WorkspaceSyncState(
         snapshot: WorkspaceSnapshot(
           workspaceId: current.workspaceId,
@@ -160,6 +175,7 @@ class WorkspaceSyncController extends ChangeNotifier {
           fetchedAt: DateTime.now(),
         ),
         isStale: false,
+        home: home,
       );
       await _writeCache(state.snapshot!);
       notifyListeners();
@@ -227,6 +243,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         // The write response carries no cursor; reconcile through the
         // authoritative cursor endpoint before accepting another mutation.
         await pull();
+        await _refreshHome();
       } else if (result is PendingApproval) {
         _mergeApproval(result.approvalRequest);
       }
@@ -274,6 +291,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       );
       _replaceTask(created);
       await pull();
+      await _refreshHome();
       return created;
     } catch (error) {
       if (await _mergeApiConflict(error)) return null;
@@ -302,6 +320,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       if (result is TaskItem) {
         _replaceTask(result);
         await pull();
+        await _refreshHome();
       } else if (result is PendingApproval) {
         _mergeApproval(result.approvalRequest);
       }
@@ -463,6 +482,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     try {
       await repository.addComment(taskId, body: body, requestId: _requestId());
       await pull();
+      await _refreshHome();
     } catch (error) {
       _setError(error);
       rethrow;
@@ -486,6 +506,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         requestId: _requestId(),
       );
       await pull();
+      await _refreshHome();
     } catch (error) {
       _setError(error);
       rethrow;
@@ -510,6 +531,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       );
       _replaceTask(updated);
       await pull();
+      await _refreshHome();
       return updated;
     } catch (error) {
       if (await _mergeApiConflict(error)) return null;
@@ -559,6 +581,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         fetchedAt: DateTime.now(),
       ),
       isStale: false,
+      home: state.home,
     );
     notifyListeners();
   }
@@ -676,6 +699,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         fetchedAt: DateTime.now(),
       ),
       isStale: false,
+      home: state.home,
     );
     if (notify) notifyListeners();
   }
@@ -789,7 +813,11 @@ class WorkspaceSyncController extends ChangeNotifier {
       approvalRequests: current.approvalRequests,
       fetchedAt: DateTime.now(),
     );
-    state = WorkspaceSyncState(snapshot: next, isStale: false);
+    state = WorkspaceSyncState(
+      snapshot: next,
+      isStale: false,
+      home: state.home,
+    );
     await _writeCache(next);
     notifyListeners();
 
@@ -822,6 +850,31 @@ class WorkspaceSyncController extends ChangeNotifier {
     } catch (_) {
       // A cache is an optimization; network sync remains authoritative.
     }
+  }
+
+  Future<HomeResponse?> _loadHome(String workspaceId) async {
+    final repository = _repository;
+    if (repository == null) return null;
+    try {
+      final home = await repository.home();
+      if (home == null) return null;
+      if (!home.isValidForWorkspace(workspaceId)) {
+        throw const FormatException('home projection contains foreign data');
+      }
+      return home;
+    } catch (_) {
+      // The snapshot remains usable when the optional projection is missing
+      // or temporarily unavailable.
+      return null;
+    }
+  }
+
+  Future<void> _refreshHome() async {
+    final current = state.snapshot;
+    if (current == null) return;
+    final home = await _loadHome(current.workspaceId);
+    state = state.copyWith(home: home);
+    notifyListeners();
   }
 
   Future<void> _writeCache(WorkspaceSnapshot snapshot) async {

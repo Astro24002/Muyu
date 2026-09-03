@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_approval_request.dart';
+import 'package:muyu_client/models/home.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/sync/workspace_cache.dart';
@@ -52,6 +53,14 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   String? lastTargetStatus;
   String? lastReviewRejectionReason;
   String? createRequestId;
+  HomeResponse? homeProjection;
+  int homeCalls = 0;
+
+  @override
+  Future<HomeResponse?> home() async {
+    homeCalls++;
+    return homeProjection;
+  }
 
   @override
   Future<TaskItem> create({
@@ -211,6 +220,34 @@ void main() {
     expect(repository.snapshotCalls, 1);
     expect(controller.state.isStale, isFalse);
   });
+
+  test(
+    'refresh loads the server action projection without making it required',
+    () async {
+      final repository = FakeSyncRepository()
+        ..homeProjection = HomeResponse(
+          currentTasks: HomeTaskSection(
+            items: [task('Current')],
+            hasMore: true,
+          ),
+          blockedTasks: HomeTaskSection(
+            items: [task('Blocked', status: 'BLOCKED')],
+          ),
+          reviewTasks: HomeTaskSection(
+            items: [task('Review', status: 'REVIEW', reviewerUserId: 'user-1')],
+          ),
+          pendingApprovalCount: 2,
+        );
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+
+      expect(repository.homeCalls, 1);
+      expect(controller.state.home?.currentTasks.items.single.title, 'Current');
+      expect(controller.state.home?.currentTasks.hasMore, isTrue);
+      expect(controller.state.home?.pendingApprovalCount, 2);
+    },
+  );
 
   test('concurrent refresh requests share one snapshot call', () async {
     final repository = FakeSyncRepository()

@@ -75,44 +75,45 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('renders server action sections inside the existing task list tab', (
-    tester,
-  ) async {
-    final current = displayTask('current', 'TODO');
-    final blocked = displayTask('blocked', 'BLOCKED');
-    final review = displayTask('review', 'REVIEW');
-    final sync = WorkspaceSyncController.unavailable();
-    final state = WorkspaceSyncState(
-      snapshot: WorkspaceSnapshot(
-        workspaceId: 'workspace-1',
-        cursor: 1,
-        viewerUserId: 'user-1',
-        tasks: [current, blocked, review],
-      ),
-      home: HomeResponse(
-        currentTasks: HomeTaskSection(items: [current]),
-        blockedTasks: HomeTaskSection(items: [blocked]),
-        reviewTasks: HomeTaskSection(items: [review]),
-        pendingApprovalCount: 0,
-      ),
-      isStale: false,
-    );
+  testWidgets(
+    'renders server action sections inside the existing task list tab',
+    (tester) async {
+      final current = displayTask('current', 'TODO');
+      final blocked = displayTask('blocked', 'BLOCKED');
+      final review = displayTask('review', 'REVIEW');
+      final sync = WorkspaceSyncController.unavailable();
+      final state = WorkspaceSyncState(
+        snapshot: WorkspaceSnapshot(
+          workspaceId: 'workspace-1',
+          cursor: 1,
+          viewerUserId: 'user-1',
+          tasks: [current, blocked, review],
+        ),
+        home: HomeResponse(
+          currentTasks: HomeTaskSection(items: [current]),
+          blockedTasks: HomeTaskSection(items: [blocked]),
+          reviewTasks: HomeTaskSection(items: [review]),
+          pendingApprovalCount: 0,
+        ),
+        isStale: false,
+      );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: TaskListView(
-            sync: sync,
-            state: state,
-            canWrite: false,
-            onTaskTap: (_) {},
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TaskListView(
+              sync: sync,
+              state: state,
+              canWrite: false,
+              onTaskTap: (_) {},
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(find.text('当前任务 1'), findsOneWidget);
-    expect(find.text('当前阻塞 1'), findsOneWidget);
-    expect(find.text('待我验收 1'), findsOneWidget);
-  });
+      expect(find.text('当前任务 1'), findsOneWidget);
+      expect(find.text('当前阻塞 1'), findsOneWidget);
+      expect(find.text('待我验收 1'), findsOneWidget);
+    },
+  );
 }

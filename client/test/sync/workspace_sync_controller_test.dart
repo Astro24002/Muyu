@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
@@ -35,6 +36,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   Completer<WorkspaceSnapshot>? snapshotCompleter;
   final requestedAfterCursors = <int>[];
   final queuedChanges = <WorkspaceChanges>[];
+  final queuedSnapshots = <WorkspaceSnapshot>[];
+  Object? updateError;
   String? lastRequestId;
   String? createRequestId;
 
@@ -60,7 +63,11 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     required Map<String, Object?> fields,
     required Map<String, int> fieldVersions,
     required String requestId,
-  }) async => task(fields['title'] as String? ?? 'updated');
+  }) async {
+    final error = updateError;
+    if (error != null) throw error;
+    return task(fields['title'] as String? ?? 'updated');
+  }
 
   @override
   Future<TaskItem> resolveConflict(
@@ -78,6 +85,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
     snapshotCalls++;
     final completer = snapshotCompleter;
     if (completer != null) return completer.future;
+    if (queuedSnapshots.isNotEmpty) return queuedSnapshots.removeAt(0);
     if (failSnapshots) throw StateError('snapshot unavailable');
     return WorkspaceSnapshot(
       workspaceId: 'w1',
@@ -317,6 +325,312 @@ void main() {
       await controller.pull();
 
       expect(controller.state.cursor, 13);
+      expect(controller.state.snapshot!.conflicts, isEmpty);
+    },
+  );
+
+  test(
+    'recovers from a cursor gap, envelope mismatch, or empty-ahead response',
+    () async {
+      final invalidResponses = [
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 8,
+          changes: [
+            WorkspaceChange.taskUpdated(
+              cursor: 12,
+              task: task('Skipped first'),
+            ),
+            WorkspaceChange.taskUpdated(
+              cursor: 14,
+              task: task('Skipped middle'),
+            ),
+          ],
+        ),
+        WorkspaceChanges(workspaceId: 'w1', cursor: 14, changes: const []),
+        WorkspaceChanges(
+          workspaceId: 'foreign',
+          cursor: 12,
+          changes: [
+            WorkspaceChange.taskUpdated(cursor: 12, task: task('Foreign')),
+          ],
+        ),
+      ];
+
+      for (final invalid in invalidResponses) {
+        final repository = FakeSyncRepository();
+        repository.queuedSnapshots.addAll([
+          WorkspaceSnapshot(
+            workspaceId: 'w1',
+            cursor: 11,
+            tasks: [task('Initial')],
+          ),
+          WorkspaceSnapshot(
+            workspaceId: 'w1',
+            cursor: 12,
+            tasks: [task('Recovered')],
+          ),
+        ]);
+        repository.queuedChanges.add(invalid);
+        final controller = WorkspaceSyncController(repository);
+
+        await controller.refresh();
+        await controller.pull();
+
+        expect(repository.snapshotCalls, 2);
+        expect(controller.state.cursor, 12);
+        expect(controller.state.snapshot!.tasks.single.title, 'Recovered');
+      }
+    },
+  );
+
+  test(
+    'recovers instead of applying a conflict resource from another workspace',
+    () async {
+      final repository = FakeSyncRepository();
+      repository.queuedSnapshots.addAll([
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Initial')],
+        ),
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 12,
+          tasks: [task('Recovered')],
+        ),
+      ]);
+      repository.queuedChanges.add(
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [
+            WorkspaceChange(
+              cursor: 12,
+              resourceType: 'task_conflict',
+              resourceId: 'conflict-foreign',
+              action: 'created',
+              conflict: const {
+                'id': 'conflict-foreign',
+                'workspace_id': 'foreign',
+                'task_id': 'task-1',
+                'field': 'title',
+                'status': 'OPEN',
+              },
+            ),
+          ],
+        ),
+      );
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+      await controller.pull();
+
+      expect(repository.snapshotCalls, 2);
+      expect(controller.state.snapshot!.conflicts, isEmpty);
+      expect(controller.state.cursor, 12);
+    },
+  );
+
+  test('uses action-first conflict tombstone semantics for non-null deleted and null updates', () async {
+    final openConflict = <String, dynamic>{
+      'id': 'conflict-1',
+      'workspace_id': 'w1',
+      'task_id': 'task-1',
+      'field': 'title',
+      'status': 'OPEN',
+      'current': 'Current',
+      'proposed': 'Proposed',
+    };
+    final repository = FakeSyncRepository();
+    repository.queuedSnapshots.add(
+      WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 11,
+        tasks: [task('Initial')],
+        conflicts: [openConflict],
+      ),
+    );
+    repository.queuedChanges.addAll([
+      WorkspaceChanges(
+        workspaceId: 'w1',
+        cursor: 12,
+        changes: [
+          WorkspaceChange(
+            cursor: 12,
+            resourceType: 'task_conflict',
+            resourceId: 'conflict-1',
+            action: 'deleted',
+            conflict: openConflict,
+          ),
+        ],
+      ),
+      WorkspaceChanges(
+        workspaceId: 'w1',
+        cursor: 13,
+        changes: [
+          const WorkspaceChange(
+            cursor: 13,
+            resourceType: 'task_conflict',
+            resourceId: 'conflict-1',
+            action: 'updated',
+            conflict: null,
+          ),
+        ],
+      ),
+    ]);
+    final controller = WorkspaceSyncController(repository);
+
+    await controller.refresh();
+    expect(controller.state.snapshot!.conflicts, hasLength(1));
+    await controller.pull();
+    expect(controller.state.snapshot!.conflicts, isEmpty);
+    await controller.pull();
+    expect(controller.state.snapshot!.conflicts, isEmpty);
+  });
+
+  test(
+    'merges a 409 conflict projection into state and reconciles its cursor',
+    () async {
+      final currentTask = task('Current title');
+      final conflict = <String, dynamic>{
+        'id': 'conflict-1',
+        'workspace_id': 'w1',
+        'task_id': currentTask.id,
+        'field': 'title',
+        'status': 'OPEN',
+        'current': 'Current title',
+        'proposed': 'Proposed title',
+        'current_snapshot': currentTask.toJson()..['title'] = 'Current title',
+      };
+      final repository = FakeSyncRepository()
+        ..updateError = ApiException(
+          statusCode: 409,
+          code: 'field_conflict',
+          message: 'changed',
+          details: {
+            'cursor': 12,
+            'conflicts': [conflict],
+          },
+        );
+      final cache = MemoryWorkspaceCache(null);
+      repository.queuedChanges.add(
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [WorkspaceChange.taskUpdated(cursor: 12, task: currentTask)],
+        ),
+      );
+      final controller = WorkspaceSyncController(
+        repository,
+        cache: cache,
+        workspaceId: 'w1',
+      );
+
+      await controller.refresh();
+      await controller.update('task-1', fields: {'title': 'Proposed title'});
+
+      expect(controller.state.snapshot!.tasks.single.title, 'Current title');
+      expect(controller.state.snapshot!.conflicts, hasLength(1));
+      expect(controller.state.cursor, 12);
+      expect(repository.requestedAfterCursors, [11]);
+      expect(cache.cached?.cursor, 12);
+      expect(cache.cached?.conflicts, hasLength(1));
+    },
+  );
+
+  test(
+    'recovers from a foreign 409 conflict projection without caching it',
+    () async {
+      final repository = FakeSyncRepository()
+        ..updateError = ApiException(
+          statusCode: 409,
+          code: 'field_conflict',
+          message: 'changed',
+          details: {
+            'cursor': 12,
+            'conflicts': [
+              {
+                'id': 'foreign-conflict',
+                'workspace_id': 'foreign-workspace',
+                'task_id': 'task-1',
+                'field': 'title',
+                'status': 'OPEN',
+              },
+            ],
+          },
+        );
+      repository.queuedSnapshots.addAll([
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Initial')],
+        ),
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 12,
+          tasks: [task('Recovered')],
+        ),
+      ]);
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+      await expectLater(
+        controller.update('task-1', fields: {'title': 'Proposed'}),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(repository.snapshotCalls, 2);
+      expect(controller.state.snapshot!.tasks.single.title, 'Recovered');
+      expect(controller.state.snapshot!.conflicts, isEmpty);
+    },
+  );
+
+  test(
+    'recovers instead of caching a conflict response with an invalid cursor',
+    () async {
+      final currentTask = task('Current title');
+      final repository = FakeSyncRepository()
+        ..updateError = ApiException(
+          statusCode: 409,
+          code: 'field_conflict',
+          message: 'changed',
+          details: {
+            'cursor': 'not-a-cursor',
+            'conflicts': [
+              {
+                'id': 'conflict-1',
+                'workspace_id': 'w1',
+                'task_id': currentTask.id,
+                'field': 'title',
+                'status': 'OPEN',
+                'current_snapshot': currentTask.toJson(),
+              },
+            ],
+          },
+        );
+      repository.queuedSnapshots.addAll([
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Initial')],
+        ),
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 12,
+          tasks: [task('Recovered')],
+        ),
+      ]);
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+      await expectLater(
+        controller.update('task-1', fields: {'title': 'Proposed'}),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(repository.snapshotCalls, 2);
+      expect(controller.state.snapshot!.tasks.single.title, 'Recovered');
       expect(controller.state.snapshot!.conflicts, isEmpty);
     },
   );

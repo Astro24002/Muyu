@@ -53,7 +53,12 @@ class SyncService:
         for conflict in conflicts:
             current_snapshot = task_snapshots_by_id.get(str(conflict.task_id))
             if current_snapshot is None:
-                conflict_task = self.session.get(Task, conflict.task_id)
+                conflict_task = self.session.scalar(
+                    select(Task).where(
+                        Task.id == conflict.task_id,
+                        Task.workspace_id == workspace_id,
+                    )
+                )
                 if conflict_task is not None:
                     current_snapshot = service.snapshot(conflict_task)
             conflict_projections.append(task_conflict_json(conflict, current_snapshot))
@@ -95,7 +100,12 @@ class SyncService:
         for item in rows:
             resource = None
             if item.resource_type == "task":
-                task = self.session.get(Task, item.resource_id)
+                task = self.session.scalar(
+                    select(Task).where(
+                        Task.id == item.resource_id,
+                        Task.workspace_id == workspace_id,
+                    )
+                )
                 if task is not None:
                     resource = TaskService(self.session).snapshot(task)
             elif item.resource_type == "comment":

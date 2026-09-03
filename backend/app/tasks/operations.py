@@ -37,6 +37,7 @@ def task_conflict_json(
     status = getattr(conflict.status, "value", conflict.status)
     result: dict[str, Any] = {
         "id": str(conflict.id),
+        "workspace_id": str(conflict.workspace_id),
         "task_id": str(conflict.task_id),
         "field": conflict.target,
         "base": deepcopy(conflict.base_value),

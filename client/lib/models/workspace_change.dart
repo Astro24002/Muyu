@@ -11,6 +11,7 @@ class WorkspaceChange {
     this.conflict,
     this.approvalRequest,
     this.comment,
+    this.operationId,
   });
 
   final int cursor;
@@ -21,6 +22,7 @@ class WorkspaceChange {
   final Map<String, dynamic>? conflict;
   final TaskApprovalRequest? approvalRequest;
   final TaskComment? comment;
+  final String? operationId;
 
   factory WorkspaceChange.taskUpdated({
     required int cursor,
@@ -70,29 +72,74 @@ class WorkspaceChange {
   );
 
   factory WorkspaceChange.fromJson(Map<String, dynamic> json) {
-    final resourceType = json['resource_type'] as String;
+    final rawCursor = json['cursor'];
+    if (rawCursor is! int || rawCursor < 0) {
+      throw const FormatException(
+        'change cursor must be a non-negative integer',
+      );
+    }
+    final resourceType = json['resource_type'];
+    if (resourceType is! String || resourceType.isEmpty) {
+      throw const FormatException('change resource_type is required');
+    }
+    final resourceId = json['resource_id'];
+    if (resourceId is! String || resourceId.isEmpty) {
+      throw const FormatException('change resource_id is required');
+    }
+    final rawAction = json['action'];
+    if (rawAction is! String ||
+        !WorkspaceChanges._actions.contains(rawAction.toUpperCase())) {
+      throw const FormatException('change action is invalid');
+    }
+    final operationId = json['operation_id'];
+    if (operationId != null && operationId is! String) {
+      throw const FormatException(
+        'change operation_id must be a string or null',
+      );
+    }
     final resource = json['resource'];
-    final resourceMap = resource is Map
-        ? resource.cast<String, dynamic>()
-        : null;
-    return WorkspaceChange(
-      cursor: json['cursor'] as int,
-      resourceType: resourceType,
-      resourceId: json['resource_id'] as String,
-      action: (json['action'] as String).toLowerCase(),
-      task: resourceType == 'task' && resourceMap != null
-          ? TaskItem.fromJson(resourceMap)
-          : null,
-      conflict: resourceType == 'task_conflict' && resourceMap != null
-          ? resourceMap
-          : null,
-      approvalRequest: resourceType == 'approval_request' && resourceMap != null
-          ? TaskApprovalRequest.fromJson(resourceMap)
-          : null,
-      comment: resourceType == 'comment' && resourceMap != null
-          ? TaskComment.fromJson(resourceMap)
-          : null,
-    );
+    Map<String, dynamic>? resourceMap;
+    if (resource != null) {
+      if (resource is! Map) {
+        throw const FormatException(
+          'change resource must be an object or null',
+        );
+      }
+      try {
+        resourceMap = Map<String, dynamic>.from(resource);
+      } on TypeError {
+        throw const FormatException('change resource keys must be strings');
+      }
+      if (resourceMap['id'] != null && resourceMap['id'] != resourceId) {
+        throw const FormatException(
+          'change resource id does not match resource_id',
+        );
+      }
+    }
+    try {
+      return WorkspaceChange(
+        cursor: rawCursor,
+        resourceType: resourceType,
+        resourceId: resourceId,
+        action: rawAction.toLowerCase(),
+        task: resourceType == 'task' && resourceMap != null
+            ? TaskItem.fromJson(resourceMap)
+            : null,
+        conflict: resourceType == 'task_conflict' && resourceMap != null
+            ? resourceMap
+            : null,
+        approvalRequest:
+            resourceType == 'approval_request' && resourceMap != null
+            ? TaskApprovalRequest.fromJson(resourceMap)
+            : null,
+        comment: resourceType == 'comment' && resourceMap != null
+            ? TaskComment.fromJson(resourceMap)
+            : null,
+        operationId: operationId as String?,
+      );
+    } on TypeError catch (_) {
+      throw const FormatException('change resource is invalid');
+    }
   }
 }
 
@@ -115,13 +162,98 @@ class WorkspaceChanges {
   final List<WorkspaceChange> changes;
 
   factory WorkspaceChanges.fromJson(Map<String, dynamic> json) =>
-      WorkspaceChanges(
-        workspaceId: json['workspace_id'] as String,
-        cursor: json['cursor'] as int,
-        changes: (json['changes'] as List<dynamic>? ?? const [])
+      _fromJson(json);
+
+  static WorkspaceChanges _fromJson(Map<String, dynamic> json) {
+    final workspaceId = json['workspace_id'];
+    final cursor = json['cursor'];
+    final changes = json['changes'];
+    if (workspaceId is! String || workspaceId.isEmpty) {
+      throw const FormatException('changes workspace_id is required');
+    }
+    if (cursor is! int || cursor < 0) {
+      throw const FormatException(
+        'changes cursor must be a non-negative integer',
+      );
+    }
+    if (changes is! List) {
+      throw const FormatException('changes must be an array');
+    }
+    try {
+      return WorkspaceChanges(
+        workspaceId: workspaceId,
+        cursor: cursor,
+        changes: changes
             .map(
-              (item) => WorkspaceChange.fromJson(item as Map<String, dynamic>),
+              (item) => WorkspaceChange.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
             )
             .toList(),
       );
+    } on TypeError {
+      throw const FormatException('change entries must be objects');
+    }
+  }
+
+  bool isValidFor({required String workspaceId, required int afterCursor}) {
+    if (this.workspaceId != workspaceId || afterCursor < 0 || cursor < 0) {
+      return false;
+    }
+    if (changes.isEmpty) return cursor == afterCursor;
+    for (var index = 0; index < changes.length; index++) {
+      final change = changes[index];
+      if (change.cursor != afterCursor + index + 1 ||
+          !_belongsToWorkspace(change, workspaceId)) {
+        return false;
+      }
+    }
+    return cursor == changes.last.cursor;
+  }
+
+  static bool _belongsToWorkspace(WorkspaceChange change, String workspaceId) {
+    if (!_actions.contains(change.action.toUpperCase())) return false;
+    if (change.resourceType == 'task' && change.task != null) {
+      final resourceWorkspaceId = change.task!.workspaceId;
+      if (resourceWorkspaceId != null && resourceWorkspaceId != workspaceId) {
+        return false;
+      }
+    }
+    if (change.resourceType == 'task_conflict' && change.conflict != null) {
+      final resourceWorkspaceId = change.conflict!['workspace_id'];
+      if (change.conflict!.containsKey('workspace_id') &&
+          resourceWorkspaceId != workspaceId) {
+        return false;
+      }
+      final conflictId = change.conflict!['id'];
+      final taskId = change.conflict!['task_id'];
+      final field = change.conflict!['field'];
+      final status = change.conflict!['status'] ?? change.conflict!['state'];
+      if (conflictId is! String || conflictId.isEmpty ||
+          conflictId != change.resourceId ||
+          taskId is! String || taskId.isEmpty ||
+          field is! String || field.isEmpty ||
+          status is! String) {
+        return false;
+      }
+      final currentSnapshot = change.conflict!['current_snapshot'];
+      if (currentSnapshot != null) {
+        if (currentSnapshot is! Map ||
+            (currentSnapshot.containsKey('workspace_id') &&
+                currentSnapshot['workspace_id'] != workspaceId) ||
+            (currentSnapshot['id'] != null &&
+                currentSnapshot['id'] != taskId)) {
+          return false;
+        }
+      }
+    }
+    if (change.resourceType == 'approval_request' &&
+        change.approvalRequest != null &&
+        change.approvalRequest!.workspaceId != workspaceId) {
+      return false;
+    }
+    return true;
+  }
+
+  static const _actions = {'CREATED', 'UPDATED', 'DELETED', 'RESTORED'};
 }

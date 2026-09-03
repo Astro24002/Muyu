@@ -1,4 +1,4 @@
-import type { TaskItem, TaskQuadrant } from '../api/types';
+import type { CanonicalTaskStatus, TaskItem, TaskQuadrant } from '../api/types';
 
 export type EditableTaskChanges = Pick<Partial<TaskItem>,
   | 'title'
@@ -14,6 +14,7 @@ export type EditableTaskChanges = Pick<Partial<TaskItem>,
 
 export interface TaskConflict {
   id: string;
+  workspace_id?: string;
   task_id: string;
   field: string;
   base?: unknown;
@@ -62,7 +63,7 @@ export function normalizeTaskStatus(value: unknown): unknown {
   return value;
 }
 
-export function isCanonicalTaskStatus(value: unknown): boolean {
+export function isCanonicalTaskStatus(value: unknown): value is CanonicalTaskStatus {
   return value === 'TODO'
     || value === 'IN_PROGRESS'
     || value === 'BLOCKED'

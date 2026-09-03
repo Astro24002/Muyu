@@ -24,31 +24,70 @@ class WorkspaceSnapshot {
   final List<TaskApprovalRequest> approvalRequests;
   final DateTime? fetchedAt;
 
-  factory WorkspaceSnapshot.fromJson(
-    Map<String, dynamic> json,
-  ) => WorkspaceSnapshot(
-    workspaceId: json['workspace_id'] as String,
-    cursor: json['cursor'] as int,
-    viewerUserId: json['viewer_user_id'] as String?,
-    tasks: (json['tasks'] as List<dynamic>? ?? const [])
-        .map((item) => TaskItem.fromJson(item as Map<String, dynamic>))
-        .toList(),
-    members: (json['members'] as List<dynamic>? ?? const [])
-        .cast<Map<String, dynamic>>(),
-    conflicts: (json['conflicts'] as List<dynamic>? ?? const [])
-        .cast<Map<String, dynamic>>(),
-    comments: (json['comments'] as List<dynamic>? ?? const [])
-        .map((item) => TaskComment.fromJson(item as Map<String, dynamic>))
-        .toList(),
-    approvalRequests: (json['approval_requests'] as List<dynamic>? ?? const [])
-        .map(
-          (item) => TaskApprovalRequest.fromJson(item as Map<String, dynamic>),
-        )
-        .toList(),
-    fetchedAt: json['fetched_at'] == null
-        ? null
-        : DateTime.parse(json['fetched_at'] as String),
-  );
+  factory WorkspaceSnapshot.fromJson(Map<String, dynamic> json) {
+    final snapshot = WorkspaceSnapshot(
+      workspaceId: json['workspace_id'] as String,
+      cursor: json['cursor'] as int,
+      viewerUserId: json['viewer_user_id'] as String?,
+      tasks: (json['tasks'] as List<dynamic>? ?? const [])
+          .map((item) => TaskItem.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      members: (json['members'] as List<dynamic>? ?? const [])
+          .cast<Map<String, dynamic>>(),
+      conflicts: (json['conflicts'] as List<dynamic>? ?? const [])
+          .cast<Map<String, dynamic>>(),
+      comments: (json['comments'] as List<dynamic>? ?? const [])
+          .map((item) => TaskComment.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      approvalRequests:
+          (json['approval_requests'] as List<dynamic>? ?? const [])
+              .map(
+                (item) => TaskApprovalRequest.fromJson(
+                  item as Map<String, dynamic>,
+                ),
+              )
+              .toList(),
+      fetchedAt: json['fetched_at'] == null
+          ? null
+          : DateTime.parse(json['fetched_at'] as String),
+    );
+    if (!snapshot.isValidForWorkspace()) {
+      throw const FormatException('workspace snapshot contains foreign data');
+    }
+    return snapshot;
+  }
+
+  bool isValidForWorkspace() {
+    if (workspaceId.isEmpty || cursor < 0) return false;
+    if (tasks.any(
+      (task) =>
+          task.workspaceId != null && task.workspaceId != workspaceId,
+    )) {
+      return false;
+    }
+    if (conflicts.any((conflict) {
+      final conflictWorkspaceId = conflict['workspace_id'];
+      if (conflict.containsKey('workspace_id') &&
+          conflictWorkspaceId != workspaceId) {
+        return true;
+      }
+      final currentSnapshot = conflict['current_snapshot'];
+      if (currentSnapshot == null) return false;
+      if (currentSnapshot is! Map) return true;
+      if (currentSnapshot.containsKey('workspace_id') &&
+          currentSnapshot['workspace_id'] != workspaceId) {
+        return true;
+      }
+      final taskId = conflict['task_id'];
+      return currentSnapshot.containsKey('id') &&
+          currentSnapshot['id'] != taskId;
+    })) {
+      return false;
+    }
+    return approvalRequests.every(
+      (request) => request.workspaceId == workspaceId,
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'workspace_id': workspaceId,

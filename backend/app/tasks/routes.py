@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.service import _hash_token
@@ -83,6 +83,20 @@ def _workspace_id(session: Session, user_id: UUID) -> UUID | None:
     return session.scalar(select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == user_id, WorkspaceMembership.status == MembershipStatus.ACTIVE))
 
 
+def _is_task_mutation_replay(session: Session, workspace_id: UUID, request_id: UUID) -> bool:
+    operation = session.scalar(
+        select(TaskOperation).where(
+            TaskOperation.workspace_id == workspace_id,
+            TaskOperation.request_id == request_id,
+        )
+    )
+    return bool(
+        operation is not None
+        and isinstance(operation.base_versions, dict)
+        and isinstance(operation.base_versions.get("fingerprint"), str)
+    )
+
+
 def _task_json(service: TaskService, task: Task) -> dict[str, object]:
     return service.snapshot(task)
 
@@ -90,19 +104,33 @@ def _task_json(service: TaskService, task: Task) -> dict[str, object]:
 def _task_error(error: TaskConflictError, session: Session | None = None) -> ApiError:
     status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code in {"invalid_request", "nested_task_not_allowed"} else 404 if error.code == "not_found" else 409
     details = {}
-    if isinstance(error.conflict, list):
+    if error.conflict_details is not None:
+        details["conflicts"] = error.conflict_details
+    elif isinstance(error.conflict, list):
         task_service = TaskService(session) if session is not None else None
-        snapshots: dict[str, dict[str, object]] = {}
+        snapshots: dict[str, dict[str, object]] = dict(error.conflict_snapshots)
         if task_service is not None:
             for item in error.conflict:
                 task_id = getattr(item, "task_id", None)
                 if task_id is None:
                     continue
-                task = session.scalar(
-                    select(Task).where(
-                        Task.id == task_id,
-                        Task.workspace_id == getattr(item, "workspace_id", None),
+                if str(task_id) in snapshots:
+                    continue
+                workspace_id = getattr(item, "workspace_id", None)
+                request_id = getattr(item, "request_id", None)
+                operation = session.scalar(
+                    select(TaskOperation).where(
+                        TaskOperation.workspace_id == workspace_id,
+                        TaskOperation.request_id == request_id,
+                        TaskOperation.operation_type == OperationType.CONFLICT_CREATED,
                     )
+                )
+                before_state = operation.before_state if operation is not None else None
+                if isinstance(before_state, dict) and before_state.get("id") == str(task_id):
+                    snapshots[str(task_id)] = before_state
+                    continue
+                task = session.scalar(
+                    select(Task).where(Task.id == task_id, Task.workspace_id == workspace_id)
                 )
                 if task is not None:
                     snapshots[str(task.id)] = task_service.snapshot(task)
@@ -110,6 +138,33 @@ def _task_error(error: TaskConflictError, session: Session | None = None) -> Api
             task_conflict_json(item, snapshots.get(str(getattr(item, "task_id", ""))))
             for item in error.conflict
         ]
+    if details.get("conflicts") and session is not None:
+        request_ids = [
+            request_id
+            for request_id in (
+                item.get("request_id")
+                for item in details["conflicts"]
+                if isinstance(item, dict)
+            )
+            if request_id is not None
+        ]
+        workspace_ids = {
+            workspace_id
+            for workspace_id in (
+                item.get("workspace_id")
+                for item in details["conflicts"]
+                if isinstance(item, dict)
+            )
+            if workspace_id is not None
+        }
+        cursor = session.scalar(
+            select(func.max(WorkspaceChangeLog.cursor)).where(
+                WorkspaceChangeLog.workspace_id.in_(workspace_ids),
+                WorkspaceChangeLog.operation_id.in_(request_ids),
+            )
+        ) if request_ids and workspace_ids else None
+        if cursor is not None:
+            details["cursor"] = cursor
     return ApiError(status_code, error.code, str(error), details)
 
 
@@ -209,7 +264,7 @@ def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, backgrou
         )
         if target is None:
             raise TaskConflictError("not_found", "task not found")
-        if target.current_handler_id != actor.user_id:
+        if target.current_handler_id != actor.user_id and not _is_task_mutation_replay(session, actor.workspace_id, body.request_id):
             approval_service = TaskApprovalService(session)
             approval = approval_service.create(
                 actor.workspace_id,
@@ -245,7 +300,7 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
         if target is None:
             raise TaskConflictError("not_found", "task not found")
         action = body.action.lower()
-        if target.current_handler_id != actor.user_id:
+        if target.current_handler_id != actor.user_id and not _is_task_mutation_replay(session, actor.workspace_id, body.request_id):
             approval_type: TaskApprovalRequestType
             changes: dict[str, object]
             versions: dict[str, int]
@@ -278,7 +333,10 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
             TaskApprovalService(session).cancel_stale_for_task(actor.workspace_id, task.id, "task was deleted")
         session.commit()
     except (TaskConflictError, TaskApprovalError) as error:
-        session.rollback()
+        if getattr(error, "code", None) == "field_conflict":
+            session.commit()
+        else:
+            session.rollback()
         raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error, session)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
@@ -294,7 +352,11 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
             (target.status.value if hasattr(target.status, "value") else str(target.status)) == "REVIEW"
             and target.reviewer_user_id == actor.user_id
         )
-        if target.current_handler_id != actor.user_id and not is_reviewer_decision:
+        if (
+            target.current_handler_id != actor.user_id
+            and not is_reviewer_decision
+            and not _is_task_mutation_replay(session, actor.workspace_id, body.request_id)
+        ):
             changes: dict[str, object] = {"target_status": body.target_status}
             if body.blocked_reason is not None:
                 changes["blocked_reason"] = body.blocked_reason

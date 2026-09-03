@@ -264,3 +264,42 @@ def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_en
         json={"request_id": str(uuid4()), "resolution": "proposed"},
     )
     assert stale_resolution.status_code == 409, stale_resolution.text
+
+
+def test_conflict_creation_http_replay_preserves_the_original_409_projection(db_engine) -> None:
+    client = _client(db_engine)
+    token = _authenticated(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "Replay", "quadrant": "Q1"},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    current = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Current"},
+            "base_field_versions": {"title": task["field_versions"]["title"]},
+        },
+    )
+    assert current.status_code == 200, current.text
+
+    request_id = str(uuid4())
+    payload = {
+        "request_id": request_id,
+        "changes": {"title": "Proposed"},
+        "base_field_versions": {"title": task["field_versions"]["title"]},
+    }
+    first = client.patch(f"/api/v1/tasks/{task['id']}", headers=headers, json=payload)
+    replay = client.patch(f"/api/v1/tasks/{task['id']}", headers=headers, json=payload)
+
+    assert first.status_code == 409, first.text
+    assert replay.status_code == first.status_code
+    assert replay.json() == first.json()
+    assert replay.json()["code"] == "field_conflict"
+    assert replay.json()["details"]["conflicts"][0]["current_snapshot"]["title"] == "Current"
+    assert replay.json()["details"]["cursor"] > current.json()["cursor"]

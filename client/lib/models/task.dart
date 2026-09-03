@@ -5,6 +5,7 @@ abstract interface class TaskMutationResult {}
 class TaskItem implements TaskMutationResult {
   TaskItem({
     required this.id,
+    this.workspaceId,
     required this.parentTaskId,
     this.taskNumber = '',
     required this.title,
@@ -44,6 +45,7 @@ class TaskItem implements TaskMutationResult {
        _progress = progress;
 
   final String id;
+  final String? workspaceId;
   final String? parentTaskId;
   final String taskNumber;
   final String title;
@@ -92,6 +94,7 @@ class TaskItem implements TaskMutationResult {
         : _derivedProgress(normalizedStatus);
     return TaskItem(
       id: json['id'] as String,
+      workspaceId: json['workspace_id'] as String?,
       parentTaskId: json['parent_task_id'] as String?,
       taskNumber: json['task_number'] as String? ?? '',
       title: json['title'] as String,
@@ -148,6 +151,7 @@ class TaskItem implements TaskMutationResult {
     DateTime? deletedAt,
   }) => TaskItem(
     id: id,
+    workspaceId: workspaceId,
     parentTaskId: parentTaskId,
     taskNumber: taskNumber ?? this.taskNumber,
     title: title ?? this.title,
@@ -183,6 +187,7 @@ class TaskItem implements TaskMutationResult {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    if (workspaceId != null) 'workspace_id': workspaceId,
     'parent_task_id': parentTaskId,
     'task_number': taskNumber,
     'title': title,

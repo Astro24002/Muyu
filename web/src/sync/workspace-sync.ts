@@ -396,10 +396,11 @@ export class WorkspaceSyncController {
 
   private applyChange(change: WorkspaceChange): void {
     if (change.resource_type === 'task_conflict') {
-      if (change.resource && isTaskConflict(change.resource)) {
-        this.mergeConflict(change.resource, change.cursor, false);
-      } else if (change.action.toUpperCase() === 'DELETED') {
+      const action = change.action.toUpperCase();
+      if (action === 'DELETED' || change.resource === null) {
         this.removeConflict(change.resource_id);
+      } else if (isTaskConflict(change.resource, this.currentState.snapshot?.workspace_id)) {
+        this.mergeConflict(change.resource, change.cursor, false);
       }
       return;
     }
@@ -472,7 +473,7 @@ export class WorkspaceSyncController {
 
   private removeConflict(conflictId: string): void {
     const snapshot = this.currentState.snapshot;
-    if (!snapshot || !snapshot.conflicts.some((item) => item.id === conflictId)) return;
+    if (!snapshot) return;
     const conflicts = normalizeConflicts(snapshot.conflicts).filter((item) => item.id !== conflictId);
     const nextSnapshot = { ...snapshot, conflicts };
     this.setState({ snapshot: nextSnapshot, conflicts: nextSnapshot.conflicts, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
@@ -513,7 +514,11 @@ export class WorkspaceSyncController {
         return isCurrent() ? 'recovered' : 'cancelled';
       }
       if (error instanceof ApiError && error.status === 409 && error.code === 'field_conflict') {
-        this.setState({ conflicts: conflictsFromError(error), error: null, stale: false });
+        const merged = await this.mergeConflictError(error, isCurrent);
+        if (merged) {
+          return 'failed';
+        }
+        await this.loadSnapshot(isCurrent);
         return 'failed';
       }
       this.setState({ error: message, stale: this.currentState.snapshot !== null, authRequired: error instanceof ApiError && error.status === 401 });
@@ -530,6 +535,46 @@ export class WorkspaceSyncController {
     if (this.disposed) return;
     this.currentState = { ...this.currentState, ...update };
     for (const listener of this.listeners) listener(this.currentState);
+  }
+
+  private async mergeConflictError(error: ApiError, isCurrent: IsCurrent): Promise<boolean> {
+    const snapshot = this.currentState.snapshot;
+    const details = error.details;
+    if (!snapshot || !isRecord(details)) return false;
+    if (Object.prototype.hasOwnProperty.call(details, 'cursor') && !isValidCursor(details.cursor)) return false;
+    const rawConflicts = details.conflicts;
+    if (!Array.isArray(rawConflicts) || rawConflicts.length === 0 || !rawConflicts.every(isRecord)) return false;
+    const incoming = conflictsFromError(error);
+    if (incoming.length !== rawConflicts.length) return false;
+    const valid = incoming.every((conflict) => {
+      if (!isTaskConflict(conflict, snapshot.workspace_id, false)) return false;
+      if (conflict.current_snapshot === undefined || conflict.current_snapshot === null) return true;
+      return isTaskItem(conflict.current_snapshot)
+        && conflict.current_snapshot.workspace_id === snapshot.workspace_id;
+    });
+    if (!valid) return false;
+    const cursorBefore = this.currentState.cursor;
+    const conflicts = normalizeConflicts(snapshot.conflicts)
+      .filter((item) => !incoming.some((conflict) => conflict.id === item.id));
+    for (const conflict of incoming) {
+      const normalized = { ...conflict, status: conflict.status ?? 'OPEN' };
+      if (normalized.status === 'OPEN') conflicts.push(normalized);
+    }
+    const tasks = [...snapshot.tasks];
+    for (const conflict of incoming) {
+      if (conflict.current_snapshot && isTaskItem(conflict.current_snapshot)) {
+        const currentTask = normalizeTaskResource(conflict.current_snapshot, snapshot.workspace_id);
+        const mergedTasks = upsertTask(tasks, currentTask);
+        tasks.splice(0, tasks.length, ...mergedTasks);
+      }
+    }
+    const nextSnapshot = { ...snapshot, tasks, conflicts };
+    this.setState({ snapshot: nextSnapshot, conflicts, error: null, stale: false });
+    const cursor = cursorFromConflictError(error);
+    if (cursor > cursorBefore && isCurrent()) {
+      await this.pullFrom(cursorBefore, isCurrent, cursor);
+    }
+    return true;
   }
 
   private async enqueuePull(cursorHint?: number, afterCursor?: number, isCurrent?: IsCurrent): Promise<void> {
@@ -740,7 +785,9 @@ function normalizeConflicts(value: Array<Record<string, unknown>>): TaskConflict
 function conflictsFromError(error: ApiError): TaskConflict[] {
   const details = error.details;
   if (!details || typeof details !== 'object' || !Array.isArray((details as { conflicts?: unknown }).conflicts)) return [];
-  return normalizeConflicts((details as { conflicts: Array<Record<string, unknown>> }).conflicts);
+  const raw = (details as { conflicts: unknown[] }).conflicts;
+  if (!raw.every((item) => isRecord(item) && isTaskConflict(item, undefined, false))) return [];
+  return normalizeConflicts(raw);
 }
 
 function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
@@ -767,7 +814,7 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
     || !Array.isArray(tasks)
     || !tasks.every((item) => isTaskItem(item) && item.workspace_id === workspaceId)
     || !Array.isArray(conflicts)
-    || !conflicts.every(isRecord)
+    || !conflicts.every((item) => isRecord(item) && conflictWorkspaceMatches(item, workspaceId))
     || !Array.isArray(comments)
     || !comments.every(isTaskComment)
     || !Array.isArray(approvalRequests)
@@ -928,13 +975,13 @@ function isValidChangeResource(resourceType: string, resource: unknown, workspac
   if (resource === null) return true;
   if (!isRecord(resource)) return false;
   if (resourceType === 'task') return isTaskItem(resource) && resource.workspace_id === workspaceId;
-  if (resourceType === 'task_conflict') return isTaskConflict(resource);
+  if (resourceType === 'task_conflict') return isTaskConflict(resource, workspaceId);
   if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'comment') return isTaskComment(resource);
   return true;
 }
 
-function isTaskConflict(value: unknown): value is TaskConflict {
+function isTaskConflict(value: unknown, workspaceId?: string, requireStatus = true): value is TaskConflict {
   return isRecord(value)
     && typeof value.id === 'string'
     && value.id.length > 0
@@ -942,7 +989,17 @@ function isTaskConflict(value: unknown): value is TaskConflict {
     && value.task_id.length > 0
     && typeof value.field === 'string'
     && value.field.length > 0
-    && typeof (value.status ?? value.state) === 'string';
+    && (workspaceId === undefined || conflictWorkspaceMatches(value, workspaceId))
+    && (!requireStatus || typeof (value.status ?? value.state) === 'string');
+}
+
+function conflictWorkspaceMatches(value: Record<string, unknown>, workspaceId: string): boolean {
+  if (value.workspace_id !== undefined && value.workspace_id !== workspaceId) return false;
+  const currentSnapshot = value.current_snapshot;
+  if (currentSnapshot === undefined || currentSnapshot === null) return true;
+  if (!isRecord(currentSnapshot)) return false;
+  if (currentSnapshot.workspace_id !== undefined && currentSnapshot.workspace_id !== workspaceId) return false;
+  return currentSnapshot.id === undefined || currentSnapshot.id === value.task_id;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1001,6 +1058,12 @@ function isApprovalRequestStatus(value: unknown): value is TaskApprovalRequest['
 
 function cursorFrom(value: { cursor?: number | null } | undefined): number {
   return typeof value?.cursor === 'number' ? value.cursor : 0;
+}
+
+function cursorFromConflictError(error: ApiError): number {
+  const details = error.details;
+  if (!isRecord(details) || !isValidCursor(details.cursor)) return 0;
+  return details.cursor;
 }
 
 function createRequestId(): string {

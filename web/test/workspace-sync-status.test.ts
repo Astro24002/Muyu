@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../src/api/client';
 import type { TaskItem } from '../src/api/types';
 import { WorkspaceSyncController } from '../src/sync/workspace-sync';
 
@@ -241,6 +242,184 @@ describe('workspace sync six-state status boundary', () => {
     await controller.pull();
 
     expect(controller.state.cursor).toBe(7);
+    expect(controller.state.conflicts).toEqual([]);
+  });
+
+  it('recovers on a cursor gap, envelope mismatch, or empty response that advances the cursor', async () => {
+    const invalidResponses = [
+      {
+        workspace_id: 'workspace-1',
+        cursor: 8,
+        changes: [
+          { cursor: 6, resource_type: 'task', resource_id: 'task-todo', action: 'UPDATED', operation_id: null, resource: task('TODO') },
+          { cursor: 8, resource_type: 'task', resource_id: 'task-todo', action: 'UPDATED', operation_id: null, resource: task('TODO') },
+        ],
+      },
+      { workspace_id: 'workspace-1', cursor: 7, changes: [] },
+      {
+        workspace_id: 'workspace-1',
+        cursor: 7,
+        changes: [{ cursor: 6, resource_type: 'task', resource_id: 'task-todo', action: 'UPDATED', operation_id: null, resource: task('TODO') }],
+      },
+    ];
+
+    for (const invalid of invalidResponses) {
+      const api = {
+        getWorkspaceSnapshot: vi.fn()
+          .mockResolvedValueOnce({ ...snapshot('TODO'), cursor: 5 })
+          .mockResolvedValueOnce({ ...snapshot('DONE'), cursor: 9 }),
+        getWorkspaceChanges: vi.fn().mockResolvedValue(invalid),
+        transitionTask: vi.fn(),
+      };
+      const controller = new WorkspaceSyncController(api as never);
+
+      await controller.loadSnapshot();
+      await controller.pull();
+
+      expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+      expect(controller.state.cursor).toBe(9);
+    }
+  });
+
+  it('recovers instead of applying a task conflict from another workspace', async () => {
+    const foreignConflict = {
+      id: 'conflict-foreign',
+      workspace_id: 'workspace-foreign',
+      task_id: 'task-todo',
+      field: 'title',
+      status: 'OPEN',
+      current: 'Current',
+      proposed: 'Proposed',
+    };
+    const api = {
+      getWorkspaceSnapshot: vi.fn()
+        .mockResolvedValueOnce({ ...snapshot('TODO'), cursor: 5 })
+        .mockResolvedValueOnce({ ...snapshot('DONE'), cursor: 9, conflicts: [] }),
+      getWorkspaceChanges: vi.fn().mockResolvedValue({
+        workspace_id: 'workspace-1',
+        cursor: 6,
+        changes: [{
+          cursor: 6,
+          resource_type: 'task_conflict',
+          resource_id: foreignConflict.id,
+          action: 'CREATED',
+          operation_id: null,
+          resource: foreignConflict,
+        }],
+      }),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.conflicts).toEqual([]);
+    expect(controller.state.cursor).toBe(9);
+  });
+
+  it('uses action-first conflict tombstone semantics for deleted and null changes', async () => {
+    const openConflict = {
+      id: 'conflict-1',
+      workspace_id: 'workspace-1',
+      task_id: 'task-todo',
+      field: 'title',
+      status: 'OPEN',
+      current: 'Current',
+      proposed: 'Proposed',
+    };
+    let calls = 0;
+    const api = {
+      getWorkspaceSnapshot: vi.fn().mockResolvedValue({ ...snapshot('TODO'), cursor: 5, conflicts: [openConflict] }),
+      getWorkspaceChanges: vi.fn().mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            workspace_id: 'workspace-1',
+            cursor: 6,
+            changes: [{ cursor: 6, resource_type: 'task_conflict', resource_id: openConflict.id, action: 'DELETED', operation_id: null, resource: openConflict }],
+          };
+        }
+        return {
+          workspace_id: 'workspace-1',
+          cursor: 7,
+          changes: [{ cursor: 7, resource_type: 'task_conflict', resource_id: openConflict.id, action: 'UPDATED', operation_id: null, resource: null }],
+        };
+      }),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+    expect(controller.state.conflicts).toEqual([]);
+    await controller.pull();
+    expect(controller.state.conflicts).toEqual([]);
+  });
+
+  it('merges a 409 conflict projection into the snapshot and pulls its committed cursor', async () => {
+    const currentTask = { ...task('TODO'), title: 'Current title' } as TaskItem;
+    const conflict = {
+      id: 'conflict-1',
+      workspace_id: 'workspace-1',
+      task_id: currentTask.id,
+      field: 'title',
+      base: 'Original',
+      current: 'Current title',
+      proposed: 'Proposed title',
+      status: 'OPEN',
+      current_snapshot: currentTask,
+    };
+    const api = {
+      getWorkspaceSnapshot: vi.fn().mockResolvedValue({ ...snapshot('TODO'), cursor: 5 }),
+      getWorkspaceChanges: vi.fn().mockResolvedValue({
+        workspace_id: 'workspace-1',
+        cursor: 6,
+        changes: [{ cursor: 6, resource_type: 'task', resource_id: currentTask.id, action: 'UPDATED', operation_id: null, resource: currentTask }],
+      }),
+      patchTask: vi.fn().mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', { cursor: 6, conflicts: [conflict] })),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.patchTask(currentTask.id, { title: 'Proposed title' });
+
+    expect(controller.state.snapshot?.tasks[0]?.title).toBe('Current title');
+    expect(controller.state.snapshot?.conflicts).toHaveLength(1);
+    expect(controller.state.conflicts).toHaveLength(1);
+    expect(controller.state.cursor).toBe(6);
+    expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
+  });
+
+  it('recovers instead of caching a conflict response with an invalid cursor', async () => {
+    const currentTask = { ...task('TODO'), title: 'Current title' } as TaskItem;
+    const api = {
+      getWorkspaceSnapshot: vi.fn()
+        .mockResolvedValueOnce({ ...snapshot('TODO'), cursor: 5 })
+        .mockResolvedValueOnce({ ...snapshot('DONE'), cursor: 9, conflicts: [] }),
+      getWorkspaceChanges: vi.fn(),
+      patchTask: vi.fn().mockRejectedValue(new ApiError(409, 'field_conflict', 'changed', {
+        cursor: 'not-a-cursor',
+        conflicts: [{
+          id: 'conflict-1',
+          workspace_id: 'workspace-1',
+          task_id: currentTask.id,
+          field: 'title',
+          status: 'OPEN',
+          current_snapshot: currentTask,
+        }],
+      })),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.patchTask(currentTask.id, { title: 'Proposed title' });
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.cursor).toBe(9);
     expect(controller.state.conflicts).toEqual([]);
   });
 });

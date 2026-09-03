@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, TaskStatus
-from app.db.models import ActivityEvent, TaskConflict, TaskOperation, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
+from app.db.models import ActivityEvent, TaskConflict, TaskOperation, TaskStatusHistory, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
 from app.sync.service import SyncService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
@@ -605,15 +605,17 @@ def test_conflict_lifecycle_is_cursor_visible_across_sessions_and_idempotent(db_
 
     with Session(db_engine) as session:
         replay_service = TaskService(session, now=lambda: NOW)
-        replayed = replay_service.patch(
-            workspace_id,
-            owner_id,
-            task_id,
-            conflict_request_id,
-            {"title": "提议值"},
-            {"title": 1},
-        )
-        assert replayed.id == task_id
+        with pytest.raises(TaskConflictError) as replay_error:
+            replay_service.patch(
+                workspace_id,
+                owner_id,
+                task_id,
+                conflict_request_id,
+                {"title": "提议值"},
+                {"title": 1},
+            )
+        assert replay_error.value.code == "field_conflict"
+        assert [item.id for item in replay_error.value.conflict] == [conflict_id]
         assert replay_service.last_cursor == conflict_cursor
         assert session.scalar(
             select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace_id)
@@ -681,6 +683,20 @@ def test_conflict_lifecycle_is_cursor_visible_across_sessions_and_idempotent(db_
         ).all()
         assert [row.action for row in conflict_logs] == [ChangeAction.CREATED, ChangeAction.UPDATED]
         assert [row.cursor for row in conflict_logs] == sorted(row.cursor for row in conflict_logs)
+
+        status_history = session.scalars(
+            select(TaskStatusHistory).where(TaskStatusHistory.task_id == task_id)
+        ).all()
+        assert len(status_history) == 0
+        conflict_events = session.scalars(
+            select(ActivityEvent).where(
+                ActivityEvent.task_id == task_id,
+                ActivityEvent.request_id.in_([conflict_request_id, resolution_request_id]),
+            )
+        ).all()
+        assert len(conflict_events) == 2
+        assert {event.event_type for event in conflict_events} == {"CONFLICT_CREATED", "CONFLICT_RESOLVED"}
+        assert len({event.request_id for event in conflict_events}) == 2
 
     with Session(db_engine) as session:
         replay_service = TaskService(session, now=lambda: NOW)

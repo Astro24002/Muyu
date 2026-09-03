@@ -216,6 +216,99 @@ def test_proposed_handler_conflict_still_applies_before_review(db_engine) -> Non
         assert conflict.resolution == Resolution.ACCEPT_PROPOSED
 
 
+def test_proposed_status_conflict_applies_blocked_transition_once(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, _reviewer, workspace = _workspace_with_two_users(session, phone_seed=3715)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "冲突阻塞", quadrant="Q1")
+        current = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
+        request_id = uuid4()
+
+        with pytest.raises(TaskConflictError) as error:
+            service.transition(
+                workspace.id,
+                owner.id,
+                task.id,
+                request_id,
+                "BLOCKED",
+                1,
+                blocked_reason="等待资料",
+                resume_handler_id=owner.id,
+            )
+
+        conflict = error.value.conflict[0]
+        current_status_version = task.status_version
+        current_lifecycle_version = task.lifecycle_version
+        resolved = service.resolve_conflict(
+            workspace.id,
+            owner.id,
+            task.id,
+            conflict.id,
+            uuid4(),
+            "proposed",
+        )
+
+        assert resolved.status == TaskStatus.BLOCKED
+        assert resolved.blocked_reason == "等待资料"
+        assert resolved.resume_handler_id == owner.id
+        assert resolved.status_version == current_status_version + 1
+        assert resolved.lifecycle_version == current_lifecycle_version + 1
+        histories = session.scalars(select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id)).all()
+        assert len(histories) == 2
+        assert histories[-1].from_status == TaskStatus.IN_PROGRESS
+        assert histories[-1].to_status == TaskStatus.BLOCKED
+        events = session.scalars(
+            select(ActivityEvent).where(
+                ActivityEvent.task_id == task.id,
+                ActivityEvent.request_id == request_id,
+            )
+        ).all()
+        assert len(events) == 1
+
+
+def test_proposed_status_conflict_applies_review_return_metadata(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3716)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(workspace.id, owner.id, uuid4(), "冲突退回", quadrant="Q1")
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
+        task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
+        request_id = uuid4()
+
+        with pytest.raises(TaskConflictError) as error:
+            service.transition(
+                workspace.id,
+                reviewer.id,
+                task.id,
+                request_id,
+                "IN_PROGRESS",
+                task.status_version - 1,
+                review_rejection_reason="补充截图",
+            )
+
+        conflict = error.value.conflict[0]
+        current_status_version = task.status_version
+        current_lifecycle_version = task.lifecycle_version
+        resolved = service.resolve_conflict(
+            workspace.id,
+            reviewer.id,
+            task.id,
+            conflict.id,
+            uuid4(),
+            "proposed",
+        )
+
+        assert resolved.status == TaskStatus.IN_PROGRESS
+        assert resolved.current_handler_id == owner.id
+        assert resolved.review_rejection_reason == "补充截图"
+        assert resolved.reviewed_at == NOW
+        assert resolved.status_version == current_status_version + 1
+        assert resolved.lifecycle_version == current_lifecycle_version + 1
+        histories = session.scalars(select(TaskStatusHistory).where(TaskStatusHistory.task_id == task.id)).all()
+        assert histories[-1].from_status == TaskStatus.REVIEW
+        assert histories[-1].to_status == TaskStatus.IN_PROGRESS
+
+
 def test_lifecycle_complete_submits_review(db_engine) -> None:
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3684)

@@ -211,6 +211,144 @@ def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> Non
     assert http_conflict["proposed_payload"]["review_rejection_reason"] == "补充验收材料"
 
 
+def test_stale_patch_request_replays_the_original_409_across_http_sessions(db_engine) -> None:
+    client = _client(db_engine)
+    replay_client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    headers = _headers(owner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "HTTP replay", "quadrant": "Q1"},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    changed = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "Current title"},
+            "base_field_versions": {"title": task["field_versions"]["title"]},
+        },
+    )
+    assert changed.status_code == 200, changed.text
+
+    request_id = str(uuid4())
+    body = {
+        "request_id": request_id,
+        "changes": {"title": "Proposed title"},
+        "base_field_versions": {"title": task["field_versions"]["title"]},
+    }
+    first = client.patch(f"/api/v1/tasks/{task['id']}", headers=headers, json=body)
+
+    assert first.status_code == 409, first.text
+    conflict_id = first.json()["details"]["conflicts"][0]["id"]
+    resolved = replay_client.post(
+        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
+        headers=headers,
+        json={"request_id": str(uuid4()), "resolution": "current"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    replay = replay_client.patch(f"/api/v1/tasks/{task['id']}", headers=headers, json=body)
+    assert replay.status_code == 409, replay.text
+    assert replay.json() == first.json()
+    assert first.json()["details"]["conflicts"][0]["current_snapshot"]["title"] == "Current title"
+    assert isinstance(first.json()["details"]["cursor"], int)
+
+
+def test_stale_status_request_replays_the_original_409_across_http_sessions(db_engine) -> None:
+    client = _client(db_engine)
+    replay_client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    headers = _headers(owner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"request_id": str(uuid4()), "title": "HTTP status replay", "quadrant": "Q1"},
+    ).json()
+    started = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": created["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+
+    request_id = str(uuid4())
+    body = {
+        "request_id": request_id,
+        "target_status": "BLOCKED",
+        "base_status_version": created["status_version"],
+        "blocked_reason": "等待资料",
+        "resume_handler_id": owner["user"]["id"],
+    }
+    first = client.post(f"/api/v1/tasks/{created['id']}/transition", headers=headers, json=body)
+
+    assert first.status_code == 409, first.text
+    conflict_id = first.json()["details"]["conflicts"][0]["id"]
+    resolved = replay_client.post(
+        f"/api/v1/tasks/{created['id']}/conflicts/{conflict_id}/resolve",
+        headers=headers,
+        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["status"] == "BLOCKED"
+    replay = replay_client.post(f"/api/v1/tasks/{created['id']}/transition", headers=headers, json=body)
+    assert replay.status_code == 409, replay.text
+    assert replay.json() == first.json()
+    assert first.json()["details"]["conflicts"][0]["proposed_payload"]["target_status"] == "BLOCKED"
+    assert isinstance(first.json()["details"]["cursor"], int)
+
+
+def test_conflict_replay_stays_409_after_proposed_handler_transfer_changes_owner(db_engine) -> None:
+    client = _client(db_engine)
+    replay_client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Handler replay", "quadrant": "Q1"},
+    ).json()
+    transferred = client.patch(
+        f"/api/v1/tasks/{created['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"current_handler_id": partner["user"]["id"]},
+            "base_field_versions": {"current_handler_id": 1},
+        },
+    )
+    assert transferred.status_code == 200, transferred.text
+
+    request_id = str(uuid4())
+    body = {
+        "request_id": request_id,
+        "changes": {"current_handler_id": owner["user"]["id"]},
+        "base_field_versions": {"current_handler_id": 1},
+    }
+    first = client.patch(f"/api/v1/tasks/{created['id']}", headers=partner_headers, json=body)
+    assert first.status_code == 409, first.text
+    conflict_id = first.json()["details"]["conflicts"][0]["id"]
+
+    resolved = replay_client.post(
+        f"/api/v1/tasks/{created['id']}/conflicts/{conflict_id}/resolve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["current_handler_id"] == owner["user"]["id"]
+
+    replay = replay_client.patch(f"/api/v1/tasks/{created['id']}", headers=partner_headers, json=body)
+    assert replay.status_code == 409, replay.text
+    assert replay.json() == first.json()
+
+
 def test_stale_blocked_status_409_uses_full_conflict_projection(db_engine) -> None:
     client = _client(db_engine)
     owner, _reviewer = _ready_workspace(client)

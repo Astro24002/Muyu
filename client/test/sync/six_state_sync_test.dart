@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/models/task.dart';
+import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/sync/workspace_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,70 +53,76 @@ Map<String, dynamic> taskJson({
 };
 
 void main() {
-  test('round-trips BLOCKED and REVIEW metadata through the workspace cache', () async {
-    SharedPreferences.setMockInitialValues({});
-    final preferences = await SharedPreferences.getInstance();
-    final blocked = TaskItem.fromJson(
-      taskJson(
-        id: 'blocked',
-        status: 'BLOCKED',
-        blockedReason: '等待资料',
-        blockedSince: '2026-09-02T10:00:00Z',
-        resumeHandlerId: 'user-1',
-        waitingForUserId: 'user-2',
-      ),
-    );
-    final review = TaskItem.fromJson(
-      taskJson(
-        id: 'review',
-        status: 'REVIEW',
-        reviewerUserId: 'user-2',
-        reviewSubmittedAt: '2026-09-02T11:00:00Z',
-        reviewRejectionReason: '补充订单截图',
-      ),
-    );
-    final snapshot = WorkspaceSnapshot(
-      workspaceId: 'workspace-1',
-      cursor: 19,
-      tasks: [blocked, review],
-      conflicts: [
-        {
-          'id': 'conflict-1',
-          'task_id': 'review',
-          'field': 'status',
-          'proposed_payload': {
-            'target_status': 'IN_PROGRESS',
-            'review_rejection_reason': '补充订单截图',
+  test(
+    'round-trips BLOCKED and REVIEW metadata through the workspace cache',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = await SharedPreferences.getInstance();
+      final blocked = TaskItem.fromJson(
+        taskJson(
+          id: 'blocked',
+          status: 'BLOCKED',
+          blockedReason: '等待资料',
+          blockedSince: '2026-09-02T10:00:00Z',
+          resumeHandlerId: 'user-1',
+          waitingForUserId: 'user-2',
+        ),
+      );
+      final review = TaskItem.fromJson(
+        taskJson(
+          id: 'review',
+          status: 'REVIEW',
+          reviewerUserId: 'user-2',
+          reviewSubmittedAt: '2026-09-02T11:00:00Z',
+          reviewRejectionReason: '补充订单截图',
+        ),
+      );
+      final snapshot = WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 19,
+        tasks: [blocked, review],
+        conflicts: [
+          {
+            'id': 'conflict-1',
+            'task_id': 'review',
+            'field': 'status',
+            'proposed_payload': {
+              'target_status': 'IN_PROGRESS',
+              'review_rejection_reason': '补充订单截图',
+            },
+            'field_versions': {'title': 2},
+            'status_version': 3,
+            'lifecycle_version': 3,
           },
-          'field_versions': {'title': 2},
-          'status_version': 3,
-          'lifecycle_version': 3,
-        },
-      ],
-    );
-    final cache = SharedPreferencesWorkspaceCache(preferences);
+        ],
+      );
+      final cache = SharedPreferencesWorkspaceCache(preferences);
 
-    await cache.write(snapshot);
-    final restored = await cache.read('workspace-1');
+      await cache.write(snapshot);
+      final restored = await cache.read('workspace-1');
 
-    expect(restored?.cursor, 19);
-    expect(restored?.tasks[0].status, 'BLOCKED');
-    expect(restored?.tasks[0].blockedReason, '等待资料');
-    expect(restored?.tasks[0].blockedSince, DateTime.utc(2026, 9, 2, 10));
-    expect(restored?.tasks[0].resumeHandlerId, 'user-1');
-    expect(restored?.tasks[0].waitingForUserId, 'user-2');
-    expect(restored?.tasks[0].fieldVersions, {'title': 2, 'status': 3});
-    expect(restored?.tasks[0].statusVersion, 3);
-    expect(restored?.tasks[0].lifecycleVersion, 3);
-    expect(restored?.tasks[1].status, 'REVIEW');
-    expect(restored?.tasks[1].reviewerUserId, 'user-2');
-    expect(restored?.tasks[1].reviewSubmittedAt, DateTime.utc(2026, 9, 2, 11));
-    expect(restored?.tasks[1].reviewRejectionReason, '补充订单截图');
-    expect(restored?.conflicts.single['proposed_payload'], {
-      'target_status': 'IN_PROGRESS',
-      'review_rejection_reason': '补充订单截图',
-    });
-  });
+      expect(restored?.cursor, 19);
+      expect(restored?.tasks[0].status, 'BLOCKED');
+      expect(restored?.tasks[0].blockedReason, '等待资料');
+      expect(restored?.tasks[0].blockedSince, DateTime.utc(2026, 9, 2, 10));
+      expect(restored?.tasks[0].resumeHandlerId, 'user-1');
+      expect(restored?.tasks[0].waitingForUserId, 'user-2');
+      expect(restored?.tasks[0].fieldVersions, {'title': 2, 'status': 3});
+      expect(restored?.tasks[0].statusVersion, 3);
+      expect(restored?.tasks[0].lifecycleVersion, 3);
+      expect(restored?.tasks[1].status, 'REVIEW');
+      expect(restored?.tasks[1].reviewerUserId, 'user-2');
+      expect(
+        restored?.tasks[1].reviewSubmittedAt,
+        DateTime.utc(2026, 9, 2, 11),
+      );
+      expect(restored?.tasks[1].reviewRejectionReason, '补充订单截图');
+      expect(restored?.conflicts.single['proposed_payload'], {
+        'target_status': 'IN_PROGRESS',
+        'review_rejection_reason': '补充订单截图',
+      });
+    },
+  );
 
   test('normalizes legacy statuses on read and never writes them back', () {
     final legacy = TaskItem.fromJson(
@@ -131,5 +138,45 @@ void main() {
     expect(completed.toJson()['status'], 'DONE');
     expect(jsonEncode(legacy.toJson()), isNot(contains('WAITING')));
     expect(jsonEncode(completed.toJson()), isNot(contains('COMPLETED')));
+  });
+
+  test('rejects malformed change metadata before a cursor can be applied', () {
+    expect(
+      () => WorkspaceChanges.fromJson({
+        'workspace_id': 'workspace-1',
+        'cursor': 7,
+        'changes': [
+          {
+            'cursor': 7,
+            'resource_type': 'task_conflict',
+            'resource_id': 'conflict-1',
+            'action': 'UNKNOWN',
+            'resource': null,
+          },
+        ],
+      }),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('retains resource workspace identity while parsing changes', () {
+    final parsed = WorkspaceChanges.fromJson({
+      'workspace_id': 'workspace-1',
+      'cursor': 7,
+      'changes': [
+        {
+          'cursor': 7,
+          'resource_type': 'task',
+          'resource_id': 'task-1',
+          'action': 'UPDATED',
+          'resource': {
+            ...taskJson(id: 'task-1', status: 'TODO'),
+            'workspace_id': 'workspace-1',
+          },
+        },
+      ],
+    });
+
+    expect(parsed.changes.single.task?.workspaceId, 'workspace-1');
   });
 }

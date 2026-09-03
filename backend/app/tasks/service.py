@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import UUID, uuid4
@@ -23,7 +24,7 @@ from app.db.models import (
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
-from app.tasks.operations import request_fingerprint, status_transition_payload
+from app.tasks.operations import request_fingerprint, status_transition_payload, task_conflict_json
 from app.tasks.numbering import TaskNumberAllocator
 
 
@@ -121,13 +122,10 @@ class TaskService:
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
-            if existing.base_versions != {"fingerprint": fingerprint}:
-                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
             existing_task = self.session.get(Task, existing.task_id)
             if existing_task is None:
                 raise TaskConflictError("not_found", "task not found")
-            self.last_cursor = existing.cursor
-            return existing_task
+            return self._replay_operation(existing, fingerprint, existing_task)
         task = Task(
             workspace_id=workspace_id,
             task_number=TaskNumberAllocator().allocate(self.session, self.now()),
@@ -192,10 +190,7 @@ class TaskService:
             {"changes": changes, "base_field_versions": base_field_versions},
         )
         if existing is not None:
-            if existing.base_versions != {"fingerprint": fingerprint}:
-                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
-            self.last_cursor = existing.cursor
-            return task
+            return self._replay_operation(existing, fingerprint, task)
         if "current_handler_id" in changes:
             self._validated_member(workspace_id, changes["current_handler_id"])
         self._require_handler(task, actor_user_id)
@@ -257,8 +252,19 @@ class TaskService:
                 before,
                 conflict_cursor,
                 base_versions={"fingerprint": fingerprint},
+                conflict_outcome={
+                    "code": "field_conflict",
+                    "message": "one or more task fields changed",
+                    "snapshots": {str(task.id): before},
+                    "conflicts": [task_conflict_json(item, before) for item in conflicts],
+                },
             )
-            raise TaskConflictError("field_conflict", "one or more task fields changed", conflicts)
+            raise TaskConflictError(
+                "field_conflict",
+                "one or more task fields changed",
+                conflicts,
+                conflict_snapshots={str(task.id): before},
+            )
         for field, value in changes.items():
             setattr(task, field, value)
             current_versions[field] = int(current_versions.get(field, 1)) + 1
@@ -278,10 +284,7 @@ class TaskService:
             fingerprint = request_fingerprint(f"/api/v1/tasks/{task_id}/lifecycle", {"action": action, "base_lifecycle_version": base_lifecycle_version})
             existing = self._existing_operation(workspace_id, actor_user_id, request_id)
             if existing is not None:
-                if existing.base_versions != {"fingerprint": fingerprint}:
-                    raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
-                self.last_cursor = existing.cursor
-                return task
+                return self._replay_operation(existing, fingerprint, task)
             self._require_handler(task, actor_user_id)
             live_child = self.session.scalar(
                 select(Task.id).where(
@@ -313,10 +316,7 @@ class TaskService:
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
-            if existing.base_versions != {"fingerprint": fingerprint}:
-                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
-            self.last_cursor = existing.cursor
-            return task
+            return self._replay_operation(existing, fingerprint, task)
         self._require_handler(task, actor_user_id)
         if task.lifecycle_version != base_lifecycle_version:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
@@ -356,10 +356,7 @@ class TaskService:
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
-            if existing.base_versions != {"fingerprint": fingerprint}:
-                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
-            self.last_cursor = existing.cursor
-            return task
+            return self._replay_operation(existing, fingerprint, task)
         if task.deleted_at is not None:
             raise TaskConflictError("lifecycle_conflict", "deleted task must be restored before status changes")
         raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
@@ -391,96 +388,41 @@ class TaskService:
                 ChangeAction.CREATED,
                 request_id,
             )
-            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.CONFLICT_CREATED, before, before, conflict_cursor, base_versions={"fingerprint": fingerprint})
-            raise TaskConflictError("field_conflict", "task status changed", [conflict])
-        if target_status not in TRANSITIONS[current_public]:
-            raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")
-        target = TaskStatus(target_status)
-        previous_handler_id = task.current_handler_id
-        recovery_handler_id: UUID | None = None
-        reviewer_id: UUID | None = None
-        if target_status == "BLOCKED":
-            if not isinstance(blocked_reason, str) or not blocked_reason.strip():
-                raise TaskConflictError("invalid_request", "blocked_reason is required")
-            if resume_handler_id is None:
-                raise TaskConflictError("invalid_request", "resume_handler_id is required")
-            blocked_reason = blocked_reason.strip()
-            resume_handler_id = self._validated_member(workspace_id, resume_handler_id)
-            if waiting_for_user_id is not None:
-                waiting_for_user_id = self._validated_member(workspace_id, waiting_for_user_id)
-        elif current_public == "BLOCKED":
-            if target_status == "IN_PROGRESS":
-                recovery_handler_id = resume_handler_id or task.resume_handler_id
-                if recovery_handler_id is None:
-                    raise TaskConflictError("invalid_request", "blocked task has no active resume handler")
-                recovery_handler_id = self._validated_member(workspace_id, recovery_handler_id)
-        elif target_status == "IN_PROGRESS" and current_public != "REVIEW" and resume_handler_id is not None:
-            # Preserve the explicit resume-handler override for non-blocked tasks.
-            recovery_handler_id = self._validated_member(workspace_id, resume_handler_id)
-
-        if target_status == "REVIEW":
-            reviewer_id = self._derived_reviewer(workspace_id, task)
-        elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
-            if not isinstance(review_rejection_reason, str) or not review_rejection_reason.strip():
-                raise TaskConflictError(
-                    "invalid_request",
-                    "review_rejection_reason is required when returning a review",
-                )
-            review_rejection_reason = review_rejection_reason.strip()
-
-        task.status = target
-        if recovery_handler_id is not None and recovery_handler_id != task.current_handler_id:
-            task.current_handler_id = recovery_handler_id
-            versions = dict(task.field_versions or {})
-            versions["current_handler_id"] = int(versions.get("current_handler_id", 1)) + 1
-            task.field_versions = versions
-        if target == TaskStatus.DONE:
-            task.completed_at = self.now()
-        elif current_public == "DONE":
-            task.completed_at = None
-        if target_status == "BLOCKED":
-            task.blocked_reason = blocked_reason
-            task.blocked_since = self.now()
-            task.resume_handler_id = resume_handler_id
-            task.waiting_for_user_id = waiting_for_user_id
-            task.reviewer_user_id = None
-            task.review_submitted_at = None
-            task.reviewed_at = None
-            task.review_rejection_reason = None
-        elif current_public == "BLOCKED":
-            task.blocked_reason = None
-            task.blocked_since = None
-            task.resume_handler_id = None
-            task.waiting_for_user_id = None
-        elif target_status == "IN_PROGRESS":
-            task.blocked_reason = None
-            task.blocked_since = None
-            task.resume_handler_id = None
-            task.waiting_for_user_id = None
-            if task.progress is None:
-                task.progress = 20
-                versions = dict(task.field_versions or {})
-                versions["progress"] = int(versions.get("progress", 1)) + 1
-                task.field_versions = versions
-        if target_status == "REVIEW":
-            task.reviewer_user_id = reviewer_id
-            task.review_submitted_at = self.now()
-            task.reviewed_at = None
-            task.review_rejection_reason = None
-        elif current_public == "REVIEW" and target_status == "DONE":
-            task.reviewed_at = self.now()
-            task.review_rejection_reason = None
-        elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
-            task.reviewed_at = self.now()
-            task.review_rejection_reason = review_rejection_reason
-        self._record_handler_change(task, previous_handler_id, actor_user_id)
-        task.lifecycle_version += 1
-        task.status_version += 1
-        task.version += 1
-        task.updated_at = self.now()
+            self._operation(
+                workspace_id,
+                actor_user_id,
+                request_id,
+                task,
+                OperationType.CONFLICT_CREATED,
+                before,
+                before,
+                conflict_cursor,
+                base_versions={"fingerprint": fingerprint},
+                conflict_outcome={
+                    "code": "field_conflict",
+                    "message": "task status changed",
+                    "snapshots": {str(task.id): before},
+                    "conflicts": [task_conflict_json(conflict, before)],
+                },
+            )
+            raise TaskConflictError(
+                "field_conflict",
+                "task status changed",
+                [conflict],
+                conflict_snapshots={str(task.id): before},
+            )
+        current_public, activity_type = self._apply_status_transition(
+            workspace_id,
+            actor_user_id,
+            task,
+            target_status,
+            blocked_reason=blocked_reason,
+            resume_handler_id=resume_handler_id,
+            waiting_for_user_id=waiting_for_user_id,
+            review_rejection_reason=review_rejection_reason,
+        )
         after = self.snapshot(task)
         cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
-        activity_type = _status_activity_type(current_public, target_status)
         self._operation(
             workspace_id,
             actor_user_id,
@@ -510,10 +452,7 @@ class TaskService:
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
-            if existing.base_versions != {"fingerprint": fingerprint}:
-                raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
-            self.last_cursor = existing.cursor
-            return task
+            return self._replay_operation(existing, fingerprint, task)
         self._require_handler(task, actor_user_id)
         if task.lifecycle_version != base_lifecycle_version:
             raise TaskConflictError("lifecycle_conflict", "task lifecycle changed")
@@ -578,26 +517,54 @@ class TaskService:
                 "handler transfer is not allowed while task is in review",
             )
         before = self.snapshot(task)
+        activity_type: str | None = None
+        status_transition_before: str | None = None
         if resolution == "proposed":
-            versions = dict(task.field_versions or {})
-            current_version = int(versions.get(conflict.target, 1))
-            if current_version != conflict.current_version:
-                raise TaskConflictError("field_conflict", "task field changed since conflict creation", [conflict])
-            if conflict.target == "current_handler_id":
-                try:
-                    value = self._validated_member(workspace_id, conflict.proposed_value)
-                except (TypeError, ValueError) as exc:
-                    raise TaskConflictError("invalid_request", "invalid proposed handler id") from exc
-                task.current_handler_id = value
-            elif conflict.target not in MUTABLE_FIELDS:
-                raise TaskConflictError("invalid_request", "invalid task conflict field")
+            if conflict.target == "status":
+                proposed = conflict.proposed_value
+                if not isinstance(proposed, dict) or not isinstance(proposed.get("target_status"), str):
+                    raise TaskConflictError("invalid_request", "invalid proposed status transition")
+                proposed_target = proposed["target_status"]
+                if task.status_version != conflict.current_version:
+                    raise TaskConflictError("field_conflict", "task status changed since conflict creation", [conflict])
+                current_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+                if current_status == "REVIEW" and proposed_target in REVIEW_DECISION_STATUSES:
+                    self._require_reviewer(task, workspace_id, actor_user_id)
+                else:
+                    self._require_handler(task, actor_user_id)
+                if proposed_target not in TRANSITIONS:
+                    raise TaskConflictError("invalid_request", "unsupported proposed status transition")
+                if proposed_target != current_status:
+                    status_transition_before, activity_type = self._apply_status_transition(
+                        workspace_id,
+                        actor_user_id,
+                        task,
+                        proposed_target,
+                        blocked_reason=proposed.get("blocked_reason"),
+                        resume_handler_id=proposed.get("resume_handler_id"),
+                        waiting_for_user_id=proposed.get("waiting_for_user_id"),
+                        review_rejection_reason=proposed.get("review_rejection_reason"),
+                    )
             else:
-                setattr(task, conflict.target, conflict.proposed_value)
-            versions.pop("assignee_ids", None)
-            versions[conflict.target] = current_version + 1
-            task.field_versions = versions
-            task.version += 1
-            task.updated_at = self.now()
+                versions = dict(task.field_versions or {})
+                current_version = int(versions.get(conflict.target, 1))
+                if current_version != conflict.current_version:
+                    raise TaskConflictError("field_conflict", "task field changed since conflict creation", [conflict])
+                if conflict.target == "current_handler_id":
+                    try:
+                        value = self._validated_member(workspace_id, conflict.proposed_value)
+                    except (TypeError, ValueError) as exc:
+                        raise TaskConflictError("invalid_request", "invalid proposed handler id") from exc
+                    task.current_handler_id = value
+                elif conflict.target not in MUTABLE_FIELDS:
+                    raise TaskConflictError("invalid_request", "invalid task conflict field")
+                else:
+                    setattr(task, conflict.target, conflict.proposed_value)
+                versions.pop("assignee_ids", None)
+                versions[conflict.target] = current_version + 1
+                task.field_versions = versions
+                task.version += 1
+                task.updated_at = self.now()
         conflict.status = ConflictStatus.RESOLVED
         conflict.resolution = Resolution.ACCEPT_PROPOSED if resolution == "proposed" else Resolution.KEEP_CURRENT
         conflict.resolved_by = actor_user_id
@@ -620,7 +587,17 @@ class TaskService:
             after,
             conflict_cursor,
             base_versions={"fingerprint": fingerprint},
+            activity_type=activity_type,
         )
+        if status_transition_before is not None:
+            self.session.add(
+                TaskStatusHistory(
+                    task_id=task.id,
+                    from_status=TaskStatus(status_transition_before),
+                    to_status=task.status,
+                    changed_by=actor_user_id,
+                )
+            )
         return task
 
     def add_comment(self, workspace_id: UUID, actor_user_id: UUID, task_id: UUID, body: str, request_id: UUID | None = None) -> TaskComment:
@@ -787,6 +764,112 @@ class TaskService:
             )
         return reviewer_ids[0]
 
+    def _apply_status_transition(
+        self,
+        workspace_id: UUID,
+        actor_user_id: UUID,
+        task: Task,
+        target_status: str,
+        *,
+        blocked_reason: str | None = None,
+        resume_handler_id: UUID | None = None,
+        waiting_for_user_id: UUID | None = None,
+        review_rejection_reason: str | None = None,
+    ) -> tuple[str, str | None]:
+        """Apply one validated status transition, without creating side effects.
+
+        Both a normal transition and accepting a status conflict must use this
+        path so metadata, versions, handler history, and activity projection
+        remain identical and are only recorded once by their caller.
+        """
+        raw_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+        current_public = raw_status
+        if target_status not in TRANSITIONS[current_public]:
+            raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")
+        target = TaskStatus(target_status)
+        previous_handler_id = task.current_handler_id
+        recovery_handler_id: UUID | None = None
+        reviewer_id: UUID | None = None
+        if target_status == "BLOCKED":
+            if not isinstance(blocked_reason, str) or not blocked_reason.strip():
+                raise TaskConflictError("invalid_request", "blocked_reason is required")
+            if resume_handler_id is None:
+                raise TaskConflictError("invalid_request", "resume_handler_id is required")
+            blocked_reason = blocked_reason.strip()
+            resume_handler_id = self._validated_member(workspace_id, resume_handler_id)
+            if waiting_for_user_id is not None:
+                waiting_for_user_id = self._validated_member(workspace_id, waiting_for_user_id)
+        elif current_public == "BLOCKED":
+            if target_status == "IN_PROGRESS":
+                recovery_handler_id = resume_handler_id or task.resume_handler_id
+                if recovery_handler_id is None:
+                    raise TaskConflictError("invalid_request", "blocked task has no active resume handler")
+                recovery_handler_id = self._validated_member(workspace_id, recovery_handler_id)
+        elif target_status == "IN_PROGRESS" and current_public != "REVIEW" and resume_handler_id is not None:
+            recovery_handler_id = self._validated_member(workspace_id, resume_handler_id)
+
+        if target_status == "REVIEW":
+            reviewer_id = self._derived_reviewer(workspace_id, task)
+        elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
+            if not isinstance(review_rejection_reason, str) or not review_rejection_reason.strip():
+                raise TaskConflictError(
+                    "invalid_request",
+                    "review_rejection_reason is required when returning a review",
+                )
+            review_rejection_reason = review_rejection_reason.strip()
+
+        task.status = target
+        if recovery_handler_id is not None and recovery_handler_id != task.current_handler_id:
+            task.current_handler_id = recovery_handler_id
+            versions = dict(task.field_versions or {})
+            versions["current_handler_id"] = int(versions.get("current_handler_id", 1)) + 1
+            task.field_versions = versions
+        if target == TaskStatus.DONE:
+            task.completed_at = self.now()
+        elif current_public == "DONE":
+            task.completed_at = None
+        if target_status == "BLOCKED":
+            task.blocked_reason = blocked_reason
+            task.blocked_since = self.now()
+            task.resume_handler_id = resume_handler_id
+            task.waiting_for_user_id = waiting_for_user_id
+            task.reviewer_user_id = None
+            task.review_submitted_at = None
+            task.reviewed_at = None
+            task.review_rejection_reason = None
+        elif current_public == "BLOCKED":
+            task.blocked_reason = None
+            task.blocked_since = None
+            task.resume_handler_id = None
+            task.waiting_for_user_id = None
+        elif target_status == "IN_PROGRESS":
+            task.blocked_reason = None
+            task.blocked_since = None
+            task.resume_handler_id = None
+            task.waiting_for_user_id = None
+            if task.progress is None:
+                task.progress = 20
+                versions = dict(task.field_versions or {})
+                versions["progress"] = int(versions.get("progress", 1)) + 1
+                task.field_versions = versions
+        if target_status == "REVIEW":
+            task.reviewer_user_id = reviewer_id
+            task.review_submitted_at = self.now()
+            task.reviewed_at = None
+            task.review_rejection_reason = None
+        elif current_public == "REVIEW" and target_status == "DONE":
+            task.reviewed_at = self.now()
+            task.review_rejection_reason = None
+        elif current_public == "REVIEW" and target_status == "IN_PROGRESS":
+            task.reviewed_at = self.now()
+            task.review_rejection_reason = review_rejection_reason
+        self._record_handler_change(task, previous_handler_id, actor_user_id)
+        task.lifecycle_version += 1
+        task.status_version += 1
+        task.version += 1
+        task.updated_at = self.now()
+        return current_public, _status_activity_type(current_public, target_status)
+
     def _record_handler_change(
         self,
         task: Task,
@@ -819,6 +902,71 @@ class TaskService:
         if member is None:
             raise TaskConflictError("invalid_request", "handler must be an active workspace member")
         return normalized
+
+    def _replay_operation(self, operation: TaskOperation, fingerprint: str, task: Task) -> Task:
+        """Replay a write without changing its result or cursor.
+
+        Conflict creation is intentionally an error response, so returning the
+        task here would turn a retried 409 into a misleading 200. The conflict
+        rows and operation are the durable response projection and allow a
+        later session to reconstruct the same domain error.
+        """
+        if operation.base_versions != {"fingerprint": fingerprint}:
+            raise TaskConflictError("idempotency_key_reused", "request id was used with a different payload")
+        self.last_cursor = operation.cursor
+        operation_type = getattr(operation.operation_type, "value", operation.operation_type)
+        if operation_type == OperationType.CONFLICT_CREATED.value:
+            conflicts = self.session.scalars(
+                select(TaskConflict)
+                .where(
+                    TaskConflict.workspace_id == operation.workspace_id,
+                    TaskConflict.request_id == operation.request_id,
+                )
+                .order_by(TaskConflict.created_at.asc(), TaskConflict.id.asc())
+            ).all()
+            message = "task status changed" if any(item.target == "status" for item in conflicts) else "one or more task fields changed"
+            snapshots: dict[str, dict[str, Any]] = {}
+            conflict_details: list[dict[str, Any]] | None = None
+            stored_after = operation.after_state
+            if isinstance(stored_after, dict):
+                stored_outcome = stored_after.get("conflict_outcome")
+                if isinstance(stored_outcome, dict):
+                    stored_code = stored_outcome.get("code")
+                    if isinstance(stored_code, str):
+                        code = stored_code
+                    else:
+                        code = "field_conflict"
+                    stored_message = stored_outcome.get("message")
+                    if isinstance(stored_message, str):
+                        message = stored_message
+                    stored_snapshots = stored_outcome.get("snapshots")
+                    if isinstance(stored_snapshots, dict):
+                        snapshots = {
+                            str(task_id): value
+                            for task_id, value in stored_snapshots.items()
+                            if isinstance(value, dict)
+                        }
+                    stored_conflicts = stored_outcome.get("conflicts")
+                    if isinstance(stored_conflicts, list) and all(isinstance(item, dict) for item in stored_conflicts):
+                        conflict_details = [deepcopy(item) for item in stored_conflicts]
+                else:
+                    code = "field_conflict"
+                    # Compatibility with conflict operations written before
+                    # the explicit outcome envelope was introduced.
+                    if stored_after.get("id") == str(task.id):
+                        snapshots[str(task.id)] = stored_after
+                    elif isinstance(stored_after.get("task"), dict):
+                        snapshots[str(task.id)] = stored_after["task"]
+            else:
+                code = "field_conflict"
+            raise TaskConflictError(
+                code,
+                message,
+                list(conflicts),
+                conflict_snapshots=snapshots,
+                conflict_details=conflict_details,
+            )
+        return task
 
     def _existing_operation(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID) -> TaskOperation | None:
         operation = self.session.scalar(select(TaskOperation).where(TaskOperation.workspace_id == workspace_id, TaskOperation.request_id == request_id))
@@ -862,6 +1010,7 @@ class TaskService:
         cursor: int,
         base_versions: dict[str, Any] | None = None,
         activity_type: str | None = None,
+        conflict_outcome: dict[str, Any] | None = None,
     ) -> TaskOperation:
         activity_payload: dict[str, Any] = {"before": before, "after": after}
         if activity_type is not None:
@@ -892,7 +1041,13 @@ class TaskService:
                 request_id=request_id,
             )
         )
-        operation = TaskOperation(workspace_id=workspace_id, task_id=task.id, actor_user_id=actor_user_id, request_id=request_id, operation_type=operation_type, before_state=before, after_state=after, base_versions=base_versions, resulting_versions=task.field_versions, cursor=cursor)
+        stored_after = after
+        if conflict_outcome is not None:
+            stored_after = {
+                "task": deepcopy(after),
+                "conflict_outcome": deepcopy(conflict_outcome),
+            }
+        operation = TaskOperation(workspace_id=workspace_id, task_id=task.id, actor_user_id=actor_user_id, request_id=request_id, operation_type=operation_type, before_state=before, after_state=stored_after, base_versions=base_versions, resulting_versions=task.field_versions, cursor=cursor)
         self.session.add(operation)
         self.session.flush()
         return operation

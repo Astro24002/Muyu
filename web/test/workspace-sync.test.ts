@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/client';
-import type { TaskApprovalRequest, TaskComment, TaskItem } from '../src/api/types';
+import type { HomeResponse, TaskApprovalRequest, TaskComment, TaskItem } from '../src/api/types';
 import { WorkspaceSocket, type SocketLike } from '../src/realtime/workspace-socket';
 import { WorkspaceSyncController } from '../src/sync/workspace-sync';
 
@@ -29,6 +29,21 @@ function apiStub() {
 }
 
 describe('WorkspaceSyncController', () => {
+  it('stores the optional authoritative home projection after loading a snapshot', async () => {
+    const home: HomeResponse = {
+      current_tasks: { items: [task], has_more: false },
+      blocked_tasks: { items: [], has_more: false },
+      review_tasks: { items: [], has_more: false },
+      pending_approval_count: 0,
+    };
+    const api = { ...apiStub(), getHome: vi.fn().mockResolvedValue(home) };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+
+    expect((controller.state as typeof controller.state & { home?: HomeResponse }).home).toEqual(home);
+  });
+
   it('records the snapshot cursor and applies contiguous task changes', async () => {
     const api = apiStub();
     api.getWorkspaceChanges.mockResolvedValue({ workspace_id: 'workspace-1', cursor: 6, changes: [{ cursor: 6, resource_type: 'task', resource_id: task.id, action: 'UPDATED', operation_id: 'op-1', resource: { ...task, title: 'Updated' } }] });
@@ -112,6 +127,35 @@ describe('WorkspaceSyncController', () => {
     expect(controller.state.snapshot?.tasks).toContainEqual(expect.objectContaining({ id: 'task-2', title: 'New task' }));
     expect(controller.state.cursor).toBe(6);
     expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
+  });
+
+  it('refreshes the authoritative home projection after a reconciled write', async () => {
+    const serverTask = { ...task, id: 'task-2', title: 'Server task' };
+    const initialHome: HomeResponse = {
+      current_tasks: { items: [task], has_more: false },
+      blocked_tasks: { items: [], has_more: false },
+      review_tasks: { items: [], has_more: false },
+      pending_approval_count: 0,
+    };
+    const updatedHome: HomeResponse = {
+      current_tasks: { items: [serverTask], has_more: false },
+      blocked_tasks: { items: [], has_more: false },
+      review_tasks: { items: [], has_more: false },
+      pending_approval_count: 1,
+    };
+    const api = {
+      ...apiStub(),
+      getHome: vi.fn().mockResolvedValueOnce(initialHome).mockResolvedValueOnce(updatedHome),
+    };
+    api.createTask.mockResolvedValue({ ...serverTask, cursor: 6 });
+    api.getWorkspaceChanges.mockResolvedValue(changesResponse(6, serverTask));
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.createTask('Server task', '', 'Q2');
+
+    expect(api.getHome).toHaveBeenCalledTimes(2);
+    expect(controller.state.home).toEqual(updatedHome);
   });
 
   it('sends the current base field versions when patching a task', async () => {

@@ -22,7 +22,7 @@ export function TodayPage({ sync, onOpenTask, onCreateTask }: TodayPageProps): J
   const tasks = (state.snapshot?.tasks ?? []).filter((task) => !task.deleted_at);
   const viewerId = state.snapshot?.viewer_user_id ?? '';
   const approvals = state.approvals ?? state.snapshot?.approval_requests ?? [];
-  const model = deriveTodayModel(tasks, approvals, viewerId, new Date());
+  const model = deriveTodayModel(tasks, approvals, viewerId, new Date(), state.home);
   const busy = state.loading || state.stale || state.authRequired;
   const completeTask = useCallback((task: TaskItem): void => {
     if (busy) return;
@@ -67,9 +67,9 @@ export function TodayPage({ sync, onOpenTask, onCreateTask }: TodayPageProps): J
         </section>
       ) : null}
 
-      {model.pendingApprovals.length > 0 ? (
+      {model.pendingApprovalCount > 0 ? (
         <section className="today-page__section" data-today-section="approval">
-          <InlineApprovalNotice count={model.pendingApprovals.length} onOpen={() => navigate('approvals')} />
+          <InlineApprovalNotice count={model.pendingApprovalCount} onOpen={() => navigate('approvals')} />
         </section>
       ) : null}
 

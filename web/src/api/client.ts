@@ -2,6 +2,7 @@ import { API_BASE_URL } from '../config';
 import type {
   ApprovalActionResult,
   ActivityEvent,
+  HomeResponse,
   PendingApproval,
   TaskApprovalRequest,
   TaskComment,
@@ -70,6 +71,7 @@ export class ApiClient {
   listWebSessions(): Promise<WebSessionSummary[]> { return this.request('/api/v1/web-sessions'); }
   revokeWebSession(id: string): Promise<void> { return this.request<void>(`/api/v1/web-sessions/${encodeURIComponent(id)}/revoke`, { method: 'POST' }); }
   revokeAllWebSessions(): Promise<WebSessionRevokeAllResult> { return this.request('/api/v1/web-sessions/revoke-all', { method: 'POST' }); }
+  getHome(): Promise<HomeResponse> { return this.request('/api/v1/home'); }
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> { return this.request('/api/v1/workspaces/current/snapshot'); }
   getWorkspaceChanges(afterCursor: number): Promise<WorkspaceChanges> { return this.request(`/api/v1/workspaces/current/changes?after_cursor=${encodeURIComponent(afterCursor)}`); }
   createTask(input: { requestId: string; title: string; description: string; quadrant: 'Q1' | 'Q2' | 'Q3' | 'Q4'; labels?: string[] }): Promise<AppliedTaskWriteResult> { return this.request('/api/v1/tasks', { method: 'POST', body: { request_id: input.requestId, title: input.title, description: input.description, quadrant: input.quadrant, labels: input.labels ?? [] } }); }

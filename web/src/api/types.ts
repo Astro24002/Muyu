@@ -43,6 +43,18 @@ export interface TaskItem {
   [key: string]: unknown;
 }
 
+export interface HomeTaskSection {
+  items: TaskItem[];
+  has_more: boolean;
+}
+
+export interface HomeResponse {
+  current_tasks: HomeTaskSection;
+  blocked_tasks: HomeTaskSection;
+  review_tasks: HomeTaskSection;
+  pending_approval_count: number;
+}
+
 export interface TaskComment {
   id: string;
   workspace_id: string;

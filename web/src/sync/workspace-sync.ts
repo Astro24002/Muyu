@@ -1,5 +1,5 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
-import type { ApprovalActionResult, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceSnapshot } from '../api/types';
+import type { ApprovalActionResult, HomeResponse, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskItem, upsertTask } from '../tasks/task-model';
 
@@ -11,6 +11,8 @@ export interface WorkspaceSyncState {
   error: string | null;
   conflicts: TaskConflict[];
   authRequired: boolean;
+  /** Server-authoritative today projection, when the API version provides it. */
+  home?: HomeResponse;
   /** A convenient view of snapshot.approval_requests for approval UI consumers. */
   approvals?: TaskApprovalRequest[];
   /** A convenient view of snapshot.comments for detail UI consumers. */
@@ -53,6 +55,7 @@ export type WorkspaceSyncApi = Pick<ApiClient,
   | 'addTaskComment'
   | 'addTaskDelay'
 > & Partial<Pick<ApiClient,
+  | 'getHome'
   | 'createApprovalRequest'
   | 'listApprovalRequests'
   | 'approveApproval'
@@ -117,15 +120,18 @@ export class WorkspaceSyncController {
   async loadSnapshot(parentIsCurrent?: IsCurrent): Promise<void> {
     const sequence = ++this.snapshotRequestSequence;
     const snapshotIsCurrent = (): boolean => sequence === this.snapshotRequestSequence && (!parentIsCurrent || parentIsCurrent());
-    await this.run('无法加载工作区，请检查网络后重试。', async (isCurrent) => {
+    let loaded = false;
+    const outcome = await this.run('无法加载工作区，请检查网络后重试。', async (isCurrent) => {
       const snapshot = await this.api.getWorkspaceSnapshot();
       if (!isCurrent()) return;
       const normalized = normalizeSnapshot(snapshot);
       const activeSnapshot = this.currentState.snapshot;
       if (activeSnapshot && normalized.cursor < this.currentState.cursor) return;
       this.snapshotIdentity += 1;
-      this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), stale: false, error: null, authRequired: false });
+      this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), home: undefined, stale: false, error: null, authRequired: false });
+      loaded = true;
     }, false, snapshotIsCurrent);
+    if (outcome === 'completed' && loaded && snapshotIsCurrent()) await this.loadHome(snapshotIsCurrent);
   }
 
   async pull(cursorHint?: number): Promise<void> {
@@ -137,6 +143,30 @@ export class WorkspaceSyncController {
 
   async refresh(): Promise<void> {
     await this.loadSnapshot();
+  }
+
+  private async loadHome(parentIsCurrent?: IsCurrent): Promise<void> {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || !this.api.getHome) {
+      if (snapshot) this.setState({ home: undefined });
+      return;
+    }
+    const generation = this.generation;
+    const isCurrent = (): boolean => !this.disposed
+      && generation === this.generation
+      && this.currentState.snapshot?.workspace_id === snapshot.workspace_id
+      && (!parentIsCurrent || parentIsCurrent());
+    try {
+      const home = await this.api.getHome();
+      if (!isCurrent()) return;
+      this.setState({ home: normalizeHomeResponse(home, snapshot.workspace_id) });
+    } catch (error) {
+      if (!isCurrent()) return;
+      this.setState({
+        home: undefined,
+        ...(error instanceof ApiError && error.status === 401 ? { authRequired: true } : {}),
+      });
+    }
   }
 
   async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = []): Promise<void> {
@@ -377,6 +407,7 @@ export class WorkspaceSyncController {
     const operationGeneration = this.generation;
     let appliedCursor: number | undefined;
     let recovered = false;
+    let appliedChanges = false;
     const outcome = await this.run('同步失败，请检查网络后重试。', async (isCurrent) => {
       const changes = await this.api.getWorkspaceChanges(afterCursor);
       if (!isCurrent()) return;
@@ -388,6 +419,7 @@ export class WorkspaceSyncController {
         if (isCurrent()) appliedCursor = this.currentState.cursor;
         return;
       }
+      appliedChanges = changes.changes.length > 0;
       for (const change of changes.changes) {
         if (!isCurrent()) return;
         this.applyChange(change);
@@ -401,6 +433,14 @@ export class WorkspaceSyncController {
       this.setState({ snapshot: snapshot ? { ...snapshot, cursor } : null, cursor, approvals: snapshot?.approval_requests, comments: snapshot?.comments, stale: false, error: null, authRequired: false });
       appliedCursor = cursor;
     }, true, parentIsCurrent);
+    if (outcome === 'completed'
+      && appliedChanges
+      && appliedCursor !== undefined
+      && !this.disposed
+      && operationGeneration === this.generation
+      && (!parentIsCurrent || parentIsCurrent())) {
+      await this.loadHome(parentIsCurrent);
+    }
     if (outcome === 'cancelled') return undefined;
     if (appliedCursor === undefined
       && !this.disposed
@@ -436,7 +476,7 @@ export class WorkspaceSyncController {
     if (!snapshot) return;
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, normalizeTaskResource(task, snapshot.workspace_id)), cursor: nextCursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
   }
 
   private mergeApproval(approval: TaskApprovalRequest, cursor = this.currentState.cursor, updateCursor = false): void {
@@ -448,7 +488,7 @@ export class WorkspaceSyncController {
     approvals.push(normalizedApproval);
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, approval_requests: approvals, cursor: nextCursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
   }
 
   private mergeApprovals(approvals: TaskApprovalRequest[]): void {
@@ -462,7 +502,7 @@ export class WorkspaceSyncController {
       else merged[index] = normalizedApproval;
     }
     const nextSnapshot = { ...snapshot, approval_requests: merged };
-    this.setState({ snapshot: nextSnapshot, approvals: merged, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, approvals: merged, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
   }
 
   private mergeComment(comment: TaskComment, cursor = this.currentState.cursor, updateCursor = false, taskId?: string): void {
@@ -510,7 +550,7 @@ export class WorkspaceSyncController {
       : snapshot.comments ?? [];
     const cursor = updateCursor && typeof result.cursor === 'number' && result.cursor > snapshot.cursor ? result.cursor : snapshot.cursor;
     const nextSnapshot = { ...snapshot, tasks, comments, approval_requests: approvals, cursor };
-    this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, home: undefined, stale: false, error: null, authRequired: false });
   }
 
   private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false, parentIsCurrent?: IsCurrent): Promise<RunOutcome> {
@@ -855,6 +895,28 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
     comments,
     approval_requests: approvalRequests,
   };
+}
+
+function normalizeHomeResponse(value: unknown, workspaceId: string): HomeResponse {
+  if (!isRecord(value) || !isNonNegativeSafeInteger(value.pending_approval_count)) {
+    throw new Error('home response is invalid');
+  }
+  return {
+    current_tasks: normalizeHomeTaskSection(value.current_tasks, workspaceId),
+    blocked_tasks: normalizeHomeTaskSection(value.blocked_tasks, workspaceId),
+    review_tasks: normalizeHomeTaskSection(value.review_tasks, workspaceId),
+    pending_approval_count: value.pending_approval_count,
+  };
+}
+
+function normalizeHomeTaskSection(value: unknown, workspaceId: string): HomeResponse['current_tasks'] {
+  if (!isRecord(value)
+    || !Array.isArray(value.items)
+    || typeof value.has_more !== 'boolean'
+    || !value.items.every((item) => isTaskItem(item) && item.workspace_id === workspaceId)) {
+    throw new Error('home task section is invalid');
+  }
+  return { items: value.items.map(parseTaskItem), has_more: value.has_more };
 }
 
 function normalizeTaskResource(value: unknown, workspaceId: string): TaskItem {

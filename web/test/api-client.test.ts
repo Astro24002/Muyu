@@ -68,6 +68,25 @@ describe('ApiClient', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/workspaces/current/snapshot', expect.anything());
   });
 
+  it('requests the authoritative home projection with browser credentials', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        current_tasks: { items: [], has_more: false },
+        blocked_tasks: { items: [], has_more: false },
+        review_tasks: { items: [], has_more: false },
+        pending_approval_count: 0,
+      }), { status: 200 }),
+    );
+
+    await expect(new ApiClient().getHome()).resolves.toEqual({
+      current_tasks: { items: [], has_more: false },
+      blocked_tasks: { items: [], has_more: false },
+      review_tasks: { items: [], has_more: false },
+      pending_approval_count: 0,
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/home', expect.objectContaining({ credentials: 'include' }));
+  });
+
   it('keeps a 202 task write as an explicit pending approval result', async () => {
     const pending = { pending: true, approval_request: { id: 'approval-1' }, cursor: 8 };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(pending), { status: 202 }));

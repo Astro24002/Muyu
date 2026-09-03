@@ -1,4 +1,4 @@
-import type { CanonicalTaskStatus, TaskApprovalRequest, TaskItem, TaskStatus } from '../api/types';
+import type { CanonicalTaskStatus, HomeResponse, TaskApprovalRequest, TaskItem, TaskStatus } from '../api/types';
 import { isCanonicalTaskStatus, normalizeTaskStatus } from './task-model';
 
 export const TASK_STATUSES: CanonicalTaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE', 'CANCELLED'];
@@ -7,7 +7,12 @@ export interface TodayModel {
   focus: TaskItem | null;
   next: TaskItem[];
   blocked: TaskItem[];
+  review: TaskItem[];
   pendingApprovals: TaskApprovalRequest[];
+  pendingApprovalCount: number;
+  currentHasMore: boolean;
+  blockedHasMore: boolean;
+  reviewHasMore: boolean;
 }
 
 export function filterMyTasks(tasks: TaskItem[], userId: string): TaskItem[] {
@@ -40,25 +45,57 @@ export function deriveTodayModel(
   approvals: TaskApprovalRequest[],
   viewerId: string,
   now: Date,
+  home?: HomeResponse | null,
 ): TodayModel {
-  // `now` is part of the selector contract so date-aware sections can evolve
-  // without reading a clock. The current grouping only needs absolute dates.
-  void now;
+  if (home) return deriveAuthoritativeTodayModel(home);
 
   const visibleTasks = tasks.filter((task) => !task.deleted_at);
-  const focus = [...visibleTasks]
-    .filter((task) => task.status === 'IN_PROGRESS' && belongsToViewer(task, viewerId))
-    .sort(compareFocusTasks)[0] ?? null;
+  const current = visibleTasks
+    .filter((task) => belongsToViewer(task, viewerId) && isCurrentStatus(task.status))
+    .sort((left, right) => compareActionTasks(left, right, now))
+    .slice(0, 5);
+  const focus = current.find((task) => normalizeTaskStatus(task.status) === 'IN_PROGRESS') ?? null;
   const focusId = focus?.id;
-
-  const blocked = visibleTasks.filter((task) => isBlockedStatus(task.status));
-  const next = visibleTasks
-    .filter((task) => task.id !== focusId && !isBlockedStatus(task.status) && !isTerminalTask(task.status))
-    .sort(compareDueDates)
-    .slice(0, 8);
+  const blocked = visibleTasks
+    .filter((task) => belongsToViewer(task, viewerId) && isBlockedStatus(task.status))
+    .sort((left, right) => compareBlockedTasks(left, right, now))
+    .slice(0, 3);
+  const review = visibleTasks
+    .filter((task) => task.reviewer_user_id === viewerId && normalizeTaskStatus(task.status) === 'REVIEW')
+    .sort((left, right) => compareActionTasks(left, right, now))
+    .slice(0, 3);
+  const next = current.filter((task) => task.id !== focusId);
   const pendingApprovals = approvals.filter((approval) => approval.status === 'PENDING' && approval.approver_id === viewerId);
 
-  return { focus, next, blocked, pendingApprovals };
+  return {
+    focus,
+    next,
+    blocked,
+    review,
+    pendingApprovals,
+    pendingApprovalCount: pendingApprovals.length,
+    currentHasMore: false,
+    blockedHasMore: false,
+    reviewHasMore: false,
+  };
+}
+
+function deriveAuthoritativeTodayModel(home: HomeResponse): TodayModel {
+  const current = home.current_tasks.items;
+  const focus = current.find((task) => normalizeTaskStatus(task.status) === 'IN_PROGRESS') ?? null;
+  const focusId = focus?.id;
+
+  return {
+    focus,
+    next: current.filter((task) => task.id !== focusId),
+    blocked: home.blocked_tasks.items,
+    review: home.review_tasks.items,
+    pendingApprovals: [],
+    pendingApprovalCount: home.pending_approval_count,
+    currentHasMore: home.current_tasks.has_more,
+    blockedHasMore: home.blocked_tasks.has_more,
+    reviewHasMore: home.review_tasks.has_more,
+  };
 }
 
 function belongsToViewer(task: TaskItem, viewerId: string): boolean {
@@ -70,24 +107,50 @@ function isTerminalTask(status: TaskStatus): boolean {
   return normalized === 'DONE' || normalized === 'CANCELLED';
 }
 
+function isCurrentStatus(status: TaskStatus): boolean {
+  const normalized = normalizeTaskStatus(status);
+  return normalized === 'TODO' || normalized === 'IN_PROGRESS';
+}
+
 function isBlockedStatus(status: unknown): boolean {
   return status === 'BLOCKED' || status === 'WAITING';
 }
 
-function compareFocusTasks(left: TaskItem, right: TaskItem): number {
+function compareUpdatedTasks(left: TaskItem, right: TaskItem): number {
   const leftUpdated = timestamp(left.updated_at) ?? Number.NEGATIVE_INFINITY;
   const rightUpdated = timestamp(right.updated_at) ?? Number.NEGATIVE_INFINITY;
   const updatedDifference = rightUpdated - leftUpdated;
   return updatedDifference || compareIds(left.id, right.id);
 }
 
-function compareDueDates(left: TaskItem, right: TaskItem): number {
+function compareActionTasks(left: TaskItem, right: TaskItem, now: Date): number {
+  return compareDueUrgency(left, right, now) || compareUpdatedTasks(left, right);
+}
+
+function compareBlockedTasks(left: TaskItem, right: TaskItem, now: Date): number {
+  const urgency = compareDueUrgency(left, right, now);
+  if (urgency) return urgency;
+  const leftBlocked = timestamp(left.blocked_since);
+  const rightBlocked = timestamp(right.blocked_since);
+  if (leftBlocked === null && rightBlocked !== null) return 1;
+  if (leftBlocked !== null && rightBlocked === null) return -1;
+  if (leftBlocked !== null && rightBlocked !== null && leftBlocked !== rightBlocked) return leftBlocked - rightBlocked;
+  return compareUpdatedTasks(left, right);
+}
+
+function compareDueUrgency(left: TaskItem, right: TaskItem, now: Date): number {
   const leftDue = timestamp(left.due_at);
   const rightDue = timestamp(right.due_at);
-  if (leftDue === null && rightDue !== null) return 1;
-  if (leftDue !== null && rightDue === null) return -1;
+  const leftBucket = dueBucket(leftDue, now);
+  const rightBucket = dueBucket(rightDue, now);
+  if (leftBucket !== rightBucket) return leftBucket - rightBucket;
   if (leftDue !== null && rightDue !== null && leftDue !== rightDue) return leftDue - rightDue;
-  return compareIds(left.id, right.id);
+  return 0;
+}
+
+function dueBucket(due: number | null, now: Date): number {
+  if (due === null) return 2;
+  return due < now.getTime() ? 0 : 1;
 }
 
 function timestamp(value: string | null): number | null {

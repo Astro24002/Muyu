@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskApprovalRequest, TaskItem } from '../src/api/types';
+import type { HomeResponse, TaskApprovalRequest, TaskItem } from '../src/api/types';
 import { deriveTodayModel } from '../src/tasks/task-view-model';
 
 const makeTask = (overrides: Partial<TaskItem> = {}): TaskItem => ({
@@ -57,7 +57,7 @@ const makeApproval = (overrides: Partial<TaskApprovalRequest> = {}): TaskApprova
 describe('deriveTodayModel', () => {
   const now = new Date('2026-08-31T12:00:00Z');
 
-  it('ignores deleted tasks and selects the latest current-user in-progress task', () => {
+  it('falls back to only the viewer current tasks when home data is unavailable', () => {
     const tasks = [
       makeTask({ id: 'deleted-focus', status: 'IN_PROGRESS', current_handler_id: 'viewer', updated_at: '2026-08-31T11:59:00Z', deleted_at: '2026-08-31T12:00:00Z' }),
       makeTask({ id: 'focus-old', status: 'IN_PROGRESS', current_handler_id: 'viewer', updated_at: '2026-08-31T10:00:00Z' }),
@@ -69,7 +69,7 @@ describe('deriveTodayModel', () => {
     const model = deriveTodayModel(tasks, [], 'viewer', now);
 
     expect(model.focus?.id).toBe('focus-new');
-    expect(model.next.map((task) => task.id)).toEqual(['focus-not-owned', 'focus-old', 'other-focus']);
+    expect(model.next.map((task) => task.id)).toEqual(['focus-old']);
     expect(model.next).not.toContain(tasks[0]);
   });
 
@@ -82,16 +82,16 @@ describe('deriveTodayModel', () => {
     expect(deriveTodayModel(tasks, [], 'viewer', now).focus?.id).toBe('focus-a');
   });
 
-  it('sorts next by due date, puts undated tasks last, and caps the list at eight', () => {
+  it('sorts fallback current tasks by due date, puts undated tasks last, and caps the list at five', () => {
     const tasks = [
-      makeTask({ id: 'no-due', due_at: null }),
-      makeTask({ id: 'due-later', due_at: '2026-09-05T09:00:00Z' }),
-      makeTask({ id: 'waiting', status: 'WAITING', due_at: '2026-08-20T09:00:00Z' }),
-      makeTask({ id: 'due-soon', due_at: '2026-09-01T09:00:00Z' }),
-      makeTask({ id: 'done', status: 'DONE', due_at: '2026-08-01T09:00:00Z' }),
-      makeTask({ id: 'cancelled', status: 'CANCELLED', due_at: '2026-08-02T09:00:00Z' }),
-      makeTask({ id: 'overdue', due_at: '2026-08-01T09:00:00Z' }),
-      ...Array.from({ length: 8 }, (_, index) => makeTask({ id: `extra-${index}`, due_at: `2026-09-${String(index + 2).padStart(2, '0')}T09:00:00Z` })),
+      makeTask({ id: 'no-due', current_handler_id: 'viewer', due_at: null }),
+      makeTask({ id: 'due-later', current_handler_id: 'viewer', due_at: '2026-09-05T09:00:00Z' }),
+      makeTask({ id: 'waiting', current_handler_id: 'viewer', status: 'WAITING', due_at: '2026-08-20T09:00:00Z' }),
+      makeTask({ id: 'due-soon', current_handler_id: 'viewer', due_at: '2026-09-01T09:00:00Z' }),
+      makeTask({ id: 'done', current_handler_id: 'viewer', status: 'DONE', due_at: '2026-08-01T09:00:00Z' }),
+      makeTask({ id: 'cancelled', current_handler_id: 'viewer', status: 'CANCELLED', due_at: '2026-08-02T09:00:00Z' }),
+      makeTask({ id: 'overdue', current_handler_id: 'viewer', due_at: '2026-08-01T09:00:00Z' }),
+      ...Array.from({ length: 8 }, (_, index) => makeTask({ id: `extra-${index}`, current_handler_id: 'viewer', due_at: `2026-09-${String(index + 2).padStart(2, '0')}T09:00:00Z` })),
     ];
 
     const model = deriveTodayModel(tasks, [], 'viewer', now);
@@ -102,17 +102,17 @@ describe('deriveTodayModel', () => {
       'extra-0',
       'extra-1',
       'extra-2',
-      'due-later',
-      'extra-3',
-      'extra-4',
     ]);
     expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'waiting' }));
     expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'done' }));
     expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'cancelled' }));
   });
 
-  it('returns waiting tasks and only pending approvals addressed to the viewer', () => {
-    const waiting = makeTask({ id: 'waiting', status: 'WAITING' });
+  it('returns only viewer blocked and review tasks with incoming pending approvals in the fallback', () => {
+    const waiting = makeTask({ id: 'waiting', status: 'WAITING', current_handler_id: 'viewer' });
+    const partnerBlocked = makeTask({ id: 'partner-blocked', status: 'BLOCKED', current_handler_id: 'partner' });
+    const reviewForViewer = makeTask({ id: 'review-for-viewer', status: 'REVIEW', current_handler_id: 'partner', reviewer_user_id: 'viewer' });
+    const reviewForPartner = makeTask({ id: 'review-for-partner', status: 'REVIEW', current_handler_id: 'viewer', reviewer_user_id: 'partner' });
     const tasks = [waiting, makeTask({ id: 'todo' })];
     const approvals = [
       makeApproval({ id: 'incoming-pending' }),
@@ -121,10 +121,39 @@ describe('deriveTodayModel', () => {
       makeApproval({ id: 'already-approved', status: 'APPROVED' }),
     ];
 
-    const model = deriveTodayModel(tasks, approvals, 'viewer', now);
+    const model = deriveTodayModel([...tasks, partnerBlocked, reviewForViewer, reviewForPartner], approvals, 'viewer', now);
 
     expect(model.blocked).toEqual([waiting]);
+    expect(model.review).toEqual([reviewForViewer]);
     expect(model.pendingApprovals.map((approval) => approval.id)).toEqual(['incoming-pending']);
+    expect(model.pendingApprovalCount).toBe(1);
+  });
+
+  it('uses a supplied server home projection instead of cached task or approval data', () => {
+    const current = makeTask({ id: 'server-current', current_handler_id: 'viewer', status: 'TODO' });
+    const blocked = makeTask({ id: 'server-blocked', current_handler_id: 'viewer', status: 'BLOCKED' });
+    const review = makeTask({ id: 'server-review', current_handler_id: 'partner', status: 'REVIEW', reviewer_user_id: 'viewer' });
+    const home: HomeResponse = {
+      current_tasks: { items: [current], has_more: true },
+      blocked_tasks: { items: [blocked], has_more: false },
+      review_tasks: { items: [review], has_more: false },
+      pending_approval_count: 3,
+    };
+
+    const model = deriveTodayModel(
+      [makeTask({ id: 'cached-partner-task', current_handler_id: 'partner' })],
+      [makeApproval()],
+      'viewer',
+      now,
+      home,
+    );
+
+    expect(model.focus).toBeNull();
+    expect(model.next).toEqual([current]);
+    expect(model.blocked).toEqual([blocked]);
+    expect(model.review).toEqual([review]);
+    expect(model.pendingApprovals).toEqual([]);
+    expect(model.pendingApprovalCount).toBe(3);
   });
 
   it('returns a null focus when the viewer has no active in-progress task', () => {

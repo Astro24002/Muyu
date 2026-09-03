@@ -15,6 +15,7 @@ from app.auth.providers.production import ProductionSmsProvider
 from app.core.config import get_settings
 from app.db.migrations import run_migrations
 from app.db.session import create_database_engine
+from app.home.routes import router as home_router
 from app.httpapi.errors import register_error_handlers
 from app.devices.routes import compat_router as device_authorization_router
 from app.devices.routes import router as devices_router
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(web_sessions_router)
     app.include_router(tasks_router)
     app.include_router(task_approval_router)
+    app.include_router(home_router)
     app.include_router(sync_router)
     app.include_router(realtime_router)
 

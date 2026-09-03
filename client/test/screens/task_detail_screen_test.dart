@@ -242,7 +242,7 @@ void main() {
   testWidgets('does not submit a stale resume handler during recovery', (
     tester,
   ) async {
-    final task = detailTask(status: 'WAITING', resumeHandlerId: 'revoked-user');
+    final task = detailTask(status: 'BLOCKED', resumeHandlerId: 'revoked-user');
     final repository = RecordingRepository();
     final sync = WorkspaceSyncController(repository);
     sync.state = WorkspaceSyncState(

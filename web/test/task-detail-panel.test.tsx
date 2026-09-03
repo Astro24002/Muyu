@@ -298,9 +298,9 @@ describe('TaskDetailPanel', () => {
   });
 
   it('blocks recovery while the stored resume handler is no longer active', () => {
-    const waitingTask = {
+    const blockedTask = {
       ...task,
-      status: 'WAITING' as const,
+      status: 'BLOCKED' as const,
       resume_handler_id: 'revoked-user',
       blocked_reason: '等待确认',
     };
@@ -310,11 +310,11 @@ describe('TaskDetailPanel', () => {
       snapshot: {
         ...makeState().snapshot!,
         members: [...makeState().snapshot!.members, { user_id: 'revoked-user', member_slot: 3, membership_status: 'REVOKED' }],
-        tasks: [waitingTask],
+        tasks: [blockedTask],
       },
     });
 
-    render(<TaskDetailPanel task={waitingTask} members={state.snapshot!.members} syncState={state} actions={actions} onClose={vi.fn()} />);
+    render(<TaskDetailPanel task={blockedTask} members={state.snapshot!.members} syncState={state} actions={actions} onClose={vi.fn()} />);
 
     expect(screen.getByLabelText('恢复负责人')).toHaveValue('revoked-user');
     for (const option of screen.getAllByRole('option', { name: 'revoked-user' })) {

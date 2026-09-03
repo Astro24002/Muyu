@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { AppliedTaskWriteResult } from '../../api/client';
-import type { CanonicalTaskStatus, TaskItem, TaskStatus } from '../../api/types';
+import type { TaskItem, TaskStatus } from '../../api/types';
 import type { TaskDetailActions } from '../../tasks/task-detail-actions';
 import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskLabels, parseTaskLabelsInput, taskTransitionTargets, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
+import { statusLabel } from '../../tasks/task-status';
 import { Button } from '../ui/Button';
 
 export interface TaskMember {
   user_id: string;
+  display_name?: string;
   member_slot: number;
   membership_status?: string;
   status?: string;
@@ -16,6 +18,7 @@ export interface TaskEditFormProps {
   task: TaskItem;
   members: TaskMember[];
   actions: Pick<TaskDetailActions, 'onSave' | 'onTransition' | 'currentUserId'>;
+  currentUserId?: string;
   canWrite?: boolean;
 }
 
@@ -44,7 +47,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const dirtyFields = useRef<Set<DraftField>>(new Set());
   const draftRef = useRef<TaskDraft>(draft);
   const busyActionRef = useRef<'save' | 'transition' | null>(null);
-  const actorUserId = actions.currentUserId;
+  const currentUserId = actions.currentUserId;
 
   useEffect(() => {
     setDraft((current) => {
@@ -98,10 +101,11 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
       return;
     }
 
-    const changes: EditableTaskChanges = {
-      title: draft.title.trim(),
-      description: draft.description,
-    };
+    // Submit only fields that changed. This preserves field-level conflict
+    // detection when the partner updates another field while this form is open.
+    const changes: EditableTaskChanges = {};
+    if (dirtyFields.current.has('title')) changes.title = draft.title.trim();
+    if (dirtyFields.current.has('description')) changes.description = draft.description;
     if (draft.dueAt !== toDateTimeLocalValue(task.due_at)) {
       changes.due_at = draft.dueAt === '' ? null : toIsoDate(draft.dueAt);
     }
@@ -114,6 +118,21 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
     }
     if (task.status === 'IN_PROGRESS' && Number(draft.progress) !== (task.progress ?? 20)) {
       changes.progress = Number(draft.progress);
+    }
+
+    const isTaskOwner = !currentUserId || currentUserId === task.current_handler_id;
+    if (!isTaskOwner) {
+      const specialChanges = Object.keys(changes).filter((field) => field === 'quadrant' || field === 'current_handler_id');
+      const regularChanges = Object.keys(changes).filter((field) => field !== 'quadrant' && field !== 'current_handler_id');
+      if (specialChanges.length > 0 && (specialChanges.length !== 1 || regularChanges.length > 0)) {
+        setError('四象限或负责人变更需要单独提交审批。');
+        return;
+      }
+    }
+
+    if (Object.keys(changes).length === 0) {
+      setError('没有可保存的修改。');
+      return;
     }
 
     const submittedDraft = draft;
@@ -132,7 +151,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const transition = (): void => {
     const activeHandlerIds = getActiveHandlerIds(members);
     const taskStatus = normalizeTaskStatus(task.status);
-    if (!isTaskTransitionAllowed(task, draft.status, actorUserId)) {
+    if (!isTaskTransitionAllowed(task, draft.status, currentUserId)) {
       setError('当前用户不能执行该状态操作。');
       return;
     }
@@ -186,7 +205,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const handlerOptions = getHandlerOptions(task, members, [draft.currentHandler, draft.resumeHandler]);
   const taskStatus = normalizeTaskStatus(task.status);
   const currentStatus = isCanonicalTaskStatus(taskStatus) ? taskStatus : undefined;
-  const transitionStatuses = taskTransitionTargets(task, actorUserId);
+  const transitionStatuses = taskTransitionTargets(task, currentUserId);
   const transitionDisabled = !canWrite || busyAction !== null;
   const showBlockedFields = draft.status === 'BLOCKED' || taskStatus === 'BLOCKED';
   const showReviewReturnReason = taskStatus === 'REVIEW' && draft.status === 'IN_PROGRESS';
@@ -240,7 +259,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
             onChange={(event) => updateDraft('currentHandler', event.target.value)}
           >
             {handlerOptions.map((option) => (
-              <option key={option.id} value={option.id} disabled={!option.active}>{option.id}</option>
+              <option key={option.id} value={option.id} disabled={!option.active}>{option.label}</option>
             ))}
           </select>
         </label>
@@ -305,7 +324,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
               >
                 <option value="">请选择</option>
                 {handlerOptions.map((option) => (
-                  <option key={option.id} value={option.id} disabled={!option.active}>{option.id}</option>
+                  <option key={option.id} value={option.id} disabled={!option.active}>{option.label}</option>
                 ))}
               </select>
             </label>
@@ -345,7 +364,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
           {busyAction === 'save' ? '保存中…' : '保存'}
         </Button>
         <Button tone="neutral" type="button" disabled={transitionDisabled} onClick={transition}>
-          {busyAction === 'transition' ? '更新中…' : '更新状态'}
+          {busyAction === 'transition' ? '更新中…' : transitionActionLabel(taskStatus, draft.status)}
         </Button>
       </div>
       {error ? <p className="task-detail-error" role="alert">{error}</p> : null}
@@ -408,6 +427,7 @@ function fieldsForChanges(changes: EditableTaskChanges): DraftField[] {
 
 interface HandlerOption {
   id: string;
+  label: string;
   active: boolean;
 }
 
@@ -416,8 +436,14 @@ function getHandlerOptions(task: TaskItem, members: TaskMember[], draftHandlerId
   const candidates = [...activeIds, task.current_handler_id, task.resume_handler_id ?? '', ...draftHandlerIds];
   return [...new Set(candidates.filter(Boolean))].map((id) => ({
     id,
+    label: memberDisplayName(members, id),
     active: activeIds.includes(id),
   }));
+}
+
+function memberDisplayName(members: TaskMember[], userId: string): string {
+  const name = members.find((member) => member.user_id === userId)?.display_name?.trim();
+  return name || userId;
 }
 
 function getActiveHandlerIds(members: TaskMember[]): Set<string> {
@@ -456,16 +482,12 @@ function formatDueDate(value: string): string {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : value;
 }
 
-function statusLabel(status: TaskStatus): string {
-  const labels: Record<CanonicalTaskStatus, string> = {
-    TODO: '待进行',
-    IN_PROGRESS: '进行中',
-    BLOCKED: '阻塞中',
-    REVIEW: '待验收',
-    DONE: '已完成',
-    CANCELLED: '已取消',
-  };
-  return labels[status as CanonicalTaskStatus] ?? status;
+function transitionActionLabel(currentStatus: unknown, targetStatus: TaskStatus): string {
+  const current = normalizeTaskStatus(currentStatus);
+  if (current === 'IN_PROGRESS' && targetStatus === 'REVIEW') return '提交验收';
+  if (current === 'REVIEW' && targetStatus === 'DONE') return '通过验收';
+  if (current === 'REVIEW' && targetStatus === 'IN_PROGRESS') return '退回修改';
+  return '更新状态';
 }
 
 function errorMessage(cause: unknown): string {

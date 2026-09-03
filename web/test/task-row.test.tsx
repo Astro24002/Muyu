@@ -39,7 +39,7 @@ const makeTask = (overrides: Partial<TaskItem> = {}): TaskItem => ({
 });
 
 describe('TaskRow', () => {
-  it('renders stable row hooks, readable title metadata date status, and completion control', () => {
+  it('renders stable row hooks, readable title metadata date status, and start control', () => {
     const task = makeTask();
 
     render(<TaskRow task={task} onOpen={vi.fn()} onComplete={vi.fn()} busy={false} />);
@@ -50,7 +50,7 @@ describe('TaskRow', () => {
     expect(screen.getByText(/Q2/)).toBeInTheDocument();
     expect(screen.getByText('截止 2026-09-01')).toBeInTheDocument();
     expect(screen.getByText('待进行')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '完成' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '开始' })).toBeEnabled();
   });
 
   it('keeps completion outside row semantics while the open control handles actions', () => {
@@ -62,7 +62,7 @@ describe('TaskRow', () => {
 
     const row = document.querySelector('[data-task-row]')!;
     const openControl = screen.getByRole('button', { name: task.title });
-    const completeControl = screen.getByRole('button', { name: '完成' });
+    const completeControl = screen.getByRole('button', { name: '开始' });
 
     expect(openControl).not.toBe(row);
     expect(row).not.toHaveAttribute('role');
@@ -78,7 +78,7 @@ describe('TaskRow', () => {
     expect(task.status).toBe('TODO');
   });
 
-  it('supports keyboard row opening and disables completion while busy', () => {
+  it('supports keyboard row opening and disables the start action while busy', () => {
     const onOpen = vi.fn();
     render(<TaskRow task={makeTask()} onOpen={onOpen} onComplete={vi.fn()} busy />);
 
@@ -91,10 +91,10 @@ describe('TaskRow', () => {
     fireEvent.keyDown(openControl, { key: 'Enter' });
     fireEvent.keyDown(openControl, { key: ' ' });
     expect(onOpen).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('button', { name: '完成' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '开始' })).toBeDisabled();
   });
 
-  it('keeps waiting, due, and completed semantics in text', () => {
+  it('keeps blocked, due, and completed semantics in text', () => {
     const { rerender } = render(
       <TaskRow
         task={makeTask({ status: 'BLOCKED', blocked_reason: '等待伙伴确认', due_at: '2026-08-31T08:00:00Z' })}
@@ -109,7 +109,18 @@ describe('TaskRow', () => {
 
     rerender(<TaskRow task={makeTask({ status: 'DONE' })} onOpen={vi.fn()} onComplete={vi.fn()} busy={false} />);
     expect(screen.getByText('已完成')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '完成' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '开始' })).toBeNull();
+  });
+
+  it('uses submit-for-review for in-progress work instead of completing it directly', () => {
+    const task = makeTask({ status: 'IN_PROGRESS' });
+    const onComplete = vi.fn();
+
+    render(<TaskRow task={task} onOpen={vi.fn()} onComplete={onComplete} busy={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '提交验收' }));
+    expect(onComplete).toHaveBeenCalledWith(task);
+    expect(screen.queryByRole('button', { name: '完成' })).toBeNull();
   });
 
   it('keeps long titles readable instead of trimming the task object or text', () => {

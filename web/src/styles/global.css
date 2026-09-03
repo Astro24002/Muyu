@@ -960,15 +960,26 @@
   white-space: nowrap;
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .task-status-label--waiting,
-.muyu-react-root > [data-testid="muyu-app"] .task-status-label--in_progress {
+.muyu-react-root > [data-testid="muyu-app"] .task-status-label--active,
+.muyu-react-root > [data-testid="muyu-app"] .task-status-label--blocked,
+.muyu-react-root > [data-testid="muyu-app"] .task-status-label--review {
   background: var(--color-coral-surface);
   color: var(--color-coral);
 }
 
-.muyu-react-root > [data-testid="muyu-app"] .task-status-label--done {
+.muyu-react-root > [data-testid="muyu-app"] .task-status-label--success {
   background: var(--color-focus-surface);
   color: var(--color-brand);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-status-label--neutral {
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .task-status-label--cancelled {
+  background: var(--color-error-surface);
+  color: var(--color-error);
 }
 
 .muyu-react-root > [data-testid="muyu-app"] .task-list__empty {

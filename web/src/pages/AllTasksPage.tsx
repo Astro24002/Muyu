@@ -7,6 +7,7 @@ import { TaskFilters, EMPTY_TASK_FILTERS, type TaskFilterValues } from '../compo
 import { TaskList } from '../components/tasks/TaskList';
 import { SectionHeading } from '../components/ui/SectionHeading';
 import { filterMyTasks } from '../tasks/task-view-model';
+import { normalizedTaskStatus } from '../tasks/task-status';
 import type { WorkspaceSyncController } from '../sync/workspace-sync';
 
 export interface AllTasksPageProps {
@@ -24,7 +25,8 @@ export function AllTasksPage({ sync, onOpenTask, onCreateTask }: AllTasksPagePro
   const busy = state.loading || state.stale || state.authRequired;
   const completeTask = useCallback((task: TaskItem): void => {
     if (busy) return;
-    void sync.transitionTask(task.id, 'DONE');
+    const targetStatus = normalizedTaskStatus(task.status) === 'TODO' ? 'IN_PROGRESS' : 'REVIEW';
+    void sync.transitionTask(task.id, targetStatus);
   }, [busy, sync]);
 
   return (

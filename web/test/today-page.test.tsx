@@ -62,19 +62,21 @@ describe('TodayPage', () => {
     const focus = makeTask({ id: 'focus', title: '继续整理周末晚餐', status: 'IN_PROGRESS', progress: 40, updated_at: '2026-08-31T10:00:00Z' });
     const next = makeTask({ id: 'next', title: '买橄榄油', due_at: '2026-09-02T12:00:00Z' });
     const blocked = makeTask({ id: 'blocked', title: '等伙伴确认菜单', status: 'BLOCKED', blocked_reason: '等待伙伴确认' });
-    const { sync } = createFakeSync([focus, next, blocked], [makeApproval()]);
+    const review = makeTask({ id: 'review', title: '确认菜单结果', status: 'REVIEW', current_handler_id: 'partner', reviewer_user_id: 'viewer' });
+    const { sync } = createFakeSync([focus, next, blocked, review], [makeApproval()]);
     const onOpenTask = vi.fn();
 
     render(<TodayPage sync={sync} onOpenTask={onOpenTask} onCreateTask={vi.fn()} />);
 
     expect(Array.from(document.querySelectorAll('[data-today-section]')).map((node) => node.getAttribute('data-today-section')))
-      .toEqual(['intro', 'sync', 'focus', 'next', 'blocked', 'approval', 'composer']);
+      .toEqual(['intro', 'sync', 'current', 'blocked', 'review', 'approval', 'composer']);
     expect(screen.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeInTheDocument();
     expect(screen.getByTestId('today-date')).toHaveTextContent('2026');
     expect(screen.getByText('刚刚同步')).toBeInTheDocument();
     expect(screen.getByText(focus.title)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '接下来' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '阻塞中' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '当前任务 2' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '当前阻塞 1' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '待我验收 1' })).toBeInTheDocument();
     expect(screen.getByText('有 1 个变更等你确认')).toBeInTheDocument();
     expect(screen.getByText('不用清空列表，完成真正重要的一步就好')).toBeInTheDocument();
     expect(document.querySelector('[data-kpi-card]')).toBeNull();
@@ -88,22 +90,22 @@ describe('TodayPage', () => {
 
     render(<TodayPage sync={sync} onOpenTask={vi.fn()} onCreateTask={vi.fn()} />);
 
-    expect(document.querySelector('[data-today-section="focus"]')).toBeNull();
+    expect(document.querySelector('[data-today-section="current"]')).not.toBeNull();
     expect(screen.getByText('今天没有需要处理的任务')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '记下一件事' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '阻塞中' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /当前阻塞/ })).toBeNull();
   });
 
-  it('completes a next task through the sync controller without opening it', () => {
+  it('starts a todo task through the sync controller without opening it', () => {
     const task = makeTask({ id: 'next-task', title: '完成下一步' });
     const { sync } = createFakeSync([task]);
     const onOpenTask = vi.fn();
 
     render(<TodayPage sync={sync} onOpenTask={onOpenTask} onCreateTask={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    fireEvent.click(screen.getByRole('button', { name: '开始' }));
 
-    expect(sync.transitionTask).toHaveBeenCalledWith(task.id, 'DONE');
+    expect(sync.transitionTask).toHaveBeenCalledWith(task.id, 'IN_PROGRESS');
     expect(onOpenTask).not.toHaveBeenCalled();
   });
 });

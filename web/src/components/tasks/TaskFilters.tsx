@@ -2,7 +2,7 @@ import type { JSX } from 'react';
 import type { TaskQuadrant, TaskStatus } from '../../api/types';
 import { TASK_QUADRANTS } from '../../tasks/task-model';
 import { TASK_STATUSES } from '../../tasks/task-view-model';
-import { taskStatusText } from './TaskStatusLabel';
+import { statusLabel } from '../../tasks/task-status';
 
 export interface TaskFilterValues {
   status: TaskStatus | '';
@@ -36,7 +36,7 @@ export function TaskFilters({ value, onChange, disabled = false }: TaskFiltersPr
           onChange={(event) => onChange({ ...value, status: event.target.value as TaskFilterValues['status'] })}
         >
           <option value="">全部状态</option>
-          {TASK_STATUSES.map((status) => <option key={status} value={status}>{taskStatusText(status)}</option>)}
+          {TASK_STATUSES.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
         </select>
       </label>
 

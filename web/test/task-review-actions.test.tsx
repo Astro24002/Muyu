@@ -64,6 +64,9 @@ describe('TaskEditForm review actions', () => {
     const optionValues = screen.getAllByRole('option').map((option) => option.getAttribute('value'));
     expect(optionValues).toContain('REVIEW');
     expect(optionValues).not.toContain('DONE');
+
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'REVIEW' } });
+    expect(screen.getByRole('button', { name: '提交验收' })).toBeTruthy();
   });
 
   it('does not offer acceptance or return to the current handler', () => {
@@ -75,17 +78,27 @@ describe('TaskEditForm review actions', () => {
     expect(optionValues).toContain('CANCELLED');
   });
 
+  it('labels reviewer actions as accept and return', () => {
+    render(<TaskEditForm task={reviewTask} members={members} actions={actions(undefined, 'reviewer')} />);
+
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'DONE' } });
+    expect(screen.getByRole('button', { name: '通过验收' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'IN_PROGRESS' } });
+    expect(screen.getByRole('button', { name: '退回修改' })).toBeTruthy();
+  });
+
   it('requires a reviewer return reason and sends it with the transition', async () => {
     const onTransition = vi.fn().mockResolvedValue({ ...reviewTask, status: 'IN_PROGRESS', cursor: 4 });
     render(<TaskEditForm task={reviewTask} members={members} actions={actions(onTransition, 'reviewer')} />);
 
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'IN_PROGRESS' } });
-    fireEvent.click(screen.getByRole('button', { name: '更新状态' }));
+    fireEvent.click(screen.getByRole('button', { name: '退回修改' }));
     expect(onTransition).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toContain('退回待验收任务需要填写退回原因');
 
     fireEvent.change(screen.getByLabelText('退回原因'), { target: { value: '请补充验收材料' } });
-    fireEvent.click(screen.getByRole('button', { name: '更新状态' }));
+    fireEvent.click(screen.getByRole('button', { name: '退回修改' }));
 
     await waitFor(() => {
       expect(onTransition).toHaveBeenCalledWith('IN_PROGRESS', { reviewRejectionReason: '请补充验收材料' });

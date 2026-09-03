@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskItem, TaskStatus } from '../src/api/types';
-import { taskStatusText } from '../src/components/tasks/TaskStatusLabel';
+import { statusLabel } from '../src/tasks/task-status';
 import { parseTaskItem } from '../src/tasks/task-model';
 import { TASK_STATUSES } from '../src/tasks/task-view-model';
 
-const statusLabel = (status: string): string => taskStatusText(status as TaskStatus);
+const displayStatusLabel = (status: string): string => statusLabel(status as TaskStatus);
 
 const task = (status: string): Record<string, unknown> => ({
   id: 'task-contract',
@@ -49,12 +49,12 @@ describe('six-state task status contract', () => {
   });
 
   it('maps every internal status to the approved Chinese label', () => {
-    expect(statusLabel('TODO')).toBe('待进行');
-    expect(statusLabel('IN_PROGRESS')).toBe('进行中');
-    expect(statusLabel('BLOCKED')).toBe('阻塞中');
-    expect(statusLabel('REVIEW')).toBe('待验收');
-    expect(statusLabel('DONE')).toBe('已完成');
-    expect(statusLabel('CANCELLED')).toBe('已取消');
+    expect(displayStatusLabel('TODO')).toBe('待进行');
+    expect(displayStatusLabel('IN_PROGRESS')).toBe('进行中');
+    expect(displayStatusLabel('BLOCKED')).toBe('阻塞中');
+    expect(displayStatusLabel('REVIEW')).toBe('待验收');
+    expect(displayStatusLabel('DONE')).toBe('已完成');
+    expect(displayStatusLabel('CANCELLED')).toBe('已取消');
   });
 
   it.each([

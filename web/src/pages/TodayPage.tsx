@@ -2,13 +2,13 @@ import { useCallback, type JSX } from 'react';
 import type { TaskItem } from '../api/types';
 import { useWorkspaceState } from '../app/use-external-state';
 import { InlineApprovalNotice } from '../components/approvals/InlineApprovalNotice';
-import { FocusTask } from '../components/tasks/FocusTask';
 import { TaskComposer, type CreateTaskHandler } from '../components/tasks/TaskComposer';
 import { TaskList } from '../components/tasks/TaskList';
 import { SectionHeading } from '../components/ui/SectionHeading';
 import { SyncStatus } from '../components/status/SyncStatus';
 import { navigate } from '../app/routes';
 import { deriveTodayModel } from '../tasks/task-view-model';
+import { normalizedTaskStatus } from '../tasks/task-status';
 import type { WorkspaceSyncController } from '../sync/workspace-sync';
 
 export interface TodayPageProps {
@@ -26,12 +26,9 @@ export function TodayPage({ sync, onOpenTask, onCreateTask }: TodayPageProps): J
   const busy = state.loading || state.stale || state.authRequired;
   const completeTask = useCallback((task: TaskItem): void => {
     if (busy) return;
-    void sync.transitionTask(task.id, 'DONE');
+    const targetStatus = normalizedTaskStatus(task.status) === 'TODO' ? 'IN_PROGRESS' : 'REVIEW';
+    void sync.transitionTask(task.id, targetStatus);
   }, [busy, sync]);
-  const continueTask = useCallback((task: TaskItem): void => {
-    if (busy) return;
-    onOpenTask(task);
-  }, [busy, onOpenTask]);
 
   return (
     <main className="today-page" data-today-page>
@@ -45,25 +42,26 @@ export function TodayPage({ sync, onOpenTask, onCreateTask }: TodayPageProps): J
         <SyncStatus loading={state.loading} stale={state.stale} error={state.error} />
       </div>
 
-      {model.focus ? (
-        <section className="today-page__section today-page__focus" data-today-section="focus">
-          <FocusTask task={model.focus} onContinue={continueTask} busy={busy} />
-        </section>
-      ) : null}
-
-      <section className="today-page__section" data-today-section="next">
-        <SectionHeading>接下来</SectionHeading>
-        {tasks.length === 0 ? (
+      <section className="today-page__section" data-today-section="current">
+        <SectionHeading>当前任务{model.current.length > 0 ? ` ${model.current.length}${model.currentHasMore ? '+' : ''}` : ''}</SectionHeading>
+        {model.current.length === 0 ? (
           <p className="today-page__empty" role="status">今天没有需要处理的任务</p>
         ) : (
-          <TaskList tasks={model.next} emptyMessage="接下来没有需要处理的任务" onOpen={onOpenTask} onComplete={completeTask} busy={busy} />
+          <TaskList tasks={model.current} emptyMessage="当前没有需要处理的任务" onOpen={onOpenTask} onComplete={completeTask} busy={busy} />
         )}
       </section>
 
       {model.blocked.length > 0 ? (
         <section className="today-page__section" data-today-section="blocked">
-          <SectionHeading>阻塞中</SectionHeading>
+          <SectionHeading>当前阻塞 {model.blocked.length}{model.blockedHasMore ? '+' : ''}</SectionHeading>
           <TaskList tasks={model.blocked} emptyMessage="暂时没有阻塞中的任务" onOpen={onOpenTask} onComplete={completeTask} busy={busy} />
+        </section>
+      ) : null}
+
+      {model.review.length > 0 ? (
+        <section className="today-page__section" data-today-section="review">
+          <SectionHeading>待我验收 {model.review.length}{model.reviewHasMore ? '+' : ''}</SectionHeading>
+          <TaskList tasks={model.review} emptyMessage="暂时没有待验收的任务" onOpen={onOpenTask} onComplete={completeTask} busy={busy} />
         </section>
       ) : null}
 

@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import type { TaskItem } from '../../api/types';
-import { normalizeTaskStatus } from '../../tasks/task-model';
+import { normalizedTaskStatus } from '../../tasks/task-status';
 
 export interface TaskMetaProps {
   task: TaskItem;
@@ -13,7 +13,7 @@ const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 export function TaskMeta({ task, now = new Date(), className }: TaskMetaProps): JSX.Element {
   const dueState = getDueState(task, now);
   const labels = task.labels.length > 0 ? `标签：${task.labels.join('、')}` : null;
-  const progress = task.status === 'IN_PROGRESS' && task.progress !== null && task.progress !== undefined
+  const progress = normalizedTaskStatus(task.status) === 'IN_PROGRESS' && task.progress !== null && task.progress !== undefined
     ? `进度 ${task.progress}%`
     : null;
 
@@ -27,7 +27,7 @@ export function TaskMeta({ task, now = new Date(), className }: TaskMetaProps): 
         {task.due_at ? `截止 ${formatTaskDate(task.due_at)}` : '未设置截止时间'}
       </time>
       {dueState ? <span className={`task-meta__due task-meta__due--${dueState}`}>{dueState === 'overdue' ? '已过期' : '临期'}</span> : null}
-      {normalizeTaskStatus(task.status) === 'BLOCKED' ? <span>阻塞：{task.blocked_reason ?? '未说明'}</span> : null}
+      {normalizedTaskStatus(task.status) === 'BLOCKED' ? <span>阻塞：{task.blocked_reason ?? '未说明'}</span> : null}
     </div>
   );
 }
@@ -39,7 +39,8 @@ export function formatTaskDate(value: string): string {
 }
 
 function getDueState(task: TaskItem, now: Date): 'overdue' | 'soon' | null {
-  if (!task.due_at || task.status === 'DONE' || task.status === 'CANCELLED') return null;
+  const status = normalizedTaskStatus(task.status);
+  if (!task.due_at || status === 'DONE' || status === 'CANCELLED') return null;
   const due = Date.parse(task.due_at);
   const current = now.getTime();
   if (!Number.isFinite(due) || !Number.isFinite(current)) return null;

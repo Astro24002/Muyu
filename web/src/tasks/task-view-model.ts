@@ -4,7 +4,11 @@ import { isCanonicalTaskStatus, normalizeTaskStatus } from './task-model';
 export const TASK_STATUSES: CanonicalTaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE', 'CANCELLED'];
 
 export interface TodayModel {
+  /** Server-ordered TODO/IN_PROGRESS work that belongs to the viewer. */
+  current: TaskItem[];
+  /** @deprecated Kept as a compatibility alias for older page consumers. */
   focus: TaskItem | null;
+  /** @deprecated Kept as a compatibility alias for older page consumers. */
   next: TaskItem[];
   blocked: TaskItem[];
   review: TaskItem[];
@@ -68,6 +72,7 @@ export function deriveTodayModel(
   const pendingApprovals = approvals.filter((approval) => approval.status === 'PENDING' && approval.approver_id === viewerId);
 
   return {
+    current,
     focus,
     next,
     blocked,
@@ -86,6 +91,7 @@ function deriveAuthoritativeTodayModel(home: HomeResponse): TodayModel {
   const focusId = focus?.id;
 
   return {
+    current,
     focus,
     next: current.filter((task) => task.id !== focusId),
     blocked: home.blocked_tasks.items,
@@ -113,7 +119,7 @@ function isCurrentStatus(status: TaskStatus): boolean {
 }
 
 function isBlockedStatus(status: unknown): boolean {
-  return status === 'BLOCKED' || status === 'WAITING';
+  return normalizeTaskStatus(status) === 'BLOCKED';
 }
 
 function compareUpdatedTasks(left: TaskItem, right: TaskItem): number {

@@ -1,9 +1,10 @@
-import { Check } from 'lucide-react';
+import { Play, Send } from 'lucide-react';
 import { useId, type JSX, type KeyboardEvent } from 'react';
 import type { TaskItem } from '../../api/types';
 import { Button } from '../ui/Button';
 import { TaskMeta } from './TaskMeta';
 import { TaskStatusLabel, taskStatusText } from './TaskStatusLabel';
+import { normalizedTaskStatus } from '../../tasks/task-status';
 
 export interface TaskRowProps {
   task: TaskItem;
@@ -15,7 +16,7 @@ export interface TaskRowProps {
 export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.Element {
   const titleId = useId();
   const metaId = useId();
-  const completeDisabled = busy || task.status === 'DONE' || task.status === 'CANCELLED';
+  const action = primaryAction(task.status);
 
   const openFromKeyboard = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.target !== event.currentTarget) return;
@@ -30,20 +31,22 @@ export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.E
       className="task-row"
       data-task-row={task.id}
     >
-      <Button
-        className="task-row__complete"
-        tone="quiet"
-        disabled={completeDisabled}
-        aria-label="完成"
-        title={`完成：${task.title}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onComplete(task);
-        }}
-      >
-        <Check aria-hidden="true" size={16} strokeWidth={2} />
-        <span>完成</span>
-      </Button>
+      {action ? (
+        <Button
+          className="task-row__complete"
+          tone="quiet"
+          disabled={busy}
+          aria-label={action.label}
+          title={`${action.label}：${task.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onComplete(task);
+          }}
+        >
+          <action.Icon aria-hidden="true" size={16} strokeWidth={2} />
+          <span>{action.label}</span>
+        </Button>
+      ) : null}
 
       <div
         className="task-row__open task-row__body"
@@ -65,4 +68,15 @@ export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.E
       </div>
     </article>
   );
+}
+
+function primaryAction(status: TaskItem['status']): { label: string; Icon: typeof Play } | null {
+  switch (normalizedTaskStatus(status)) {
+    case 'TODO':
+      return { label: '开始', Icon: Play };
+    case 'IN_PROGRESS':
+      return { label: '提交验收', Icon: Send };
+    default:
+      return null;
+  }
 }

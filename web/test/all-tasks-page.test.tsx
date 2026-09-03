@@ -73,15 +73,15 @@ describe('AllTasksPage', () => {
     expect(tasks.map((task) => task.id)).toEqual(originalOrder);
   });
 
-  it('uses the shared task row and routes completion through sync', () => {
-    const task = makeTask({ id: 'complete-me', title: '可以完成的任务' });
+  it('uses the shared task row and routes the start action through sync', () => {
+    const task = makeTask({ id: 'start-me', title: '可以开始的任务' });
     const { sync } = createFakeSync([task]);
 
     render(<AllTasksPage sync={sync} onOpenTask={vi.fn()} onCreateTask={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: task.title })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '完成' }));
-    expect(sync.transitionTask).toHaveBeenCalledWith(task.id, 'DONE');
+    fireEvent.click(screen.getByRole('button', { name: '开始' }));
+    expect(sync.transitionTask).toHaveBeenCalledWith(task.id, 'IN_PROGRESS');
   });
 
   it('disables every filter control while sync is unavailable', () => {

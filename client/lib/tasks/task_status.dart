@@ -36,6 +36,7 @@ const taskStatusTransitions = <String, List<String>>{
 };
 
 String normalizeTaskStatus(String status) => switch (status) {
+  // Legacy values are accepted only when reading old snapshots or caches.
   'WAITING' => 'BLOCKED',
   'COMPLETED' => 'DONE',
   _ => status,

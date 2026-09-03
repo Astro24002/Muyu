@@ -86,7 +86,7 @@ describe('deriveTodayModel', () => {
     const tasks = [
       makeTask({ id: 'no-due', current_handler_id: 'viewer', due_at: null }),
       makeTask({ id: 'due-later', current_handler_id: 'viewer', due_at: '2026-09-05T09:00:00Z' }),
-      makeTask({ id: 'waiting', current_handler_id: 'viewer', status: 'WAITING', due_at: '2026-08-20T09:00:00Z' }),
+      makeTask({ id: 'blocked', current_handler_id: 'viewer', status: 'BLOCKED', due_at: '2026-08-20T09:00:00Z' }),
       makeTask({ id: 'due-soon', current_handler_id: 'viewer', due_at: '2026-09-01T09:00:00Z' }),
       makeTask({ id: 'done', current_handler_id: 'viewer', status: 'DONE', due_at: '2026-08-01T09:00:00Z' }),
       makeTask({ id: 'cancelled', current_handler_id: 'viewer', status: 'CANCELLED', due_at: '2026-08-02T09:00:00Z' }),
@@ -103,17 +103,17 @@ describe('deriveTodayModel', () => {
       'extra-1',
       'extra-2',
     ]);
-    expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'waiting' }));
+    expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'blocked' }));
     expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'done' }));
     expect(model.next).not.toContainEqual(expect.objectContaining({ id: 'cancelled' }));
   });
 
   it('returns only viewer blocked and review tasks with incoming pending approvals in the fallback', () => {
-    const waiting = makeTask({ id: 'waiting', status: 'WAITING', current_handler_id: 'viewer' });
+    const blocked = makeTask({ id: 'blocked', status: 'BLOCKED', current_handler_id: 'viewer' });
     const partnerBlocked = makeTask({ id: 'partner-blocked', status: 'BLOCKED', current_handler_id: 'partner' });
     const reviewForViewer = makeTask({ id: 'review-for-viewer', status: 'REVIEW', current_handler_id: 'partner', reviewer_user_id: 'viewer' });
     const reviewForPartner = makeTask({ id: 'review-for-partner', status: 'REVIEW', current_handler_id: 'viewer', reviewer_user_id: 'partner' });
-    const tasks = [waiting, makeTask({ id: 'todo' })];
+    const tasks = [blocked, makeTask({ id: 'todo' })];
     const approvals = [
       makeApproval({ id: 'incoming-pending' }),
       makeApproval({ id: 'outgoing-pending', requester_id: 'viewer', approver_id: 'partner' }),
@@ -123,7 +123,7 @@ describe('deriveTodayModel', () => {
 
     const model = deriveTodayModel([...tasks, partnerBlocked, reviewForViewer, reviewForPartner], approvals, 'viewer', now);
 
-    expect(model.blocked).toEqual([waiting]);
+    expect(model.blocked).toEqual([blocked]);
     expect(model.review).toEqual([reviewForViewer]);
     expect(model.pendingApprovals.map((approval) => approval.id)).toEqual(['incoming-pending']);
     expect(model.pendingApprovalCount).toBe(1);

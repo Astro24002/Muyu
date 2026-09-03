@@ -42,7 +42,7 @@ describe('AllTasksPage', () => {
     const tasks = [
       makeTask({ id: 'todo-work', title: '写工作计划', status: 'TODO', quadrant: 'Q1', labels: ['工作'], current_handler_id: 'viewer' }),
       makeTask({ id: 'progress-life', title: '准备晚餐', status: 'IN_PROGRESS', quadrant: 'Q2', labels: ['生活'], current_handler_id: 'partner' }),
-      makeTask({ id: 'waiting-reading', title: '等待书单确认', status: 'WAITING', quadrant: 'Q3', labels: ['阅读'], current_handler_id: 'viewer' }),
+      makeTask({ id: 'blocked-reading', title: '等待书单确认', status: 'BLOCKED', quadrant: 'Q3', labels: ['阅读'], current_handler_id: 'viewer' }),
     ];
     const originalOrder = tasks.map((task) => task.id);
     const { sync } = createFakeSync(tasks);

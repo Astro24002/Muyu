@@ -87,12 +87,12 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
         headers=headers,
         json={
             "request_id": str(uuid4()),
-            "target_status": "DONE",
+            "target_status": "IN_PROGRESS",
             "base_status_version": parent_body["status_version"],
         },
     )
     assert transition.status_code == 200, transition.text
-    assert transition.json()["status"] == "DONE"
+    assert transition.json()["status"] == "IN_PROGRESS"
     assert transition.json()["status_version"] == parent_body["status_version"] + 1
 
     stale = client.post(

@@ -24,6 +24,15 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-09-03 - 六状态任务契约施工与全量验收
+
+- 类型：工程实施 / 跨端契约审计 / 全量验收。
+- 变更：完成六状态任务模型从数据库、FastAPI 状态机、审批、cursor 同步、Web 行动首页到 Android 清单/详情的贯通；统一 `TODO`、`IN_PROGRESS`、`BLOCKED`、`REVIEW`、`DONE`、`CANCELLED` 内部标识和六种中文展示。`REVIEW` 由另一位 ACTIVE 成员验收，退回必须填写原因；`BLOCKED` 必须保留阻塞原因和恢复负责人；首页只显示当前用户可行动的当前任务、阻塞任务和待我验收任务。
+- 审计：清理活动测试与云协议中的旧 `WAITING`/直接完成流程，迁移回滚和读边界测试仍保留旧值以验证兼容映射；`current_handler_id` 仍是唯一负责人，没有恢复参与人模型。
+- 验证：后端 PostgreSQL 全量 `224 passed, 3 skipped`；Web Vitest `257 passed`、TypeScript typecheck 和 Vite build 通过；Flutter 全量 `160 tests`、`flutter analyze` 和 Dart format 通过；受影响的 Android/Web 状态回归均通过。
+- 流程优化：后续施工按“单一行为 -> 先写失败测试 -> 最小实现 -> 受影响模块回归 -> 独立提交 -> 全量门禁”的节奏执行；只有接口契约已经稳定的独立模块才并行处理，环境问题单独隔离，不与业务修改混在同一轮。
+- 下一步：保留真实 Android 设备、线上服务和正式 APK 发布作为独立验收批次；本轮不创建 Release，不把未执行的真机验收标记为完成。
+
 ### 2026-09-02 - Android 视觉系统令牌化施工完成
 
 - 类型：工程实施 / 全量客户端验证。
@@ -38,7 +47,7 @@
 - 类型：设计收口 / 待施工。
 - 变更：确认 Web 端采用六种用户可见状态：待进行、进行中、阻塞中、待验收、已完成、已取消；内部状态标识继续使用英文枚举，页面、筛选、详情、首页、通知和无障碍名称统一只显示中文。首页按“当前任务（最多 5）/当前阻塞（最多 3）/待我验收（最多 3）”组织，已完成和已取消只在全部任务与历史中查看。
 - 协作规则：`BLOCKED` 仅显示当前用户负责且暂时无法推进的任务；`REVIEW` 默认由另一位成员验收，通过进入 `DONE`，退回必须填写原因并回到 `IN_PROGRESS`。阻塞原因、阻塞时长、等待对象和验收结果均保留活动历史。
-- 兼容边界：当前代码仍使用旧内部 `WAITING`，后续状态迁移统一为 `BLOCKED` 并新增 `REVIEW`；迁移完成前不把旧英文标识直接暴露给 Web 用户。
+- 兼容边界（历史设计记录，当时待施工）：当时计划将旧内部 `WAITING` 迁移为 `BLOCKED` 并新增 `REVIEW`；当前实现已由 2026-09-03 条目收口。
 - 权威文档：[Web 行动工作台任务状态与首页模块设计](./superpowers/specs/2026-09-02-web-action-workbench-task-status-design.md)。本条仅记录设计，不代表已开始工程施工。
 
 ### 2026-09-02 - Android 与后端任务状态契约同步设计
@@ -46,7 +55,7 @@
 - 类型：设计同步 / 待施工。
 - 变更：确认 Android 与 Web 使用同一套六状态中文展示：待进行、进行中、阻塞中、待验收、已完成、已取消；后端、数据库、API、同步和测试继续使用 `TODO`、`IN_PROGRESS`、`BLOCKED`、`REVIEW`、`DONE`、`CANCELLED` 内部标识。补充 Review 验收元数据、状态转换、阻塞字段清理规则和活动事件要求。
 - 后端设计：`IN_PROGRESS -> REVIEW` 时由服务端指定另一位 ACTIVE 成员为 `reviewer_user_id`；验收通过进入 `DONE`，退回必须带原因并回到 `IN_PROGRESS`。`BLOCKED` 使用 `blocked_reason`、`blocked_since`、`resume_handler_id` 和可选 `waiting_for_user_id`，解除后清除阻塞信息。
-- 兼容边界：现有实现仍使用旧内部 `WAITING` 且尚未实现 `REVIEW`，后续迁移统一处理数据库枚举、状态机、快照、增量、审批和两端文案；本条不代表代码已施工。
+- 兼容边界（历史设计记录，当时待施工）：当时尚未完成数据库枚举、状态机、快照、增量、审批和两端文案迁移；当前实现已由 2026-09-03 条目收口。
 - 权威文档：[后端技术设计](./02-technical-design.md) 与 [Web 行动工作台任务状态与首页模块设计](./superpowers/specs/2026-09-02-web-action-workbench-task-status-design.md)。
 
 ### 2026-09-02 - 我的页、可信设备与 bootstrap 匹配契约

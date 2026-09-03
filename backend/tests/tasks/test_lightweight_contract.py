@@ -36,15 +36,15 @@ def test_create_one_level_subtask_uses_only_current_handler(db_engine):
         assert error.value.code == "nested_task_not_allowed"
 
 
-def test_transition_waiting_done_and_stale_status_creates_conflict(db_engine):
+def test_transition_blocked_unblock_and_stale_status_creates_conflict(db_engine):
     with Session(db_engine) as session:
         user, _, workspace = _workspace_with_two_users(session)
         task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动", quadrant="Q1")
         TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "IN_PROGRESS", 1)
-        waiting = TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "WAITING", 2, blocked_reason="等待确认", resume_handler_id=user.id)
-        assert waiting.status.value == "WAITING"
-        done = TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "DONE", 3)
-        assert TaskService(session).snapshot(done)["status"] == "DONE"
+        blocked = TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "BLOCKED", 2, blocked_reason="等待确认", resume_handler_id=user.id)
+        assert blocked.status.value == "BLOCKED"
+        resumed = TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "IN_PROGRESS", 3)
+        assert TaskService(session).snapshot(resumed)["status"] == "IN_PROGRESS"
         with pytest.raises(TaskConflictError) as error:
             TaskService(session).transition(workspace.id, user.id, task.id, uuid4(), "TODO", 3)
         assert error.value.code == "field_conflict"
@@ -68,7 +68,7 @@ def test_transition_replay_keeps_cursor_and_accepts_active_member_as_resume_hand
             user_a.id,
             task.id,
             uuid4(),
-            "WAITING",
+            "BLOCKED",
             2,
             blocked_reason="等待另一人",
             resume_handler_id=user_b.id,
@@ -118,7 +118,7 @@ def test_handler_transfer_replay_returns_stored_result_after_target_member_is_re
         assert replay_service.last_cursor == first_cursor
 
 
-def test_waiting_requires_reason_and_restore_respects_lifecycle_version(db_engine):
+def test_blocked_requires_reason_and_restore_respects_lifecycle_version(db_engine):
     with Session(db_engine) as session:
         user, _, workspace = _workspace_with_two_users(session)
         task = TaskService(session).create(workspace.id, user.id, uuid4(), "行动", quadrant="Q1")
@@ -128,7 +128,7 @@ def test_waiting_requires_reason_and_restore_respects_lifecycle_version(db_engin
                 user.id,
                 task.id,
                 uuid4(),
-                "WAITING",
+                "BLOCKED",
                 1,
                 resume_handler_id=user.id,
             )

@@ -1133,6 +1133,8 @@ function isChangeAction(value: unknown): value is 'CREATED' | 'UPDATED' | 'DELET
 }
 
 function isTaskStatus(value: unknown): value is TaskItem['status'] {
+  // Accept retired values only at the wire/read boundary; parseTaskItem
+  // normalizes them before they reach the rest of the application.
   return isCanonicalTaskStatus(value) || value === 'WAITING' || value === 'COMPLETED';
 }
 

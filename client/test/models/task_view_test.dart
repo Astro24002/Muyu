@@ -183,7 +183,7 @@ void main() {
       final groups = TaskView.listGroups([
         makeTask('past', 'TODO', DateTime(2026, 8, 30, 9)),
         makeTask('today', 'IN_PROGRESS', DateTime(2026, 8, 31, 18)),
-        makeTask('future', 'WAITING', DateTime(2026, 9, 1, 9)),
+        makeTask('future', 'BLOCKED', DateTime(2026, 9, 1, 9)),
         makeTask('none', 'TODO', null),
         makeTask('done', 'DONE', DateTime(2026, 8, 29)),
         makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),

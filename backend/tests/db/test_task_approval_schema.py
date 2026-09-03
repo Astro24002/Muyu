@@ -73,8 +73,8 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
 
     from app.db.enums import PUBLIC_TASK_STATUS, TaskStatus
 
-    assert TaskStatus.COMPLETED.value == "COMPLETED"
-    assert PUBLIC_TASK_STATUS[TaskStatus.COMPLETED] == "DONE"
+    assert TaskStatus.DONE.value == "DONE"
+    assert PUBLIC_TASK_STATUS[TaskStatus.DONE] == "DONE"
 
     with Session(db_engine) as session:
         rows = session.execute(
@@ -99,7 +99,7 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
             "HANDLER_TRANSFER",
         ],
         "task_quadrant": ["Q1", "Q2", "Q3", "Q4"],
-        "task_status": ["TODO", "IN_PROGRESS", "WAITING", "COMPLETED", "CANCELLED"],
+        "task_status": ["TODO", "IN_PROGRESS", "BLOCKED", "REVIEW", "DONE", "CANCELLED"],
     }
 
 

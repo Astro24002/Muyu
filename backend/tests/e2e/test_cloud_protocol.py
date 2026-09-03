@@ -340,22 +340,20 @@ def test_two_user_task_workflow_postgresql(db_engine) -> None:
         json={"request_id": str(uuid4()), "target_status": "IN_PROGRESS", "base_status_version": resolved.json()["status_version"]},
     )
     assert started.status_code == 200, started.text
-    waiting = client.post(
-        f"/api/v1/tasks/{task_id}/transition",
-        headers=headers_b,
-        json={
-            "request_id": str(uuid4()),
-            "target_status": "WAITING",
-            "base_status_version": started.json()["status_version"],
-            "blocked_reason": "waiting for review",
-            "resume_handler_id": str(user_b_id),
-        },
-    )
-    assert waiting.status_code == 200, waiting.text
-    done = client.post(
+    review = client.post(
         f"/api/v1/tasks/{task_id}/transition",
         headers=headers_a,
-        json={"request_id": str(uuid4()), "target_status": "DONE", "base_status_version": waiting.json()["status_version"]},
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started.json()["status_version"],
+        },
+    )
+    assert review.status_code == 200, review.text
+    done = client.post(
+        f"/api/v1/tasks/{task_id}/transition",
+        headers=headers_b,
+        json={"request_id": str(uuid4()), "target_status": "DONE", "base_status_version": review.json()["status_version"]},
     )
     assert done.status_code == 200, done.text
     assert done.json()["status"] == "DONE"

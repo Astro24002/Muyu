@@ -41,6 +41,8 @@ TRANSITIONS = {
     "DONE": {"TODO", "IN_PROGRESS", "CANCELLED"},
     "CANCELLED": {"TODO", "IN_PROGRESS"},
 }
+# Read-only compatibility for pre-six-state snapshot objects. The canonical
+# enum and every write path use only the six current status values.
 LEGACY_SNAPSHOT_STATUS_MAP = {"WAITING": "BLOCKED", "COMPLETED": "DONE"}
 REVIEW_DECISION_STATUSES = {"DONE", "IN_PROGRESS"}
 

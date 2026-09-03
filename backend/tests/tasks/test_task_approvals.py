@@ -227,7 +227,7 @@ def test_create_schema_rejects_removed_assignee_approval_type() -> None:
 
 
 @pytest.mark.parametrize("invalid_field", ["blocked_reason", "resume_handler_id", "waiting_for_user_id"])
-def test_invalid_waiting_approval_is_rejected_before_task_or_request_mutation(
+def test_invalid_blocked_approval_is_rejected_before_task_or_request_mutation(
     db_engine, invalid_field: str
 ) -> None:
     with Session(db_engine) as session:
@@ -236,7 +236,7 @@ def test_invalid_waiting_approval_is_rejected_before_task_or_request_mutation(
         before = TaskService(session).snapshot(task)
         request_id = uuid4()
         changes: dict[str, object] = {
-            "target_status": "WAITING",
+            "target_status": "BLOCKED",
             "blocked_reason": "等待确认",
             "resume_handler_id": str(partner.id),
         }
@@ -270,10 +270,12 @@ def test_invalid_waiting_approval_is_rejected_before_task_or_request_mutation(
         ) is None
 
 
-def test_invalid_persisted_waiting_approval_is_rejected_atomically(db_engine) -> None:
+def test_invalid_persisted_retired_status_approval_is_rejected_atomically(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session)
         task = _task(session, workspace, owner)
+        # Simulate a stale pre-migration approval; retired statuses are never
+        # accepted by the current approval executor.
         request = TaskApprovalRequest(
             workspace_id=workspace.id,
             task_id=task.id,

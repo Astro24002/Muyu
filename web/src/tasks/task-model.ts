@@ -42,6 +42,8 @@ export interface TaskConflict {
 }
 
 export const TASK_QUADRANTS: readonly TaskQuadrant[] = ['Q1', 'Q2', 'Q3', 'Q4'];
+// Read-only compatibility for snapshots produced before the six-state
+// migration. New requests must use canonical statuses.
 export const LEGACY_STATUS_MAP = { WAITING: 'BLOCKED', COMPLETED: 'DONE' } as const;
 export const TASK_STATUS_TRANSITIONS: Readonly<Record<CanonicalTaskStatus, readonly CanonicalTaskStatus[]>> = {
   TODO: ['IN_PROGRESS', 'BLOCKED', 'CANCELLED'],

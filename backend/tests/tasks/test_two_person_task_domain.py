@@ -110,13 +110,14 @@ def test_patch_validates_quadrant_progress_and_owner(db_engine) -> None:
 
 def test_progress_is_derived_for_todo_and_done_and_defaults_when_started(db_engine) -> None:
     with Session(db_engine) as session:
-        user, _, workspace = _workspace_with_two_users(session)
+        user, reviewer, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
         task = service.create(workspace.id, user.id, uuid4(), "Task", quadrant="Q1")
         assert service.snapshot(task)["progress"] == 0
         task = service.transition(workspace.id, user.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         assert task.progress == 20
-        task = service.transition(workspace.id, user.id, task.id, uuid4(), "DONE", task.status_version)
+        task = service.transition(workspace.id, user.id, task.id, uuid4(), "REVIEW", task.status_version)
+        task = service.transition(workspace.id, reviewer.id, task.id, uuid4(), "DONE", task.status_version)
         assert service.snapshot(task)["progress"] == 100
         assert task.progress == 20
 
@@ -137,7 +138,7 @@ def test_comment_author_can_soft_delete_comment_and_tombstone_is_retained(db_eng
             service.delete_comment(workspace.id, user.id, comment.id, uuid4(), comment.version)
 
 
-def test_waiting_recovery_uses_stored_handler_and_records_history_once(db_engine) -> None:
+def test_blocked_recovery_uses_stored_handler_and_records_history_once(db_engine) -> None:
     with Session(db_engine) as session:
         owner, resume_handler, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
@@ -147,7 +148,7 @@ def test_waiting_recovery_uses_stored_handler_and_records_history_once(db_engine
             owner.id,
             task.id,
             uuid4(),
-            "WAITING",
+            "BLOCKED",
             task.status_version,
             blocked_reason="等待确认",
             resume_handler_id=resume_handler.id,
@@ -193,7 +194,7 @@ def test_waiting_recovery_uses_stored_handler_and_records_history_once(db_engine
         ).all() == history
 
 
-def test_waiting_recovery_honors_explicit_handler_override(db_engine) -> None:
+def test_blocked_recovery_honors_explicit_handler_override(db_engine) -> None:
     with Session(db_engine) as session:
         owner, stored_resume_handler, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
@@ -203,7 +204,7 @@ def test_waiting_recovery_honors_explicit_handler_override(db_engine) -> None:
             owner.id,
             task.id,
             uuid4(),
-            "WAITING",
+            "BLOCKED",
             task.status_version,
             blocked_reason="等待确认",
             resume_handler_id=stored_resume_handler.id,

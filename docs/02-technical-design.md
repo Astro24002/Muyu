@@ -88,7 +88,7 @@ blocked_since        nullable
 resume_handler_id    nullable
 waiting_for_user_id  nullable
 planned_start_at     nullable
-due_at               nullable
+due_at               nullable (legacy rows only; new creates default to `created_at + 14 days`)
 estimated_minutes    nullable
 completed_at         nullable
 reviewer_user_id     nullable
@@ -212,6 +212,8 @@ OTHER
 ```
 
 日期事件使用 `event_date`，具体时刻事件使用 `event_at`。服务端保存绝对值，客户端按 `Asia/Shanghai` 展示倒计时。
+
+任务创建时如果请求未提供 `due_at`，服务端在幂等校验通过后以请求创建时刻加 14 天写入截止时间。迁移 `0008_default_task_due_at` 对历史空值执行同样的回填；已有明确截止时间不被覆盖。
 
 ### recurring_tasks
 

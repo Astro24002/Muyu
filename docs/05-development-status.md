@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除已完成代码与文档收口，后续只剩真实 Android 设备验收和线上数据库迁移。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除已完成代码与文档收口，线上 API/Web 已部署到 `0008_default_task_due_at`，后续只剩真实 Android 设备验收与线上运行巡检。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -24,6 +24,14 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-09-03 - 默认截止时间与清单日期分组交付
+
+- 类型：任务契约 / 数据迁移 / Android 交互 / 线上 API 更新。
+- 变更：创建任务省略 `due_at` 时由服务端按请求创建时刻加 14 天生成；幂等重试使用原始请求指纹，不会因默认时间重新计算而产生冲突。新增 Alembic `0008_default_task_due_at`，仅为历史 `due_at IS NULL` 任务回填 `created_at + 14 天`，已有明确日期保持不变。Android 清单移除“无时间”分组，遗留 null 日期任务归入“今天 / 即将到期”以保持可见。
+- 验证：后端 PostgreSQL 全量 `226 passed, 3 skipped`；迁移专项覆盖 null 回填和显式日期保留；Flutter 全量 `161 tests`、`flutter analyze` 和 Dart format 通过；线上数据库 revision 为 `0008_default_task_due_at`，任务总数 `6`、null 截止时间 `0`。
+- 线上 API：本地构建镜像 `muyu-cloud-api:local-1911beb`（digest `sha256:62c9403392f06a84506d2da36c0a5244e9b8c2610041f293bb2620ccc7ad8cf7`），已更新 `api` 与 `web-session-cleanup`；公网 `/health/live`、`/health/ready` 返回 `200`，未授权任务接口返回 `401 authentication_required`。
+- Android：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-1911beb.apk`，大小 `203310783` 字节，SHA-256 为 `d4b57b934bea518654e8bb534d7ca06cf7556fd767acdcd4e77d97723a82e928`；使用 `https://muyu.bkverse.space` 构建并通过 `unzip -tq` 和 origin 检查。本轮不创建版本 Release，正式包仍由 tag/release CI 生成。
+
 ### 2026-09-03 - 六状态任务契约施工与全量验收
 
 - 类型：工程实施 / 跨端契约审计 / 全量验收。
@@ -32,6 +40,35 @@
 - 验证：后端 PostgreSQL 全量 `224 passed, 3 skipped`；Web Vitest `257 passed`、TypeScript typecheck 和 Vite build 通过；Flutter 全量 `160 tests`、`flutter analyze` 和 Dart format 通过；受影响的 Android/Web 状态回归均通过。
 - 流程优化：后续施工按“单一行为 -> 先写失败测试 -> 最小实现 -> 受影响模块回归 -> 独立提交 -> 全量门禁”的节奏执行；只有接口契约已经稳定的独立模块才并行处理，环境问题单独隔离，不与业务修改混在同一轮。
 - 下一步：保留真实 Android 设备、线上服务和正式 APK 发布作为独立验收批次；本轮不创建 Release，不把未执行的真机验收标记为完成。
+
+### 2026-09-03 - 当前工作区 API/Web 部署与 Android 调试包
+
+- 类型：线上部署 / 数据库迁移 / 发布后验收。
+- 构建：在本地使用阿里云 PyPI 镜像构建当前工作区；API 与
+  `web-session-cleanup` 使用镜像 `sha256:fd4f1017b951bd3ced673135ff108ef0e1ace3ed706cb38439d53fec9b21b5af`，Web/Caddy 使用镜像
+  `sha256:dd40e57d46c3813d2a982d131aff96dc523465a0b886aba371aeef9ee9d7a265`。
+- 数据库：线上 `muyu` 从 `0006_trust_sms_devices` 升级到
+  `0007_six_state_task_status (head)`，未重置、删除或改写业务数据。
+- 外部 PG：`deploy/docker-compose.external-db.yml` 让连接 URI 不包含密码，密码通过
+  `PGPASSWORD` 注入，避免 `@` 密码字符导致主机解析错误；API 与 worker 均已按该配置重建。
+- Android：本地调试包为
+  `client/build/app/outputs/flutter-apk/Muyu-c0145b0.apk`，大小 `203301838` 字节，SHA-256 为
+  `1afc256d356fb2a21da5e71c3f89f6473b5587e097b33e4b0d5c84d9c5fbbf2f`；构建内容包含当前工作区变更，API 地址为 `https://muyu.bkverse.space`。
+- 验收：API 容器 `healthy`，worker 运行，公网 `/health/live` 与 `/health/ready` 返回 `200`，公网首页返回新 Web 资源 `index-DRwfyBMH.js` / `index-fssons5N.css`，未授权 `/api/v1/home` 返回预期 `401`。
+
+### 2026-09-03 - Android 新建任务图标化输入
+
+- 类型：Android 交互施工 / 任务创建回归。
+- 变更：新建任务弹层打开后自动聚焦标题输入；标题下方提供截止时间、分类标签、四象限三个图标入口。时间入口依次选择日期和时间，标签入口支持已有分类、多选和新建，四象限入口使用 Q1-Q4 选择器；四象限仍为创建必选项，创建请求继续使用 `title`、`due_at`、`labels`、`quadrant`，状态和负责人规则不变。
+- 验证：受影响 Flutter 测试 `22 passed`；Flutter 全量 `161 tests`、`flutter analyze` 无问题；APK 通过 `unzip -tq` 和线上 API 地址检查。
+- 产物：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-c0145b0.apk`，大小 `203312837` 字节，SHA-256 为 `bd2a82e86c58b1bd553791f653df6e71e32d5905f5c8f28e753deb31dabff8bc`；本轮不创建 Release。
+
+### 2026-09-03 - Android 新建任务象限色彩与中文截止时间
+
+- 类型：Android 视觉交互施工 / 新建任务回归。
+- 变更：为 Q1-Q4 增加深色独立主题色及浅色表面令牌（Q1 深珊瑚、Q2 琥珀橙 `#C47A20`、Q3 暗绿色、Q4 蓝灰）；新建任务选择象限后，仅通过右侧圆形感叹号按钮的背景颜色识别象限，不再显示象限文字 chip。截止时间统一显示为 `09月03日 周五 18:30`，不显示年份；选择后时间按钮动态扩展并在窄屏与标签、象限按钮保持同一行，三个工具均为圆形背景图标。
+- 验证：主题令牌、中文时间格式、象限图标颜色和 320px 窄屏布局均有 widget 测试覆盖；Flutter 全量 `161 tests`、`flutter analyze` 和 Dart format 通过。
+- 产物：重新构建本地调试包 `client/build/app/outputs/flutter-apk/Muyu-c0145b0.apk`，大小 `203311667` 字节，SHA-256 为 `ccabe48b9e81d58cfe712d12d1d408bf7874cc7fb20bdc4b74059fc679a37dc6`；本轮不创建 Release。
 
 ### 2026-09-02 - Android 视觉系统令牌化施工完成
 

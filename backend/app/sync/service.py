@@ -116,6 +116,26 @@ class SyncService:
                 )
                 if approval is not None:
                     resource = approval_request_json(approval)
+            elif item.resource_type == "task_conflict":
+                conflict = self.session.scalar(
+                    select(TaskConflict).where(
+                        TaskConflict.id == item.resource_id,
+                        TaskConflict.workspace_id == workspace_id,
+                    )
+                )
+                if conflict is not None:
+                    conflict_task = self.session.scalar(
+                        select(Task).where(
+                            Task.id == conflict.task_id,
+                            Task.workspace_id == workspace_id,
+                        )
+                    )
+                    current_snapshot = (
+                        TaskService(self.session).snapshot(conflict_task)
+                        if conflict_task is not None
+                        else None
+                    )
+                    resource = task_conflict_json(conflict, current_snapshot)
             changes.append({"cursor": item.cursor, "resource_type": item.resource_type, "resource_id": str(item.resource_id), "action": item.action.value, "operation_id": str(item.operation_id) if item.operation_id else None, "resource": resource})
         return {
             "workspace_id": str(workspace_id),

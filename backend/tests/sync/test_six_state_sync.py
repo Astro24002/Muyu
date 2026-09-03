@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.enums import ConflictStatus, MembershipStatus, TaskStatus
-from app.db.models import ActivityEvent, TaskConflict, User, Workspace, WorkspaceCursor, WorkspaceMembership
+from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, TaskStatus
+from app.db.models import ActivityEvent, TaskConflict, TaskOperation, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
 from app.sync.service import SyncService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
@@ -471,6 +471,8 @@ def test_stale_review_conflict_preserves_the_complete_transition_payload(db_engi
         task = service.create(workspace.id, owner.id, uuid4(), "需要补充材料", quadrant="Q1")
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         review = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
+        review_cursor = service.last_cursor
+        assert review_cursor is not None
         stale_version = review.status_version - 1
 
         with pytest.raises(TaskConflictError) as error:
@@ -503,6 +505,15 @@ def test_stale_review_conflict_preserves_the_complete_transition_payload(db_engi
         assert synced_conflict["field_versions"] == review.field_versions
         assert synced_conflict["current_snapshot"]["reviewer_user_id"] == str(reviewer.id)
         assert synced_conflict["current_snapshot"]["review_submitted_at"] == NOW.isoformat()
+        conflict_change = next(
+            item for item in SyncService(session).changes(workspace.id, review_cursor)["changes"]
+            if item["resource_type"] == "task_conflict"
+            and item["resource_id"] == str(conflict.id)
+        )
+        assert conflict_change["action"] == "CREATED"
+        assert conflict_change["resource"]["status"] == "OPEN"
+        assert conflict_change["resource"]["current_snapshot"]["status"] == "REVIEW"
+        assert conflict_change["resource"]["current_snapshot"]["reviewer_user_id"] == str(reviewer.id)
 
 
 def test_stale_blocked_conflict_preserves_blocked_metadata(db_engine) -> None:
@@ -534,3 +545,155 @@ def test_stale_blocked_conflict_preserves_blocked_metadata(db_engine) -> None:
             "review_rejection_reason": None,
         }
         assert conflict.current_version == changed.status_version
+
+
+def test_conflict_lifecycle_is_cursor_visible_across_sessions_and_idempotent(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, _reviewer, workspace = _workspace(session)
+        task = TaskService(session, now=lambda: NOW).create(
+            workspace.id,
+            owner.id,
+            uuid4(),
+            "冲突游标任务",
+            quadrant="Q1",
+        )
+        session.commit()
+        workspace_id = workspace.id
+        task_id = task.id
+        owner_id = owner.id
+
+    with Session(db_engine) as session:
+        current = session.get(type(task), task_id)
+        assert current is not None
+        TaskService(session, now=lambda: NOW).patch(
+            workspace_id,
+            owner_id,
+            task_id,
+            uuid4(),
+            {"title": "当前值"},
+            {"title": 1},
+        )
+        session.commit()
+
+    conflict_request_id = uuid4()
+    with Session(db_engine) as session:
+        cursor_before_conflict = session.scalar(
+            select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace_id)
+        ) - 1
+        service = TaskService(session, now=lambda: NOW)
+        with pytest.raises(TaskConflictError) as error:
+            service.patch(
+                workspace_id,
+                owner_id,
+                task_id,
+                conflict_request_id,
+                {"title": "提议值"},
+                {"title": 1},
+            )
+        conflict_id = error.value.conflict[0].id
+        session.commit()
+        conflict_cursor = session.scalar(
+            select(WorkspaceChangeLog.cursor).where(
+                WorkspaceChangeLog.workspace_id == workspace_id,
+                WorkspaceChangeLog.resource_type == "task_conflict",
+                WorkspaceChangeLog.resource_id == conflict_id,
+                WorkspaceChangeLog.action == ChangeAction.CREATED,
+            )
+        )
+        assert conflict_cursor is not None
+        assert service.last_cursor == conflict_cursor
+
+    with Session(db_engine) as session:
+        replay_service = TaskService(session, now=lambda: NOW)
+        replayed = replay_service.patch(
+            workspace_id,
+            owner_id,
+            task_id,
+            conflict_request_id,
+            {"title": "提议值"},
+            {"title": 1},
+        )
+        assert replayed.id == task_id
+        assert replay_service.last_cursor == conflict_cursor
+        assert session.scalar(
+            select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace_id)
+        ) - 1 == conflict_cursor
+
+    with Session(db_engine) as session:
+        changes = SyncService(session).changes(workspace_id, cursor_before_conflict)
+        conflict_changes = [
+            item for item in changes["changes"]
+            if item["resource_type"] == "task_conflict" and item["resource_id"] == str(conflict_id)
+        ]
+        assert len(conflict_changes) == 1
+        created_projection = conflict_changes[0]
+        assert created_projection["action"] == ChangeAction.CREATED.value
+        assert created_projection["resource"]["status"] == ConflictStatus.OPEN.value
+        assert created_projection["resource"]["current_snapshot"]["status"] == "TODO"
+        assert created_projection["resource"]["current_snapshot"]["title"] == "当前值"
+        assert created_projection["resource"]["current_snapshot"]["field_versions"]["title"] == 2
+        assert created_projection["resource"]["current_snapshot"]["status_version"] == 1
+        assert created_projection["resource"]["current_snapshot"]["lifecycle_version"] == 1
+        assert created_projection["cursor"] == conflict_cursor
+
+    resolution_request_id = uuid4()
+    with Session(db_engine) as session:
+        service = TaskService(session, now=lambda: NOW)
+        service.resolve_conflict(
+            workspace_id,
+            owner_id,
+            task_id,
+            conflict_id,
+            resolution_request_id,
+            "current",
+        )
+        session.commit()
+        resolved_cursor = service.last_cursor
+        assert resolved_cursor is not None
+        assert resolved_cursor > conflict_cursor
+
+    with Session(db_engine) as session:
+        resolution_changes = SyncService(session).changes(workspace_id, conflict_cursor)
+        resolved_projection = next(
+            item for item in resolution_changes["changes"]
+            if item["resource_type"] == "task_conflict" and item["resource_id"] == str(conflict_id)
+        )
+        assert resolved_projection["action"] == ChangeAction.UPDATED.value
+        assert resolved_projection["resource"]["status"] == ConflictStatus.RESOLVED.value
+        assert resolved_projection["resource"]["current_snapshot"]["status"] == "TODO"
+        assert resolved_projection["resource"]["current_snapshot"]["title"] == "当前值"
+        assert resolution_changes["cursor"] == resolved_cursor
+
+        operations = session.scalars(
+            select(TaskOperation).where(
+                TaskOperation.workspace_id == workspace_id,
+                TaskOperation.request_id.in_([conflict_request_id, resolution_request_id]),
+            )
+        ).all()
+        assert len(operations) == 2
+        assert {operation.cursor for operation in operations} == {conflict_cursor, resolved_cursor}
+        conflict_logs = session.scalars(
+            select(WorkspaceChangeLog).where(
+                WorkspaceChangeLog.workspace_id == workspace_id,
+                WorkspaceChangeLog.resource_type == "task_conflict",
+                WorkspaceChangeLog.resource_id == conflict_id,
+            ).order_by(WorkspaceChangeLog.cursor.asc())
+        ).all()
+        assert [row.action for row in conflict_logs] == [ChangeAction.CREATED, ChangeAction.UPDATED]
+        assert [row.cursor for row in conflict_logs] == sorted(row.cursor for row in conflict_logs)
+
+    with Session(db_engine) as session:
+        replay_service = TaskService(session, now=lambda: NOW)
+        replayed = replay_service.resolve_conflict(
+            workspace_id,
+            owner_id,
+            task_id,
+            conflict_id,
+            resolution_request_id,
+            "current",
+        )
+        assert replayed.id == task_id
+        assert replay_service.last_cursor == resolved_cursor
+        assert session.scalar(
+            select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace_id)
+        ) - 1 == resolved_cursor

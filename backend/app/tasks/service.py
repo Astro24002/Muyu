@@ -236,7 +236,17 @@ class TaskService:
                 conflicts.append(conflict)
         if conflicts:
             self.session.flush()
-            cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+            self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+            conflict_cursors = [
+                self._conflict_cursor(
+                    workspace_id,
+                    conflict,
+                    ChangeAction.CREATED,
+                    request_id,
+                )
+                for conflict in conflicts
+            ]
+            conflict_cursor = conflict_cursors[-1]
             self._operation(
                 workspace_id,
                 actor_user_id,
@@ -245,7 +255,7 @@ class TaskService:
                 OperationType.CONFLICT_CREATED,
                 before,
                 before,
-                cursor,
+                conflict_cursor,
                 base_versions={"fingerprint": fingerprint},
             )
             raise TaskConflictError("field_conflict", "one or more task fields changed", conflicts)
@@ -374,8 +384,14 @@ class TaskService:
             )
             self.session.add(conflict)
             self.session.flush()
-            cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
-            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.CONFLICT_CREATED, before, before, cursor, base_versions={"fingerprint": fingerprint})
+            self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+            conflict_cursor = self._conflict_cursor(
+                workspace_id,
+                conflict,
+                ChangeAction.CREATED,
+                request_id,
+            )
+            self._operation(workspace_id, actor_user_id, request_id, task, OperationType.CONFLICT_CREATED, before, before, conflict_cursor, base_versions={"fingerprint": fingerprint})
             raise TaskConflictError("field_conflict", "task status changed", [conflict])
         if target_status not in TRANSITIONS[current_public]:
             raise TaskConflictError("invalid_request", f"cannot transition {current_public} to {target_status}")
@@ -587,7 +603,13 @@ class TaskService:
         conflict.resolved_by = actor_user_id
         conflict.resolved_at = self.now()
         after = self.snapshot(task)
-        cursor = self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        self._cursor(workspace_id, task, ChangeAction.UPDATED, request_id)
+        conflict_cursor = self._conflict_cursor(
+            workspace_id,
+            conflict,
+            ChangeAction.UPDATED,
+            request_id,
+        )
         self._operation(
             workspace_id,
             actor_user_id,
@@ -596,7 +618,7 @@ class TaskService:
             OperationType.CONFLICT_RESOLVED,
             before,
             after,
-            cursor,
+            conflict_cursor,
             base_versions={"fingerprint": fingerprint},
         )
         return task
@@ -806,6 +828,21 @@ class TaskService:
 
     def _cursor(self, workspace_id: UUID, task: Task, action: ChangeAction, request_id: UUID) -> int:
         return self._resource_cursor(workspace_id, "task", task.id, action, request_id)
+
+    def _conflict_cursor(
+        self,
+        workspace_id: UUID,
+        conflict: TaskConflict,
+        action: ChangeAction,
+        request_id: UUID,
+    ) -> int:
+        return self._resource_cursor(
+            workspace_id,
+            "task_conflict",
+            conflict.id,
+            action,
+            request_id,
+        )
 
     def _resource_cursor(self, workspace_id: UUID, resource_type: str, resource_id: UUID, action: ChangeAction, request_id: UUID) -> int:
         cursor = Repository(self.session).allocate_workspace_cursor(workspace_id)

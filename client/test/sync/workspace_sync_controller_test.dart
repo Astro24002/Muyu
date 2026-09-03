@@ -34,6 +34,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   bool failSnapshots = false;
   Completer<WorkspaceSnapshot>? snapshotCompleter;
   final requestedAfterCursors = <int>[];
+  final queuedChanges = <WorkspaceChanges>[];
   String? lastRequestId;
   String? createRequestId;
 
@@ -88,6 +89,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   @override
   Future<WorkspaceChanges> changes({required int afterCursor}) async {
     requestedAfterCursors.add(afterCursor);
+    if (queuedChanges.isNotEmpty) return queuedChanges.removeAt(0);
     return WorkspaceChanges(
       workspaceId: 'w1',
       cursor: 12,
@@ -242,6 +244,82 @@ void main() {
     expect(controller.state.cursor, 12);
     expect(controller.state.snapshot!.tasks.single.title, 'Changed title');
   });
+
+  test(
+    'cursor changes merge task conflicts and remove resolved conflicts',
+    () async {
+      final repository = FakeSyncRepository();
+      final controller = WorkspaceSyncController(repository);
+      await controller.refresh();
+
+      final openConflict = <String, dynamic>{
+        'id': 'conflict-1',
+        'task_id': 'task-1',
+        'field': 'status',
+        'base': 'TODO',
+        'current': 'IN_PROGRESS',
+        'proposed_payload': {
+          'target_status': 'BLOCKED',
+          'blocked_reason': '等待资料',
+        },
+        'status': 'OPEN',
+        'base_version': 1,
+        'current_version': 2,
+        'current_snapshot': {
+          ...task('Blocked').toJson(),
+          'status': 'BLOCKED',
+          'blocked_reason': '等待资料',
+          'status_version': 2,
+          'lifecycle_version': 2,
+        },
+        'field_versions': {'title': 1},
+        'status_version': 2,
+        'lifecycle_version': 2,
+      };
+      repository.queuedChanges.add(
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [
+            WorkspaceChange.taskConflict(
+              cursor: 12,
+              conflict: openConflict,
+              action: 'created',
+            ),
+          ],
+        ),
+      );
+
+      await controller.pull();
+
+      expect(controller.state.cursor, 12);
+      expect(controller.state.snapshot!.conflicts, hasLength(1));
+      expect(controller.state.snapshot!.conflicts.single['status'], 'OPEN');
+      expect(
+        controller.state.snapshot!.conflicts.single['current_snapshot'],
+        isA<Map<String, dynamic>>(),
+      );
+
+      repository.queuedChanges.add(
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 13,
+          changes: [
+            WorkspaceChange.taskConflict(
+              cursor: 13,
+              conflict: {...openConflict, 'status': 'RESOLVED'},
+              action: 'updated',
+            ),
+          ],
+        ),
+      );
+
+      await controller.pull();
+
+      expect(controller.state.cursor, 13);
+      expect(controller.state.snapshot!.conflicts, isEmpty);
+    },
+  );
 
   test('create inserts the server task then reconciles its cursor', () async {
     final repository = FakeSyncRepository();

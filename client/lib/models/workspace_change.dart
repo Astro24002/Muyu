@@ -8,6 +8,7 @@ class WorkspaceChange {
     required this.resourceId,
     required this.action,
     this.task,
+    this.conflict,
     this.approvalRequest,
     this.comment,
   });
@@ -17,6 +18,7 @@ class WorkspaceChange {
   final String resourceId;
   final String action;
   final TaskItem? task;
+  final Map<String, dynamic>? conflict;
   final TaskApprovalRequest? approvalRequest;
   final TaskComment? comment;
 
@@ -29,6 +31,18 @@ class WorkspaceChange {
     resourceId: task.id,
     action: 'updated',
     task: task,
+  );
+
+  factory WorkspaceChange.taskConflict({
+    required int cursor,
+    required Map<String, dynamic> conflict,
+    String action = 'updated',
+  }) => WorkspaceChange(
+    cursor: cursor,
+    resourceType: 'task_conflict',
+    resourceId: conflict['id'] as String,
+    action: action,
+    conflict: conflict,
   );
 
   factory WorkspaceChange.approvalRequestUpdated({
@@ -68,6 +82,9 @@ class WorkspaceChange {
       action: (json['action'] as String).toLowerCase(),
       task: resourceType == 'task' && resourceMap != null
           ? TaskItem.fromJson(resourceMap)
+          : null,
+      conflict: resourceType == 'task_conflict' && resourceMap != null
+          ? resourceMap
           : null,
       approvalRequest: resourceType == 'approval_request' && resourceMap != null
           ? TaskApprovalRequest.fromJson(resourceMap)

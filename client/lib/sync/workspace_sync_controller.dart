@@ -130,10 +130,14 @@ class WorkspaceSyncController extends ChangeNotifier {
         return;
       }
       final tasks = [...current.tasks];
+      final conflicts = current.conflicts
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
       final approvals = [...current.approvalRequests];
       final comments = [...current.comments];
       for (final change in result.changes) {
         _applyTask(tasks, change);
+        _applyConflict(conflicts, change);
         _applyApproval(approvals, change);
         _applyComment(comments, change);
       }
@@ -143,7 +147,7 @@ class WorkspaceSyncController extends ChangeNotifier {
           cursor: result.cursor,
           tasks: tasks,
           members: current.members,
-          conflicts: current.conflicts,
+          conflicts: conflicts,
           viewerUserId: current.viewerUserId,
           comments: comments,
           approvalRequests: approvals,
@@ -650,6 +654,18 @@ class WorkspaceSyncController extends ChangeNotifier {
     } else {
       tasks[index] = task;
     }
+  }
+
+  static void _applyConflict(
+    List<Map<String, dynamic>> conflicts,
+    WorkspaceChange change,
+  ) {
+    if (change.resourceType != 'task_conflict') return;
+    conflicts.removeWhere((item) => item['id'] == change.resourceId);
+    final conflict = change.conflict;
+    if (conflict == null) return;
+    final status = conflict['status'] ?? conflict['state'];
+    if (status == 'OPEN') conflicts.add(Map<String, dynamic>.from(conflict));
   }
 
   static void _applyApproval(

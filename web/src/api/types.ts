@@ -111,10 +111,10 @@ export interface WorkspaceSnapshot {
 
 export interface WorkspaceChange {
   cursor: number;
-  resource_type: 'task' | 'approval_request' | 'comment' | string;
+  resource_type: 'task' | 'task_conflict' | 'approval_request' | 'comment' | string;
   resource_id: string;
   action: string;
   operation_id: string | null;
-  resource: TaskItem | TaskApprovalRequest | TaskComment | null;
+  resource: TaskItem | TaskApprovalRequest | TaskComment | Record<string, unknown> | null;
 }
 export interface WorkspaceChanges { workspace_id: string; cursor: number; changes: WorkspaceChange[] }

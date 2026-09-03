@@ -151,6 +151,126 @@ def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow
     assert done.json()["current_handler_id"] == owner["user"]["id"]
 
 
+def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> None:
+    client = _client(db_engine)
+    owner, reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    reviewer_headers = _headers(reviewer)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Review 409", "quadrant": "Q1"},
+    ).json()
+    started = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": created["status_version"],
+        },
+    ).json()
+    submitted = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started["status_version"],
+        },
+    ).json()
+
+    stale = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=reviewer_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": submitted["status_version"] - 1,
+            "review_rejection_reason": "补充验收材料",
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    http_conflict = stale.json()["details"]["conflicts"][0]
+
+    listed = client.get(f"/api/v1/tasks/{created['id']}/conflicts", headers=reviewer_headers)
+    assert listed.status_code == 200, listed.text
+    get_conflict = listed.json()[0]
+    assert http_conflict == get_conflict
+    assert http_conflict["current_snapshot"] == {
+        **http_conflict["current_snapshot"],
+        "status": "REVIEW",
+        "reviewer_user_id": reviewer["user"]["id"],
+        "review_submitted_at": submitted["review_submitted_at"],
+        "status_version": submitted["status_version"],
+        "lifecycle_version": submitted["lifecycle_version"],
+    }
+    assert http_conflict["status_version"] == submitted["status_version"]
+    assert http_conflict["lifecycle_version"] == submitted["lifecycle_version"]
+    assert http_conflict["field_versions"] == submitted["field_versions"]
+    assert http_conflict["proposed_payload"]["review_rejection_reason"] == "补充验收材料"
+
+
+def test_stale_blocked_status_409_uses_full_conflict_projection(db_engine) -> None:
+    client = _client(db_engine)
+    owner, _reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Blocked 409", "quadrant": "Q2"},
+    ).json()
+    started = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": created["status_version"],
+        },
+    ).json()
+    blocked = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "BLOCKED",
+            "base_status_version": started["status_version"],
+            "blocked_reason": "等待外部材料",
+            "resume_handler_id": owner["user"]["id"],
+        },
+    ).json()
+
+    stale = client.post(
+        f"/api/v1/tasks/{created['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": started["status_version"],
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    http_conflict = stale.json()["details"]["conflicts"][0]
+
+    listed = client.get(f"/api/v1/tasks/{created['id']}/conflicts", headers=owner_headers)
+    assert listed.status_code == 200, listed.text
+    get_conflict = listed.json()[0]
+    assert http_conflict == get_conflict
+    assert http_conflict["current_snapshot"] == {
+        **http_conflict["current_snapshot"],
+        "status": "BLOCKED",
+        "blocked_reason": "等待外部材料",
+        "blocked_since": blocked["blocked_since"],
+        "resume_handler_id": owner["user"]["id"],
+        "status_version": blocked["status_version"],
+        "lifecycle_version": blocked["lifecycle_version"],
+    }
+    assert http_conflict["status_version"] == blocked["status_version"]
+    assert http_conflict["lifecycle_version"] == blocked["lifecycle_version"]
+    assert http_conflict["field_versions"] == blocked["field_versions"]
+
+
 def test_owner_comment_delete_is_pending_and_comment_author_approves(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)

@@ -87,11 +87,29 @@ def _task_json(service: TaskService, task: Task) -> dict[str, object]:
     return service.snapshot(task)
 
 
-def _task_error(error: TaskConflictError) -> ApiError:
+def _task_error(error: TaskConflictError, session: Session | None = None) -> ApiError:
     status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code in {"invalid_request", "nested_task_not_allowed"} else 404 if error.code == "not_found" else 409
     details = {}
     if isinstance(error.conflict, list):
-        details["conflicts"] = [task_conflict_json(item) for item in error.conflict]
+        task_service = TaskService(session) if session is not None else None
+        snapshots: dict[str, dict[str, object]] = {}
+        if task_service is not None:
+            for item in error.conflict:
+                task_id = getattr(item, "task_id", None)
+                if task_id is None:
+                    continue
+                task = session.scalar(
+                    select(Task).where(
+                        Task.id == task_id,
+                        Task.workspace_id == getattr(item, "workspace_id", None),
+                    )
+                )
+                if task is not None:
+                    snapshots[str(task.id)] = task_service.snapshot(task)
+        details["conflicts"] = [
+            task_conflict_json(item, snapshots.get(str(getattr(item, "task_id", ""))))
+            for item in error.conflict
+        ]
     return ApiError(status_code, error.code, str(error), details)
 
 
@@ -157,7 +175,7 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
         session.rollback()
         if isinstance(error, ValueError):
             raise ApiError(422, "invalid_request", "invalid due_at") from error
-        raise _task_error(error) from error
+        raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -215,7 +233,7 @@ def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, backgrou
         raise _approval_error(error) from error
     except TaskConflictError as error:
         session.commit() if error.code == "field_conflict" else session.rollback()
-        raise _task_error(error) from error
+        raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -261,7 +279,7 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
         session.commit()
     except (TaskConflictError, TaskApprovalError) as error:
         session.rollback()
-        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error)
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error, session)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -318,7 +336,7 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
             session.commit()
         else:
             session.rollback()
-        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error)
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error, session)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -348,7 +366,7 @@ def restore_task(task_id: UUID, body: LifecycleRequest, request: Request, backgr
         session.commit()
     except (TaskConflictError, TaskApprovalError) as error:
         session.rollback()
-        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error)
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error, session)
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
 
@@ -371,7 +389,7 @@ def resolve_conflict(task_id: UUID, conflict_id: UUID, body: ResolveConflictRequ
         session.commit()
     except TaskConflictError as error:
         session.rollback()
-        raise _task_error(error) from error
+        raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(service, task) | {"cursor": service.last_cursor}
 
@@ -384,7 +402,7 @@ def comment_task(task_id: UUID, body: CommentRequest, request: Request, backgrou
         session.commit()
     except TaskConflictError as error:
         session.rollback()
-        raise _task_error(error) from error
+        raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, cursor)
     return {"id": str(comment.id), "task_id": str(comment.task_id), "body": comment.body, "created_at": comment.created_at.isoformat(), "cursor": cursor}
 
@@ -442,7 +460,7 @@ def delete_comment_task(
             session.commit()
         else:
             session.rollback()
-        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error) from error
+        raise _approval_error(error) if isinstance(error, TaskApprovalError) else _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return comment_json(deleted) | {"cursor": service.last_cursor}
 
@@ -457,7 +475,7 @@ def delay_task(task_id: UUID, body: DelayRequest, request: Request, background_t
         session.rollback()
         if isinstance(error, ValueError):
             raise ApiError(422, "invalid_request", "invalid new_due_at") from error
-        raise _task_error(error) from error
+        raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, cursor)
     return {
         "id": str(row.id), "task_id": str(row.task_id), "actor_user_id": str(row.actor_user_id),

@@ -37,6 +37,7 @@ export interface TaskConflict {
   status_version?: number;
   lifecycle_version?: number;
   current_snapshot?: unknown;
+  [key: string]: unknown;
 }
 
 export const TASK_QUADRANTS: readonly TaskQuadrant[] = ['Q1', 'Q2', 'Q3', 'Q4'];

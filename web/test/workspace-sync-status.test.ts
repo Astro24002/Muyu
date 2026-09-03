@@ -167,4 +167,80 @@ describe('workspace sync six-state status boundary', () => {
     expect(api.transitionTask).not.toHaveBeenCalled();
     expect(controller.state.error).toBe('无法更新任务状态，请检查网络后重试。');
   });
+
+  it('merges task conflicts from cursor changes and removes them when resolved', async () => {
+    let pullCount = 0;
+    const openConflict = {
+      id: 'conflict-1',
+      task_id: 'task-todo',
+      field: 'status',
+      base: 'TODO',
+      current: 'IN_PROGRESS',
+      proposed: 'BLOCKED',
+      proposed_payload: { target_status: 'BLOCKED', blocked_reason: '等待资料' },
+      status: 'OPEN',
+      base_version: 1,
+      current_version: 2,
+      current_snapshot: {
+        ...task('BLOCKED'),
+        id: 'task-todo',
+        status: 'BLOCKED',
+        blocked_reason: '等待资料',
+        status_version: 2,
+        lifecycle_version: 2,
+      },
+      field_versions: { title: 1 },
+      status_version: 2,
+      lifecycle_version: 2,
+    };
+    const api = {
+      getWorkspaceSnapshot: vi.fn().mockResolvedValue({ ...snapshot('TODO'), tasks: [task('TODO')], conflicts: [] }),
+      getWorkspaceChanges: vi.fn().mockImplementation(async () => {
+        pullCount += 1;
+        return pullCount === 1
+          ? {
+              workspace_id: 'workspace-1',
+              cursor: 6,
+              changes: [{
+                cursor: 6,
+                resource_type: 'task_conflict',
+                resource_id: 'conflict-1',
+                action: 'CREATED',
+                operation_id: null,
+                resource: openConflict,
+              }],
+            }
+          : {
+              workspace_id: 'workspace-1',
+              cursor: 7,
+              changes: [{
+                cursor: 7,
+                resource_type: 'task_conflict',
+                resource_id: 'conflict-1',
+                action: 'UPDATED',
+                operation_id: null,
+                resource: { ...openConflict, status: 'RESOLVED' },
+              }],
+            };
+      }),
+      transitionTask: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(controller.state.cursor).toBe(6);
+    expect(controller.state.conflicts).toHaveLength(1);
+    expect(controller.state.conflicts[0]).toMatchObject({
+      id: 'conflict-1',
+      status: 'OPEN',
+      current_snapshot: expect.objectContaining({ status: 'BLOCKED', blocked_reason: '等待资料' }),
+    });
+
+    await controller.pull();
+
+    expect(controller.state.cursor).toBe(7);
+    expect(controller.state.conflicts).toEqual([]);
+  });
 });

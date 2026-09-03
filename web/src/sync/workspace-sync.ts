@@ -395,6 +395,14 @@ export class WorkspaceSyncController {
   }
 
   private applyChange(change: WorkspaceChange): void {
+    if (change.resource_type === 'task_conflict') {
+      if (change.resource && isTaskConflict(change.resource)) {
+        this.mergeConflict(change.resource, change.cursor, false);
+      } else if (change.action.toUpperCase() === 'DELETED') {
+        this.removeConflict(change.resource_id);
+      }
+      return;
+    }
     if (!change.resource) return;
     if (change.resource_type === 'task' && isTaskItem(change.resource)) {
       this.mergeTask(change.resource, change.cursor, false);
@@ -448,6 +456,26 @@ export class WorkspaceSyncController {
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, comments, cursor: nextCursor };
     this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, comments, approvals: nextSnapshot.approval_requests, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeConflict(conflict: TaskConflict, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const normalized = normalizeConflicts([conflict])[0];
+    if (!normalized) return;
+    const conflicts = normalizeConflicts(snapshot.conflicts).filter((item) => item.id !== normalized.id);
+    if (normalized.status === 'OPEN') conflicts.push(normalized);
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, conflicts, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, conflicts, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private removeConflict(conflictId: string): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || !snapshot.conflicts.some((item) => item.id === conflictId)) return;
+    const conflicts = normalizeConflicts(snapshot.conflicts).filter((item) => item.id !== conflictId);
+    const nextSnapshot = { ...snapshot, conflicts };
+    this.setState({ snapshot: nextSnapshot, conflicts: nextSnapshot.conflicts, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeApprovalResult(result: ApprovalActionResult, updateCursor = true): void {
@@ -704,7 +732,7 @@ function normalizeConflicts(value: Array<Record<string, unknown>>): TaskConflict
       base: item.base ?? item.baseline,
       current: item.current,
       proposed: item.proposed ?? item.proposed_payload,
-      status: typeof item.status === 'string' ? item.status : undefined,
+      status: typeof item.status === 'string' ? item.status : typeof item.state === 'string' ? item.state : undefined,
     }];
   });
 }
@@ -900,9 +928,21 @@ function isValidChangeResource(resourceType: string, resource: unknown, workspac
   if (resource === null) return true;
   if (!isRecord(resource)) return false;
   if (resourceType === 'task') return isTaskItem(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'task_conflict') return isTaskConflict(resource);
   if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'comment') return isTaskComment(resource);
   return true;
+}
+
+function isTaskConflict(value: unknown): value is TaskConflict {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.task_id === 'string'
+    && value.task_id.length > 0
+    && typeof value.field === 'string'
+    && value.field.length > 0
+    && typeof (value.status ?? value.state) === 'string';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -69,7 +69,6 @@ class TaskListView extends StatefulWidget {
 
 class _TaskListViewState extends State<TaskListView> {
   final _collapsedGroups = <String>{'past'};
-  final _expandedTasks = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -135,15 +134,11 @@ class _TaskListViewState extends State<TaskListView> {
               expanded: !_collapsedGroups.contains(group.key),
               showSubtitle: widget.showSubtitle,
               childrenByParent: childrenByParent,
-              expandedTaskIds: _expandedTasks,
               state: widget.state,
               onToggle: () => setState(() {
                 if (!_collapsedGroups.add(group.key)) {
                   _collapsedGroups.remove(group.key);
                 }
-              }),
-              onToggleTask: (taskId) => setState(() {
-                if (!_expandedTasks.add(taskId)) _expandedTasks.remove(taskId);
               }),
               onTaskTap: widget.onTaskTap,
             ),
@@ -282,55 +277,59 @@ class _BlockedTaskSummaryRow extends StatelessWidget {
       label: '${task.title}，负责人$owner，$reasonText，$duration',
       child: Material(
         color: Colors.transparent,
-        child: ListTile(
-          dense: true,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: MuyuSpacing.md,
-          ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  task.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: MuyuSpacing.sm),
-              _MetadataPill(
-                key: Key('home-action-owner-${task.id}'),
-                label: owner,
-                semanticLabel: '负责人$owner',
-                background:
-                    extension?.focusSurface ??
-                    theme.colorScheme.secondaryContainer,
-                foreground: theme.colorScheme.primary,
-              ),
-            ],
-          ),
-          subtitle: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  reasonText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: MuyuSpacing.sm),
-              _MetadataPill(
-                key: Key('home-action-duration-${task.id}'),
-                label: duration,
-                semanticLabel: duration,
-                background:
-                    extension?.coralSurface ?? theme.colorScheme.errorContainer,
-                foreground:
-                    extension?.coral ?? theme.colorScheme.onErrorContainer,
-              ),
-            ],
-          ),
-          trailing: const Icon(Icons.chevron_right, size: 20),
+        child: InkWell(
           onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: MuyuSpacing.md,
+                vertical: MuyuSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      task.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: MuyuSpacing.xs),
+                  Flexible(
+                    flex: 1,
+                    child: _MetadataPill(
+                      key: Key('home-action-owner-${task.id}'),
+                      label: owner,
+                      semanticLabel: '负责人$owner',
+                      background:
+                          extension?.focusSurface ??
+                          theme.colorScheme.secondaryContainer,
+                      foreground: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: MuyuSpacing.xs),
+                  Flexible(
+                    flex: 1,
+                    child: _MetadataPill(
+                      key: Key('home-action-duration-${task.id}'),
+                      label: duration,
+                      semanticLabel: duration,
+                      background:
+                          extension?.coralSurface ??
+                          theme.colorScheme.errorContainer,
+                      foreground:
+                          extension?.coral ??
+                          theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                  const SizedBox(width: MuyuSpacing.xs),
+                  const Icon(Icons.chevron_right, size: 20),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -355,22 +354,22 @@ class _MetadataPill extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     label: semanticLabel,
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 132, minHeight: 24),
-      child: DecoratedBox(
+      constraints: const BoxConstraints(maxWidth: 132),
+      child: Container(
+        height: 24,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.sm),
         decoration: BoxDecoration(
           color: background,
           borderRadius: const BorderRadius.all(Radius.circular(999)),
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.sm),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelMedium
-                ?.copyWith(color: foreground),
-          ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelMedium
+              ?.copyWith(color: foreground),
         ),
       ),
     ),
@@ -427,10 +426,8 @@ class TaskListSection extends StatelessWidget {
     required this.expanded,
     required this.showSubtitle,
     required this.childrenByParent,
-    required this.expandedTaskIds,
     required this.state,
     required this.onToggle,
-    required this.onToggleTask,
     required this.onTaskTap,
   });
 
@@ -439,10 +436,8 @@ class TaskListSection extends StatelessWidget {
   final bool expanded;
   final bool showSubtitle;
   final Map<String, List<TaskItem>> childrenByParent;
-  final Set<String> expandedTaskIds;
   final WorkspaceSyncState state;
   final VoidCallback onToggle;
-  final ValueChanged<String> onToggleTask;
   final TaskNavigationCallback onTaskTap;
 
   @override
@@ -506,24 +501,8 @@ class TaskListSection extends StatelessWidget {
                 state: state,
                 showSubtitle: showSubtitle,
                 subtasks: childrenByParent[task.id] ?? const [],
-                expanded: expandedTaskIds.contains(task.id),
-                onToggleSubtasks: childrenByParent.containsKey(task.id)
-                    ? () => onToggleTask(task.id)
-                    : null,
                 onTap: () => onTaskTap(task),
               ),
-              if (expandedTaskIds.contains(task.id))
-                for (final subtask in childrenByParent[task.id] ?? const [])
-                  Padding(
-                    padding: const EdgeInsets.only(left: MuyuSpacing.xxl),
-                    child: TaskListRow(
-                      task: subtask,
-                      state: state,
-                      showSubtitle: showSubtitle,
-                      subtasks: const [],
-                      onTap: () => onTaskTap(subtask),
-                    ),
-                  ),
             ],
       ],
     ),
@@ -538,16 +517,12 @@ class TaskListRow extends StatelessWidget {
     required this.showSubtitle,
     required this.subtasks,
     required this.onTap,
-    this.expanded = false,
-    this.onToggleSubtasks,
   });
 
   final TaskItem task;
   final WorkspaceSyncState state;
   final bool showSubtitle;
   final List<TaskItem> subtasks;
-  final bool expanded;
-  final VoidCallback? onToggleSubtasks;
   final VoidCallback onTap;
 
   @override
@@ -595,18 +570,6 @@ class TaskListRow extends StatelessWidget {
                   ),
                 )
               : null,
-          trailing: onToggleSubtasks == null
-              ? null
-              : IconButton(
-                  key: Key('task-subtasks-toggle-${task.id}'),
-                  tooltip: expanded ? '收起子任务' : '展开子任务',
-                  onPressed: onToggleSubtasks,
-                  icon: Icon(
-                    expanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                  ),
-                ),
           onTap: onTap,
         ),
       ),

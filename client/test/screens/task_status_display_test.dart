@@ -190,11 +190,116 @@ void main() {
     );
 
     expect(find.text('李四'), findsOneWidget);
-    expect(find.text('等待对方确认最终日期'), findsOneWidget);
+    expect(find.text('等待对方确认最终日期'), findsNothing);
     expect(
       find.byKey(const Key('home-action-duration-blocked-summary')),
       findsOneWidget,
     );
+    final row = find.byKey(const Key('home-action-task-blocked-summary'));
+    final ownerPill = find.byKey(
+      const Key('home-action-owner-blocked-summary'),
+    );
+    final durationPill = find.byKey(
+      const Key('home-action-duration-blocked-summary'),
+    );
+    expect(tester.getSize(row).height, 48);
+    expect(tester.getSize(ownerPill).height, 24);
+    expect(tester.getSize(durationPill).height, 24);
+    expect(
+      tester.getCenter(find.text('李四')).dy,
+      closeTo(tester.getCenter(ownerPill).dy, 0.5),
+    );
+    expect(
+      tester
+          .getCenter(
+            find.descendant(of: durationPill, matching: find.byType(Text)),
+          )
+          .dy,
+      closeTo(tester.getCenter(durationPill).dy, 0.5),
+    );
     expect(find.byType(ActionChip), findsNothing);
+  });
+
+  testWidgets('task rows open details without a subtask expansion control', (
+    tester,
+  ) async {
+    final task = displayTask('parent', 'TODO');
+    var tapped = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskListRow(
+            task: task,
+            state: WorkspaceSyncState(
+              snapshot: WorkspaceSnapshot(
+                workspaceId: 'workspace-1',
+                cursor: 1,
+                viewerUserId: 'user-1',
+                tasks: [task],
+              ),
+              isStale: false,
+            ),
+            showSubtitle: true,
+            subtasks: [displayTask('child', 'TODO')],
+            onTap: () => tapped = true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('task-subtasks-toggle-parent')), findsNothing);
+    expect(find.byType(IconButton), findsNothing);
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
+    await tester.tap(find.text('parent'));
+    expect(tapped, isTrue);
+  });
+
+  testWidgets('blocked summary remains contained on a narrow screen', (
+    tester,
+  ) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(240, 640));
+    final blocked = blockedDisplayTask();
+    final state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [blocked],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '我'},
+          {'user_id': 'user-2', 'display_name': '一个很长的负责人名称'},
+        ],
+      ),
+      home: HomeResponse(
+        currentTasks: HomeTaskSection(items: const []),
+        blockedTasks: HomeTaskSection(items: [blocked]),
+        reviewTasks: HomeTaskSection(items: const []),
+        pendingApprovalCount: 0,
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskListView(
+            sync: WorkspaceSyncController.unavailable(),
+            state: state,
+            canWrite: false,
+            onTaskTap: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .getSize(find.byKey(const Key('home-action-task-blocked-summary')))
+          .width,
+      lessThanOrEqualTo(240),
+    );
+    expect(tester.takeException(), isNull);
   });
 }

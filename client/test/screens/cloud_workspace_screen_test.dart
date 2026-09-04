@@ -784,13 +784,13 @@ void main() {
         tester
             .widget<Text>(find.byKey(const Key('task-section-title-past')))
             .data,
-        '已经延期 1',
+        '已经延期',
       );
       expect(
         tester
             .widget<Text>(find.byKey(const Key('task-section-title-upcoming')))
             .data,
-        '即将到期 1',
+        '即将到期',
       );
       expect(find.text('Delayed'), findsNothing);
       expect(find.text('Upcoming'), findsOneWidget);
@@ -820,7 +820,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已完成 / 已取消 1'), findsOneWidget);
+    expect(find.text('已完成 / 已取消'), findsOneWidget);
     expect(find.byKey(const ValueKey('task-list-row-done')), findsOneWidget);
   });
 

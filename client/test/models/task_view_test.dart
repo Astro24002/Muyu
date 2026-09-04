@@ -11,6 +11,8 @@ TaskItem makeTask(
   List<String> labels = const [],
   DateTime? updatedAt,
   String? parentTaskId,
+  String? blockedReason,
+  DateTime? blockedSince,
 }) => TaskItem(
   id: id,
   parentTaskId: parentTaskId,
@@ -29,6 +31,8 @@ TaskItem makeTask(
   statusVersion: 1,
   createdAt: DateTime.utc(2026),
   updatedAt: updatedAt ?? DateTime.utc(2026),
+  blockedReason: blockedReason,
+  blockedSince: blockedSince,
 );
 
 void main() {
@@ -183,6 +187,7 @@ void main() {
       makeTask('today', 'IN_PROGRESS', DateTime(2026, 8, 31, 18)),
       makeTask('future', 'BLOCKED', DateTime(2026, 9, 1, 9)),
       makeTask('none', 'TODO', null),
+      makeTask('outside-window', 'TODO', DateTime(2026, 9, 7, 9)),
       makeTask('done', 'DONE', DateTime(2026, 8, 29)),
       makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
     ], now: now);
@@ -191,7 +196,31 @@ void main() {
     expect(groups[0].title, '已经延期');
     expect(groups[1].title, '即将到期');
     expect(groups[0].tasks.map((item) => item.id), ['past']);
-    expect(groups[1].tasks.map((item) => item.id), ['today', 'future', 'none']);
+    expect(groups[1].tasks.map((item) => item.id), ['today', 'none']);
+  });
+
+  test('list groups include exactly seven calendar days and move blocked/review out', () {
+    final now = DateTime(2026, 8, 31, 12);
+    final groups = TaskView.listGroups([
+      makeTask('today-later', 'TODO', DateTime(2026, 8, 31, 18)),
+      makeTask('last-day', 'IN_PROGRESS', DateTime(2026, 9, 6, 23, 59)),
+      makeTask('outside-window', 'TODO', DateTime(2026, 9, 7, 0)),
+      makeTask('blocked', 'BLOCKED', DateTime(2026, 9, 1, 9)),
+      makeTask('review', 'REVIEW', DateTime(2026, 9, 1, 10)),
+    ], now: now);
+
+    expect(groups[0].tasks, isEmpty);
+    expect(groups[1].tasks.map((item) => item.id), ['today-later', 'last-day']);
+  });
+
+  test('list groups treat earlier today as overdue', () {
+    final now = DateTime(2026, 8, 31, 12);
+    final groups = TaskView.listGroups([
+      makeTask('earlier-today', 'TODO', DateTime(2026, 8, 31, 9)),
+    ], now: now);
+
+    expect(groups[0].tasks.map((item) => item.id), ['earlier-today']);
+    expect(groups[1].tasks, isEmpty);
   });
 
   test('list groups show terminal section only when completed or cancelled is enabled', () {
@@ -283,6 +312,35 @@ void main() {
         sort: TaskListSort.updatedAt,
       )[1].tasks.map((item) => item.id),
       ['q4', 'q1'],
+    );
+  });
+
+  test('elapsed labels use compact minute, hour and day formats', () {
+    final now = DateTime(2026, 8, 31, 12);
+
+    expect(
+      TaskView.elapsedLabel(
+        prefix: '逾期',
+        since: now.subtract(const Duration(minutes: 8)),
+        now: now,
+      ),
+      '逾期08m',
+    );
+    expect(
+      TaskView.elapsedLabel(
+        prefix: '逾期',
+        since: now.subtract(const Duration(hours: 14, minutes: 20)),
+        now: now,
+      ),
+      '逾期14h20m',
+    );
+    expect(
+      TaskView.elapsedLabel(
+        prefix: '阻塞',
+        since: now.subtract(const Duration(days: 2, hours: 4)),
+        now: now,
+      ),
+      '阻塞  2d04h',
     );
   });
 }

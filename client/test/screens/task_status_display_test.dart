@@ -25,21 +25,43 @@ TaskItem displayTask(String id, String status) => TaskItem(
   updatedAt: DateTime.utc(2026, 9, 3),
 );
 
+TaskItem blockedDisplayTask() => TaskItem(
+  id: 'blocked-summary',
+  parentTaskId: null,
+  title: '等待确认出行日期',
+  description: '',
+  status: 'BLOCKED',
+  currentHandlerId: 'user-2',
+  quadrant: 'Q1',
+  blockedReason: '等待对方确认最终日期',
+  blockedSince: DateTime.now().subtract(const Duration(hours: 2, minutes: 4)),
+  plannedStartAt: null,
+  dueAt: DateTime.now().add(const Duration(days: 1)),
+  estimatedMinutes: null,
+  completedAt: null,
+  createdBy: 'user-1',
+  version: 1,
+  statusVersion: 1,
+  createdAt: DateTime.utc(2026, 9, 3),
+  updatedAt: DateTime.utc(2026, 9, 3),
+);
+
 void main() {
-  testWidgets('uses distinct Chinese status semantics for blocked and review', (
+  testWidgets('uses Chinese status semantics for blocked and cancelled rows', (
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
-    final sync = WorkspaceSyncController.unavailable();
+    final blocked = blockedDisplayTask();
+    final cancelled = displayTask('cancelled', 'CANCELLED');
     final state = WorkspaceSyncState(
       snapshot: WorkspaceSnapshot(
         workspaceId: 'workspace-1',
         cursor: 1,
         viewerUserId: 'user-1',
-        tasks: [
-          displayTask('blocked', 'BLOCKED'),
-          displayTask('review', 'REVIEW'),
-          displayTask('cancelled', 'CANCELLED'),
+        tasks: [blocked, cancelled],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '我'},
+          {'user_id': 'user-2', 'display_name': '李四'},
         ],
       ),
       isStale: false,
@@ -48,27 +70,33 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: TaskListView(
-            sync: sync,
-            state: state,
-            canWrite: false,
-            showCompleted: true,
-            showFailed: true,
-            onTaskTap: (_) {},
+          body: Column(
+            children: [
+              TaskListRow(
+                task: blocked,
+                state: state,
+                showSubtitle: true,
+                subtasks: const [],
+                onTap: () {},
+              ),
+              TaskListRow(
+                task: cancelled,
+                state: state,
+                showSubtitle: true,
+                subtasks: const [],
+                onTap: () {},
+              ),
+            ],
           ),
         ),
       ),
     );
 
     expect(find.byIcon(Icons.pause_circle_outline), findsOneWidget);
-    expect(find.byIcon(Icons.fact_check_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.fact_check_outlined), findsNothing);
     expect(
       tester.getSemantics(find.byIcon(Icons.pause_circle_outline)).label,
       startsWith('阻塞中'),
-    );
-    expect(
-      tester.getSemantics(find.byIcon(Icons.fact_check_outlined)).label,
-      startsWith('待验收'),
     );
     expect(
       tester.getSemantics(find.byIcon(Icons.cancel)).label,
@@ -114,8 +142,59 @@ void main() {
       );
 
       expect(find.text('当前任务 1'), findsNothing);
-      expect(find.text('当前阻塞 1'), findsOneWidget);
-      expect(find.text('待我验收 1'), findsOneWidget);
+      expect(find.text('当前阻塞'), findsOneWidget);
+      expect(
+        find.byKey(const Key('home-action-count-blocked')),
+        findsOneWidget,
+      );
+      expect(find.text('待我验收'), findsNothing);
+      expect(find.text('待处理审批'), findsNothing);
     },
   );
+
+  testWidgets('blocked summary keeps owner and duration in compact pills', (
+    tester,
+  ) async {
+    final blocked = blockedDisplayTask();
+    final state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [blocked],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '我'},
+          {'user_id': 'user-2', 'display_name': '李四'},
+        ],
+      ),
+      home: HomeResponse(
+        currentTasks: HomeTaskSection(items: const []),
+        blockedTasks: HomeTaskSection(items: [blocked]),
+        reviewTasks: HomeTaskSection(items: const []),
+        pendingApprovalCount: 0,
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskListView(
+            sync: WorkspaceSyncController.unavailable(),
+            state: state,
+            canWrite: false,
+            onTaskTap: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('李四'), findsOneWidget);
+    expect(find.text('等待对方确认最终日期'), findsOneWidget);
+    expect(
+      find.byKey(const Key('home-action-duration-blocked-summary')),
+      findsOneWidget,
+    );
+    expect(find.byType(ActionChip), findsNothing);
+  });
 }

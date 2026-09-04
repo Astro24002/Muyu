@@ -17,19 +17,20 @@ class TaskListGroup {
     required this.key,
     required this.title,
     required this.tasks,
-    this.actionLabel,
   });
 
   final String key;
   final String title;
   final List<TaskItem> tasks;
-  final String? actionLabel;
 }
 
 class TaskView {
   static const statuses = taskStatuses;
 
   static const quadrants = <String>['Q1', 'Q2', 'Q3', 'Q4'];
+
+  /// The list is an action window, not an archive of every future task.
+  static const listWindowDays = 7;
 
   static List<TaskItem> mine(Iterable<TaskItem> tasks, String userId) =>
       List.unmodifiable(tasks.where((task) => task.currentHandlerId == userId));
@@ -136,31 +137,38 @@ class TaskView {
   }) {
     final current = (now ?? DateTime.now()).toLocal();
     final today = DateTime(current.year, current.month, current.day);
+    final windowEnd = today.add(const Duration(days: listWindowDays));
     final filtered = filterByLabel(
       tasks,
       label,
     ).where((task) => task.deletedAt == null && task.parentTaskId == null);
-    final active = filtered.where((task) => _isUnfinished(task.status));
+    final actionable = filtered.where((task) {
+      final status = normalizeTaskStatus(task.status);
+      return status == 'TODO' || status == 'IN_PROGRESS';
+    });
     final terminal = filtered.where((task) {
       final status = normalizeTaskStatus(task.status);
       if (status == 'DONE') return showCompleted;
       if (status == 'CANCELLED') return showFailed;
       return false;
     });
-    final past = active.where((task) {
+    final past = actionable.where((task) {
       final due = task.dueAt?.toLocal();
-      return due != null && _dateOnly(due).isBefore(today);
+      return due != null && due.isBefore(current);
     });
-    final upcoming = active.where((task) {
+    final upcoming = actionable.where((task) {
       final due = task.dueAt?.toLocal();
-      return due == null || !_dateOnly(due).isBefore(today);
+      // Older cached snapshots may not have the now-required deadline. Keep
+      // them visible in the action list until the next server refresh.
+      if (due == null) return true;
+      final date = _dateOnly(due);
+      return !due.isBefore(current) && date.isBefore(windowEnd);
     });
     final terminalTasks = _sortForList(terminal, sort, terminal: true);
     return [
       TaskListGroup(
         key: 'past',
         title: '已经延期',
-        actionLabel: '顺延至今天',
         tasks: _sortForList(past, sort),
       ),
       TaskListGroup(
@@ -220,6 +228,31 @@ class TaskView {
   static bool _isUnfinished(String status) {
     final normalized = normalizeTaskStatus(status);
     return normalized != 'DONE' && normalized != 'CANCELLED';
+  }
+
+  static String elapsedLabel({
+    required String prefix,
+    required DateTime? since,
+    DateTime? now,
+  }) {
+    final end = (now ?? DateTime.now()).toLocal();
+    final start = (since ?? end).toLocal();
+    final elapsed = end.difference(start);
+    final minutes = elapsed.isNegative ? 0 : elapsed.inMinutes;
+    if (minutes < 60) {
+      return '$prefix${minutes.toString().padLeft(2, '0')}m';
+    }
+    if (minutes < 48 * 60) {
+      final hours = minutes ~/ 60;
+      final remainder = minutes % 60;
+      return '$prefix${hours.toString().padLeft(2, '0')}h'
+          '${remainder.toString().padLeft(2, '0')}m';
+    }
+    final totalHours = minutes ~/ 60;
+    final days = totalHours ~/ 24;
+    final hours = totalHours % 24;
+    return '$prefix${days.toString().padLeft(3, ' ')}d'
+        '${hours.toString().padLeft(2, '0')}h';
   }
 
   static DateTime _dateOnly(DateTime value) =>

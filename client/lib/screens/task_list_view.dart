@@ -119,6 +119,7 @@ class _TaskListViewState extends State<TaskListView> {
           if (widget.state.home != null)
             _HomeActionSummary(
               home: widget.state.home!,
+              state: widget.state,
               onTaskTap: widget.onTaskTap,
             ),
           if (visibleTaskCount == 0)
@@ -153,32 +154,20 @@ class _TaskListViewState extends State<TaskListView> {
 }
 
 class _HomeActionSummary extends StatelessWidget {
-  const _HomeActionSummary({required this.home, required this.onTaskTap});
+  const _HomeActionSummary({
+    required this.home,
+    required this.state,
+    required this.onTaskTap,
+  });
 
   final HomeResponse home;
+  final WorkspaceSyncState state;
   final TaskNavigationCallback onTaskTap;
 
   @override
   Widget build(BuildContext context) {
-    final sections =
-        <({String key, String title, HomeTaskSection section, IconData icon})>[
-          (
-            key: 'blocked',
-            title: '当前阻塞',
-            section: home.blockedTasks,
-            icon: Icons.pause_circle_outline,
-          ),
-          (
-            key: 'review',
-            title: '待我验收',
-            section: home.reviewTasks,
-            icon: Icons.fact_check_outlined,
-          ),
-        ];
-    final visibleSections = sections
-        .where((item) => item.section.items.isNotEmpty || item.section.hasMore)
-        .toList(growable: false);
-    if (visibleSections.isEmpty && home.pendingApprovalCount == 0) {
+    final section = home.blockedTasks;
+    if (section.items.isEmpty && !section.hasMore) {
       return const SizedBox.shrink();
     }
     return Padding(
@@ -189,37 +178,13 @@ class _HomeActionSummary extends StatelessWidget {
           border: Border.all(color: Theme.of(context).colorScheme.outline),
           borderRadius: const BorderRadius.all(Radius.circular(6)),
         ),
-        child: Column(
-          children: [
-            for (final item in visibleSections)
-              _HomeActionSection(
-                key: Key('home-action-section-${item.key}'),
-                title: item.title,
-                icon: item.icon,
-                section: item.section,
-                onTaskTap: onTaskTap,
-              ),
-            if (home.pendingApprovalCount > 0)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  MuyuSpacing.md,
-                  MuyuSpacing.xs,
-                  MuyuSpacing.md,
-                  MuyuSpacing.md,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '待处理审批 ${home.pendingApprovalCount}',
-                    key: const Key('home-pending-approval-count'),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.error,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-          ],
+        child: _HomeActionSection(
+          key: const Key('home-action-section-blocked'),
+          title: '当前阻塞',
+          icon: Icons.pause_circle_outline,
+          section: section,
+          state: state,
+          onTaskTap: onTaskTap,
         ),
       ),
     );
@@ -232,17 +197,23 @@ class _HomeActionSection extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.section,
+    required this.state,
     required this.onTaskTap,
   });
 
   final String title;
   final IconData icon;
   final HomeTaskSection section;
+  final WorkspaceSyncState state;
   final TaskNavigationCallback onTaskTap;
 
   @override
   Widget build(BuildContext context) {
-    final count = '${section.items.length}${section.hasMore ? '+' : ''}';
+    final count = _taskCountLabel(
+      section.items.length,
+      hasMore: section.hasMore,
+    );
+    final extension = Theme.of(context).extension<MuyuThemeExtension>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -258,37 +229,194 @@ class _HomeActionSection extends StatelessWidget {
               Icon(
                 icon,
                 size: 18,
-                color: Theme.of(context).colorScheme.primary,
+                color: extension?.coral ?? Theme.of(context).colorScheme.error,
               ),
               const SizedBox(width: MuyuSpacing.xs),
-              Text(
-                '$title $count',
-                style: Theme.of(context).textTheme.titleMedium,
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(width: MuyuSpacing.sm),
+              _TaskCountBadge(
+                key: const Key('home-action-count-blocked'),
+                count: count,
+                semanticLabel: '$title，$count项',
               ),
             ],
           ),
         ),
         for (final task in section.items)
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              key: Key('home-action-task-${task.id}'),
-              dense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: MuyuSpacing.md,
-              ),
-              title: Text(
-                task.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(taskStatusLabel(task.status)),
-              onTap: () => onTaskTap(task),
-            ),
+          _BlockedTaskSummaryRow(
+            key: Key('home-action-task-${task.id}'),
+            task: task,
+            state: state,
+            onTap: () => onTaskTap(task),
           ),
       ],
     );
   }
+}
+
+class _BlockedTaskSummaryRow extends StatelessWidget {
+  const _BlockedTaskSummaryRow({
+    super.key,
+    required this.task,
+    required this.state,
+    required this.onTap,
+  });
+
+  final TaskItem task;
+  final WorkspaceSyncState state;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extension = theme.extension<MuyuThemeExtension>();
+    final owner = _memberDisplayName(state, task.currentHandlerId);
+    final reason = task.blockedReason?.trim();
+    final reasonText = reason == null || reason.isEmpty ? '等待继续处理' : reason;
+    final duration = TaskView.elapsedLabel(
+      prefix: '阻塞',
+      since: task.blockedSince,
+    );
+    return Semantics(
+      button: true,
+      label: '${task.title}，负责人$owner，$reasonText，$duration',
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: MuyuSpacing.md,
+          ),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  task.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: MuyuSpacing.sm),
+              _MetadataPill(
+                key: Key('home-action-owner-${task.id}'),
+                label: owner,
+                semanticLabel: '负责人$owner',
+                background:
+                    extension?.focusSurface ??
+                    theme.colorScheme.secondaryContainer,
+                foreground: theme.colorScheme.primary,
+              ),
+            ],
+          ),
+          subtitle: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  reasonText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: MuyuSpacing.sm),
+              _MetadataPill(
+                key: Key('home-action-duration-${task.id}'),
+                label: duration,
+                semanticLabel: duration,
+                background:
+                    extension?.coralSurface ?? theme.colorScheme.errorContainer,
+                foreground:
+                    extension?.coral ?? theme.colorScheme.onErrorContainer,
+              ),
+            ],
+          ),
+          trailing: const Icon(Icons.chevron_right, size: 20),
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
+}
+
+class _MetadataPill extends StatelessWidget {
+  const _MetadataPill({
+    super.key,
+    required this.label,
+    required this.semanticLabel,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String label;
+  final String semanticLabel;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: semanticLabel,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 132, minHeight: 24),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: const BorderRadius.all(Radius.circular(999)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.sm),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelMedium
+                ?.copyWith(color: foreground),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _TaskCountBadge extends StatelessWidget {
+  const _TaskCountBadge({
+    super.key,
+    required this.count,
+    required this.semanticLabel,
+  });
+
+  final String count;
+  final String semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extension = theme.extension<MuyuThemeExtension>();
+    return Semantics(
+      label: semanticLabel,
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 24, minHeight: 22),
+        padding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.xs),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color:
+              extension?.focusSurface ?? theme.colorScheme.secondaryContainer,
+          borderRadius: const BorderRadius.all(Radius.circular(6)),
+        ),
+        child: Text(
+          count,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.primary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _taskCountLabel(int count, {bool hasMore = false}) {
+  if (count >= 100) return '99+';
+  if (hasMore) return '$count+';
+  return '$count';
 }
 
 class TaskListSection extends StatelessWidget {
@@ -337,21 +465,17 @@ class TaskListSection extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    '${group.title} ${group.tasks.length}',
+                    group.title,
                     key: Key('task-section-title-${group.key}'),
                     style: Theme.of(context).textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
-                  if (group.actionLabel != null) ...[
-                    const SizedBox(width: MuyuSpacing.md),
-                    Text(
-                      group.actionLabel!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  const SizedBox(width: MuyuSpacing.sm),
+                  _TaskCountBadge(
+                    key: Key('task-section-count-${group.key}'),
+                    count: _taskCountLabel(group.tasks.length),
+                    semanticLabel: '${group.title}，${group.tasks.length}项',
+                  ),
                   const Spacer(),
                   Icon(
                     expanded
@@ -508,10 +632,8 @@ class TaskListRow extends StatelessWidget {
       final local = due.toLocal();
       parts.add(_dateText(local));
       final now = DateTime.now().toLocal();
-      final today = DateTime(now.year, now.month, now.day);
-      final dueDate = DateTime(local.year, local.month, local.day);
-      if (dueDate.isBefore(today)) {
-        parts.add('延期${today.difference(dueDate).inDays}天');
+      if (due.isBefore(now)) {
+        parts.add(TaskView.elapsedLabel(prefix: '逾期', since: due, now: now));
       }
     }
     if (normalizeTaskStatus(task.status) == 'IN_PROGRESS' &&

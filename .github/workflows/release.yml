@@ -66,7 +66,12 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --debug --dart-define=API_BASE_URL=https://muyu.bkverse.space
+      - name: Build production Android debug APK
+        working-directory: .
+        env:
+          API_BASE_URL: https://muyu.bkverse.space
+          ANDROID_BUILD_ENV: production
+        run: make client-build
       - name: Name Android APK with version
         working-directory: client
         env:
@@ -184,6 +189,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          API_BASE_URL: https://muyu.bkverse.space
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -Eeuo pipefail
@@ -191,8 +197,9 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 --decode >"$key_path"
           export ANDROID_KEYSTORE_PATH="$key_path"
           trap 'rm -f "$key_path"' EXIT
+          ../scripts/assert-production-api-base-url.sh "${API_BASE_URL-}"
           flutter pub get
-          flutter build appbundle --release --dart-define=API_BASE_URL=https://muyu.bkverse.space
+          flutter build appbundle --release --dart-define=API_BASE_URL="$API_BASE_URL"
           cd ../web
           npm ci
           npm run build

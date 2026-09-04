@@ -29,8 +29,14 @@ filename automatically. Flutter's `app-debug.apk` remains only as an internal
 intermediate file:
 
 ```sh
-API_BASE_URL=https://muyu.bkverse.space make client-build
+ANDROID_BUILD_ENV=production API_BASE_URL=https://muyu.bkverse.space make client-build
 # client/build/app/outputs/flutter-apk/Muyu-$(git rev-parse --short HEAD).apk
+```
+
+Local development may opt into a LAN or loopback API explicitly:
+
+```sh
+ANDROID_BUILD_ENV=local API_BASE_URL=http://10.0.2.2:8080 make client-build
 ```
 
 Release assets use the version tag instead, for example
@@ -40,7 +46,7 @@ Install the debug APK only on an internal/test device. Supply the API origin at
 build time when it is not served from the same origin:
 
 ```sh
-API_BASE_URL=https://muyu.bkverse.space make client-build
+ANDROID_BUILD_ENV=production API_BASE_URL=https://muyu.bkverse.space make client-build
 cd web
 npm ci
 VITE_API_BASE_URL=/ npm run build

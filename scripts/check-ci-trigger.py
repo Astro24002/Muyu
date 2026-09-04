@@ -6,11 +6,14 @@ from pathlib import Path
 
 makefile = Path("Makefile").read_text(encoding="utf-8")
 debug_builder = Path("scripts/build-android-debug.sh")
+production_guard = Path("scripts/assert-production-api-base-url.sh")
 assert "scripts/build-android-debug.sh" in makefile, (
     "client-build must use the shared Android debug artifact builder"
 )
 assert debug_builder.is_file(), "the shared Android debug artifact builder must exist"
 assert debug_builder.stat().st_mode & 0o111, "the Android debug artifact builder must be executable"
+assert production_guard.is_file(), "the production Android API guard must exist"
+assert production_guard.stat().st_mode & 0o111, "the production Android API guard must be executable"
 
 expected = "on:\n  push:\n    tags:\n      - 'v*.*.*'\n  release:\n    types: [published]"
 for workflow in ("ci.yml", "release.yml"):
@@ -44,8 +47,17 @@ workflow_texts = (
     ("release.yml", release),
 )
 for workflow_name, workflow_text in workflow_texts:
-    assert "API_BASE_URL=https://muyu.bkverse.space" in workflow_text, (
+    assert (
+        "API_BASE_URL=https://muyu.bkverse.space" in workflow_text
+        or "API_BASE_URL: https://muyu.bkverse.space" in workflow_text
+    ), (
         f"{workflow_name} Android artifacts must target the production API"
+    )
+    assert "ANDROID_BUILD_ENV: production" in workflow_text, (
+        f"{workflow_name} Android artifacts must use the production build gate"
+    )
+    assert "run: make client-build" in workflow_text, (
+        f"{workflow_name} Android artifacts must use the shared production builder"
     )
     assert "API_BASE_URL=https://example.invalid" not in workflow_text, (
         f"{workflow_name} must not publish Android artifacts with a placeholder API"
@@ -64,4 +76,7 @@ builder = Path("scripts/build-android-debug.sh").read_text(encoding="utf-8")
 assert 'commit_id="${commit_id:0:7}"' in builder
 assert 'commit_apk="$output_dir/Muyu-${commit_id}.apk"' in builder
 assert 'cp -- "$source_apk" "$commit_apk"' in builder
+assert 'assert-production-api-base-url.sh' in builder
+assert 'assets/flutter_assets/kernel_blob.bin' in builder
+assert 'unzip -tq "$commit_apk"' in builder
 print("CI and release trigger check passed")

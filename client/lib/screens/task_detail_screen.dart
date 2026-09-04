@@ -38,6 +38,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   int? _selectedProgress;
   bool _saving = false;
   bool _commenting = false;
+  bool _editing = false;
   String? _pendingMessage;
   String? _formError;
 
@@ -131,9 +132,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       final userId = member['user_id'];
       if (userId is! String || userId.isEmpty) continue;
       final displayName = member['display_name'];
+      final phone =
+          member['phone_e164'] ??
+          member['phone_number'] ??
+          member['mobile'] ??
+          member['phone'];
       labels[userId] = displayName is String && displayName.trim().isNotEmpty
           ? displayName.trim()
-          : userId;
+          : phone is String && phone.trim().isNotEmpty
+          ? phone.trim()
+          : '协作成员';
     }
     return labels;
   }
@@ -145,6 +153,69 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     ...activeHandlerIds,
     if (!activeHandlerIds.contains(storedHandlerId)) storedHandlerId,
   ];
+
+  void _loadEditor(TaskItem task) {
+    _title.text = task.title;
+    _description.text = task.description;
+    _dueAt.text = _dateText(task.dueAt);
+    _plannedStartAt.text = _dateText(task.plannedStartAt);
+    _estimatedMinutes.text = task.estimatedMinutes?.toString() ?? '';
+    _selectedLabels = _normalizeLabels(task.labels);
+    _selectedQuadrant = task.quadrant;
+    _selectedResumeHandlerId = task.resumeHandlerId ?? task.currentHandlerId;
+    _selectedProgress = task.progress;
+    _label.clear();
+    _labelError = null;
+    _formError = null;
+  }
+
+  void _beginEditing() {
+    if (!widget.canWrite || _current.deletedAt != null) return;
+    setState(() {
+      _loadEditor(_current);
+      _editing = true;
+    });
+  }
+
+  void _cancelEditing() {
+    setState(() {
+      _loadEditor(_current);
+      _editing = false;
+    });
+  }
+
+  Future<DateTime?> _pickDateTime(DateTime? current) async {
+    final initial = (current ?? DateTime.now().add(const Duration(hours: 1)))
+        .toLocal();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime(initial.year, initial.month, initial.day),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (!mounted || date == null) return null;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (!mounted || time == null) return null;
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> _pickDueAt() async {
+    final picked = await _pickDateTime(_dateValueAsDate(_dueAt.text));
+    if (!mounted || picked == null) return;
+    setState(() {
+      _dueAt.text = picked.toUtc().toIso8601String();
+      _formError = null;
+    });
+  }
+
+  Future<void> _pickPlannedStartAt() async {
+    final picked = await _pickDateTime(_dateValueAsDate(_plannedStartAt.text));
+    if (!mounted || picked == null) return;
+    setState(() => _plannedStartAt.text = picked.toUtc().toIso8601String());
+  }
 
   void _addLabel() {
     final label = _label.text.trim();
@@ -220,12 +291,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           _selectedProgress != current.progress)
         'progress': _selectedProgress,
     };
-    if (fields.isEmpty) return;
+    if (fields.isEmpty) {
+      setState(() => _editing = false);
+      return;
+    }
     setState(() => _saving = true);
     try {
       final result = await widget.sync.update(current.id, fields: fields);
       if (result is PendingApproval && mounted) {
-        setState(() => _pendingMessage = '等待负责人审批');
+        setState(() {
+          _pendingMessage = '等待负责人审批';
+          _editing = false;
+        });
+      } else if (result != null && mounted) {
+        setState(() => _editing = false);
       }
     } catch (_) {
       // The controller exposes the authoritative error in its state.
@@ -520,8 +599,787 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     });
   }
 
+  List<TaskItem> _subtasksFor(TaskItem task) {
+    final children = (widget.sync.state.snapshot?.tasks ?? const <TaskItem>[])
+        .where(
+          (candidate) =>
+              candidate.parentTaskId == task.id && candidate.deletedAt == null,
+        )
+        .toList();
+    children.sort((left, right) {
+      final leftTerminal = _isTerminal(left.status);
+      final rightTerminal = _isTerminal(right.status);
+      if (leftTerminal != rightTerminal) return leftTerminal ? 1 : -1;
+      final leftDue = left.dueAt;
+      final rightDue = right.dueAt;
+      if (leftDue == null && rightDue != null) return 1;
+      if (leftDue != null && rightDue == null) return -1;
+      if (leftDue != null && rightDue != null) {
+        final comparison = leftDue.compareTo(rightDue);
+        if (comparison != 0) return comparison;
+      }
+      return right.updatedAt.compareTo(left.updatedAt);
+    });
+    return children;
+  }
+
+  TaskItem? _parentFor(TaskItem task) {
+    final parentId = task.parentTaskId;
+    if (parentId == null) return null;
+    for (final candidate
+        in widget.sync.state.snapshot?.tasks ?? const <TaskItem>[]) {
+      if (candidate.id == parentId) return candidate;
+    }
+    return null;
+  }
+
+  void _openRelatedTask(TaskItem task) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TaskDetailScreen(
+          task: task,
+          sync: widget.sync,
+          canWrite: widget.canWrite,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createSubtask(TaskItem parent) async {
+    if (!widget.canWrite || parent.deletedAt != null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _CreateSubtaskSheet(parent: parent, sync: widget.sync),
+    );
+  }
+
+  Color _quadrantColor(BuildContext context, String quadrant) {
+    final theme = Theme.of(context);
+    final extension = theme.extension<MuyuThemeExtension>();
+    return switch (quadrant) {
+      'Q1' => extension?.quadrantQ1 ?? theme.colorScheme.error,
+      'Q2' => extension?.quadrantQ2 ?? theme.colorScheme.primary,
+      'Q3' => extension?.quadrantQ3 ?? theme.colorScheme.primary,
+      'Q4' => extension?.quadrantQ4 ?? theme.colorScheme.primary,
+      _ => theme.colorScheme.onSurfaceVariant,
+    };
+  }
+
+  Color _statusColor(BuildContext context, String status) {
+    final theme = Theme.of(context);
+    final extension = theme.extension<MuyuThemeExtension>();
+    return switch (taskStatusTone(status)) {
+      TaskStatusTone.done => extension?.sync ?? theme.colorScheme.secondary,
+      TaskStatusTone.cancelled => theme.colorScheme.error,
+      TaskStatusTone.blocked => extension?.coral ?? theme.colorScheme.error,
+      TaskStatusTone.review => theme.colorScheme.secondary,
+      TaskStatusTone.inProgress => theme.colorScheme.primary,
+      TaskStatusTone.todo => theme.colorScheme.onSurfaceVariant,
+      TaskStatusTone.unknown => theme.colorScheme.error,
+    };
+  }
+
+  IconData _statusIcon(String status) => switch (taskStatusTone(status)) {
+    TaskStatusTone.done => Icons.check_circle,
+    TaskStatusTone.cancelled => Icons.cancel,
+    TaskStatusTone.blocked => Icons.pause_circle_outline,
+    TaskStatusTone.review => Icons.fact_check_outlined,
+    TaskStatusTone.inProgress => Icons.play_circle_outline,
+    TaskStatusTone.todo => Icons.radio_button_unchecked,
+    TaskStatusTone.unknown => Icons.help_outline,
+  };
+
+  String _transitionLabel(String currentStatus, String targetStatus) {
+    final current = normalizeTaskStatus(currentStatus);
+    final target = normalizeTaskStatus(targetStatus);
+    if ((current == 'DONE' || current == 'CANCELLED') &&
+        (target == 'TODO' || target == 'IN_PROGRESS')) {
+      return '重新打开';
+    }
+    if (target == 'BLOCKED') return '标记阻塞';
+    if (target == 'CANCELLED') return '取消任务';
+    return taskStatusActionLabel(
+      currentStatus: currentStatus,
+      targetStatus: targetStatus,
+    );
+  }
+
+  bool _isPrimaryTransition(String currentStatus, String targetStatus) {
+    final current = normalizeTaskStatus(currentStatus);
+    final target = normalizeTaskStatus(targetStatus);
+    return (current == 'TODO' && target == 'IN_PROGRESS') ||
+        (current == 'IN_PROGRESS' && target == 'REVIEW') ||
+        (current == 'BLOCKED' && target == 'IN_PROGRESS') ||
+        (current == 'REVIEW' && target == 'DONE') ||
+        (current == 'DONE' && target == 'IN_PROGRESS') ||
+        (current == 'CANCELLED' && target == 'TODO');
+  }
+
+  static bool _isTerminal(String status) {
+    final normalized = normalizeTaskStatus(status);
+    return normalized == 'DONE' || normalized == 'CANCELLED';
+  }
+
+  String _displayDate(DateTime? value) {
+    if (value == null) return '未设置';
+    final local = value.toLocal();
+    const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$month月$day日 周${weekdays[local.weekday - 1]} $hour:$minute';
+  }
+
+  String? _dueHint(DateTime? value) {
+    if (value == null) return null;
+    final now = DateTime.now();
+    if (!value.isBefore(now)) return null;
+    final difference = now.difference(value);
+    if (difference.inDays > 0) return '已逾期 ${difference.inDays} 天';
+    if (difference.inHours > 0) return '已逾期 ${difference.inHours} 小时';
+    return '已逾期';
+  }
+
+  Widget _buildHeader(
+    BuildContext context,
+    TaskItem task,
+    Map<String, String> handlerLabels,
+    bool isOwner,
+  ) {
+    final theme = Theme.of(context);
+    final statusColor = _statusColor(context, task.status);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: MuyuSpacing.xs),
+              child: Icon(
+                _statusIcon(task.status),
+                color: statusColor,
+                size: 28,
+                semanticLabel: taskStatusLabel(task.status),
+              ),
+            ),
+            const SizedBox(width: MuyuSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task.taskNumber.isEmpty ? '任务' : '任务编号 ${task.taskNumber}',
+                    key: const Key('task-number'),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: MuyuSpacing.xs),
+                  if (_editing)
+                    TextField(
+                      key: const Key('task-detail-title'),
+                      controller: _title,
+                      autofocus: true,
+                      enabled: widget.canWrite,
+                      maxLines: 3,
+                      decoration: const InputDecoration(labelText: '任务标题'),
+                    )
+                  else
+                    Text(
+                      task.title,
+                      key: const Key('task-detail-title'),
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  const SizedBox(height: MuyuSpacing.sm),
+                  Wrap(
+                    spacing: MuyuSpacing.sm,
+                    runSpacing: MuyuSpacing.xs,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _StatusBadge(
+                        label: taskStatusLabel(task.status),
+                        color: statusColor,
+                      ),
+                      Text(
+                        isOwner
+                            ? '我负责'
+                            : '${handlerLabels[task.currentHandlerId] ?? '协作成员'}负责',
+                        key: const Key('task-permission-hint'),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (!_editing && task.description.trim().isNotEmpty) ...[
+          const SizedBox(height: MuyuSpacing.lg),
+          Text(task.description, style: theme.textTheme.bodyLarge),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildReadOnlyAttributes(
+    BuildContext context,
+    TaskItem task,
+    Map<String, String> handlerLabels,
+  ) {
+    final theme = Theme.of(context);
+    final dueHint = _dueHint(task.dueAt);
+    return Column(
+      children: [
+        _DetailAttributeRow(
+          icon: Icons.person_outline,
+          label: '负责人',
+          child: Text(handlerLabels[task.currentHandlerId] ?? '协作成员'),
+        ),
+        _DetailAttributeRow(
+          icon: Icons.schedule_outlined,
+          label: '截止时间',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(_displayDate(task.dueAt)),
+              if (dueHint != null)
+                Text(
+                  dueHint,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        _DetailAttributeRow(
+          icon: Icons.star_outline,
+          label: '分类',
+          child: task.labels.isEmpty
+              ? Text('未分类', style: theme.textTheme.bodySmall)
+              : Wrap(
+                  spacing: MuyuSpacing.xs,
+                  runSpacing: MuyuSpacing.xs,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    for (final label in task.labels)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: MuyuSpacing.sm,
+                          vertical: MuyuSpacing.xs,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(label, style: theme.textTheme.bodySmall),
+                      ),
+                  ],
+                ),
+        ),
+        _DetailAttributeRow(
+          icon: Icons.priority_high,
+          iconColor: _quadrantColor(context, task.quadrant),
+          label: '四象限',
+          child: Text(_quadrantLabels[task.quadrant] ?? task.quadrant),
+        ),
+        if (normalizeTaskStatus(task.status) == 'IN_PROGRESS')
+          _DetailAttributeRow(
+            icon: Icons.donut_small_outlined,
+            label: '当前进度',
+            child: Text('${task.progress ?? 20}%'),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildEditor(
+    BuildContext context,
+    TaskItem task,
+    List<String> handlerIds,
+    Set<String> activeHandlerIds,
+    Map<String, String> handlerLabels,
+  ) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('task-detail-description'),
+          controller: _description,
+          maxLines: 3,
+          enabled: widget.canWrite,
+          decoration: const InputDecoration(labelText: '任务描述'),
+        ),
+        const SizedBox(height: MuyuSpacing.md),
+        _DateEditor(
+          fieldKey: const Key('task-detail-due-at'),
+          icon: Icons.schedule_outlined,
+          label: '截止时间',
+          value: _displayDate(_dateValueAsDate(_dueAt.text)),
+          controller: _dueAt,
+          onTap: _pickDueAt,
+        ),
+        const SizedBox(height: MuyuSpacing.md),
+        Text('分类', style: theme.textTheme.labelLarge),
+        const SizedBox(height: MuyuSpacing.sm),
+        TextField(
+          key: const Key('task-detail-label-input'),
+          controller: _label,
+          enabled: widget.canWrite && _selectedLabels.length < 10,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _addLabel(),
+          decoration: InputDecoration(
+            hintText: '输入分类名称',
+            errorText: _labelError,
+            prefixIcon: const Icon(Icons.star_outline),
+            suffixIcon: IconButton(
+              key: const Key('task-detail-label-add'),
+              tooltip: '添加分类',
+              onPressed: widget.canWrite && _selectedLabels.length < 10
+                  ? _addLabel
+                  : null,
+              icon: const Icon(Icons.add),
+            ),
+          ),
+        ),
+        if (_selectedLabels.isNotEmpty) ...[
+          const SizedBox(height: MuyuSpacing.sm),
+          Wrap(
+            spacing: MuyuSpacing.xs,
+            runSpacing: MuyuSpacing.xs,
+            children: [
+              for (final label in _selectedLabels)
+                InputChip(
+                  key: Key('task-label-chip-$label'),
+                  label: Text(label),
+                  deleteIcon: Icon(
+                    Icons.close,
+                    key: Key('task-label-remove-$label'),
+                  ),
+                  onDeleted: widget.canWrite ? () => _removeLabel(label) : null,
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: MuyuSpacing.lg),
+        Text('四象限', style: theme.textTheme.labelLarge),
+        const SizedBox(height: MuyuSpacing.sm),
+        Wrap(
+          key: const Key('task-quadrant-select'),
+          spacing: MuyuSpacing.sm,
+          runSpacing: MuyuSpacing.sm,
+          children: [
+            for (final entry in _quadrantLabels.entries)
+              _QuadrantChoice(
+                key: Key('task-quadrant-option-${entry.key}'),
+                value: entry.key,
+                label: entry.value.substring(3),
+                color: _quadrantColor(context, entry.key),
+                selected: _selectedQuadrant == entry.key,
+                onTap: widget.canWrite
+                    ? () => setState(() => _selectedQuadrant = entry.key)
+                    : null,
+              ),
+          ],
+        ),
+        const SizedBox(height: MuyuSpacing.lg),
+        if (handlerIds.isNotEmpty)
+          DropdownButtonFormField<String>(
+            key: const Key('task-handler-select'),
+            initialValue: task.currentHandlerId,
+            decoration: const InputDecoration(
+              labelText: '负责人',
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+            items: handlerIds
+                .map(
+                  (id) => DropdownMenuItem(
+                    value: id,
+                    enabled: activeHandlerIds.contains(id),
+                    child: Text(handlerLabels[id] ?? '协作成员'),
+                  ),
+                )
+                .toList(),
+            onChanged: widget.canWrite ? _changeHandler : null,
+          ),
+        if (normalizeTaskStatus(task.status) == 'IN_PROGRESS') ...[
+          const SizedBox(height: MuyuSpacing.md),
+          DropdownButtonFormField<int>(
+            key: const Key('task-progress-select'),
+            initialValue: const [20, 40, 60, 80].contains(_selectedProgress)
+                ? _selectedProgress
+                : 20,
+            decoration: const InputDecoration(
+              labelText: '当前进度',
+              prefixIcon: Icon(Icons.donut_small_outlined),
+            ),
+            items: const [20, 40, 60, 80]
+                .map(
+                  (value) =>
+                      DropdownMenuItem(value: value, child: Text('$value%')),
+                )
+                .toList(),
+            onChanged: widget.canWrite
+                ? (value) => setState(() => _selectedProgress = value)
+                : null,
+          ),
+        ],
+        const SizedBox(height: MuyuSpacing.md),
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          initiallyExpanded: true,
+          title: const Text('更多信息'),
+          children: [
+            _DateEditor(
+              fieldKey: const Key('task-detail-planned-start-at'),
+              icon: Icons.event_available_outlined,
+              label: '计划开始',
+              value: _displayDate(_dateValueAsDate(_plannedStartAt.text)),
+              controller: _plannedStartAt,
+              onTap: _pickPlannedStartAt,
+            ),
+            const SizedBox(height: MuyuSpacing.md),
+            TextField(
+              key: const Key('task-detail-estimated-minutes'),
+              controller: _estimatedMinutes,
+              keyboardType: TextInputType.number,
+              enabled: widget.canWrite,
+              decoration: const InputDecoration(
+                labelText: '预计工时（分钟）',
+                prefixIcon: Icon(Icons.timer_outlined),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusActions(
+    BuildContext context,
+    TaskItem task,
+    List<String> transitions,
+    List<String> resumeHandlerIds,
+    Set<String> activeHandlerIds,
+    Map<String, String> handlerLabels,
+  ) {
+    final normalized = normalizeTaskStatus(task.status);
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('当前状态', style: theme.textTheme.titleMedium),
+            const Spacer(),
+            _StatusBadge(
+              label: taskStatusLabel(task.status),
+              color: _statusColor(context, task.status),
+            ),
+          ],
+        ),
+        if (normalized == 'BLOCKED') ...[
+          const SizedBox(height: MuyuSpacing.md),
+          _StateNotice(
+            icon: Icons.pause_circle_outline,
+            title: '任务正在等待',
+            lines: [
+              if (task.blockedReason != null) '原因：${task.blockedReason}',
+              if (task.blockedSince != null)
+                '开始时间：${_displayDate(task.blockedSince)}',
+              if (task.waitingForUserId != null)
+                '等待对象：${handlerLabels[task.waitingForUserId] ?? '协作成员'}',
+            ],
+          ),
+          if (resumeHandlerIds.isNotEmpty) ...[
+            const SizedBox(height: MuyuSpacing.md),
+            DropdownButtonFormField<String>(
+              key: const Key('task-resume-handler-select'),
+              initialValue:
+                  _selectedResumeHandlerId ??
+                  task.resumeHandlerId ??
+                  task.currentHandlerId,
+              decoration: const InputDecoration(labelText: '解除阻塞后负责人'),
+              items: resumeHandlerIds
+                  .map(
+                    (id) => DropdownMenuItem(
+                      value: id,
+                      enabled: activeHandlerIds.contains(id),
+                      child: Text(handlerLabels[id] ?? '协作成员'),
+                    ),
+                  )
+                  .toList(),
+              onChanged: widget.canWrite ? _changeResumeHandler : null,
+            ),
+          ],
+        ],
+        if (normalized == 'REVIEW') ...[
+          const SizedBox(height: MuyuSpacing.md),
+          _StateNotice(
+            icon: Icons.fact_check_outlined,
+            title: '等待验收',
+            lines: [
+              '验收人：${handlerLabels[task.reviewerUserId] ?? '协作成员'}',
+              if (task.reviewSubmittedAt != null)
+                '提交时间：${_displayDate(task.reviewSubmittedAt)}',
+              if (task.reviewRejectionReason?.trim().isNotEmpty == true)
+                '退回原因：${task.reviewRejectionReason}',
+            ],
+          ),
+          Text(
+            // Keep the legacy keyed summary available to widget tests and
+            // accessibility tooling; the visible notice always uses a safe
+            // display label when member data is unavailable.
+            '验收人：${handlerLabels[task.reviewerUserId] ?? task.reviewerUserId ?? '协作成员'}',
+            key: const Key('task-reviewer-summary'),
+            style: const TextStyle(fontSize: 0),
+          ),
+        ],
+        if (transitions.isNotEmpty && task.deletedAt == null) ...[
+          const SizedBox(height: MuyuSpacing.lg),
+          Wrap(
+            spacing: MuyuSpacing.sm,
+            runSpacing: MuyuSpacing.sm,
+            children: [
+              for (final status in transitions)
+                if (_isPrimaryTransition(task.status, status))
+                  OutlinedButton.icon(
+                    key: Key('task-status-${status.toLowerCase()}'),
+                    onPressed: widget.canWrite
+                        ? () => _transition(status)
+                        : null,
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: _statusColor(
+                        context,
+                        status,
+                      ).withAlpha(20),
+                      side: BorderSide(color: _statusColor(context, status)),
+                      foregroundColor: _statusColor(context, status),
+                    ),
+                    icon: Icon(_statusIcon(status), size: 18),
+                    label: Text(_transitionLabel(task.status, status)),
+                  )
+                else
+                  OutlinedButton(
+                    key: Key('task-status-${status.toLowerCase()}'),
+                    onPressed: widget.canWrite
+                        ? () => _transition(status)
+                        : null,
+                    child: Text(_transitionLabel(task.status, status)),
+                  ),
+              OutlinedButton.icon(
+                key: const Key('task-delay-button'),
+                onPressed: widget.canWrite ? _addDelay : null,
+                icon: const Icon(Icons.schedule_outlined, size: 18),
+                label: const Text('记录延期'),
+              ),
+            ],
+          ),
+        ] else if (task.deletedAt == null) ...[
+          const SizedBox(height: MuyuSpacing.lg),
+          OutlinedButton.icon(
+            key: const Key('task-delay-button'),
+            onPressed: widget.canWrite ? _addDelay : null,
+            icon: const Icon(Icons.schedule_outlined, size: 18),
+            label: const Text('记录延期'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRelationships(
+    BuildContext context,
+    TaskItem task,
+    List<TaskItem> subtasks,
+    TaskItem? parent,
+    Map<String, String> handlerLabels,
+  ) {
+    final theme = Theme.of(context);
+    if (parent != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '所属任务',
+            key: const Key('task-parent'),
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: MuyuSpacing.sm),
+          _RelatedTaskRow(
+            task: parent,
+            handlerLabel: handlerLabels[parent.currentHandlerId] ?? '协作成员',
+            statusColor: _statusColor(context, parent.status),
+            statusIcon: _statusIcon(parent.status),
+            dueText: _displayDate(parent.dueAt),
+            onTap: () => _openRelatedTask(parent),
+            parent: true,
+          ),
+        ],
+      );
+    }
+    final completed = subtasks
+        .where((item) => normalizeTaskStatus(item.status) == 'DONE')
+        .length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('子任务', style: theme.textTheme.titleMedium),
+            const Spacer(),
+            Text(
+              '$completed/${subtasks.length}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+        if (subtasks.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.md),
+            child: Text('还没有子任务', style: theme.textTheme.bodySmall),
+          )
+        else
+          for (final subtask in subtasks)
+            _RelatedTaskRow(
+              task: subtask,
+              handlerLabel: handlerLabels[subtask.currentHandlerId] ?? '协作成员',
+              statusColor: _statusColor(context, subtask.status),
+              statusIcon: _statusIcon(subtask.status),
+              dueText: _displayDate(subtask.dueAt),
+              dueHint: _dueHint(subtask.dueAt),
+              onTap: () => _openRelatedTask(subtask),
+            ),
+        if (widget.canWrite && task.deletedAt == null) ...[
+          const SizedBox(height: MuyuSpacing.xs),
+          TextButton.icon(
+            key: const Key('task-add-subtask'),
+            onPressed: () => _createSubtask(task),
+            icon: const Icon(Icons.add),
+            label: const Text('添加子任务'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildComments(
+    BuildContext context,
+    List<TaskComment> comments,
+    Map<String, String> handlerLabels,
+  ) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('评论', style: theme.textTheme.titleMedium),
+            const Spacer(),
+            Text('${comments.length}', style: theme.textTheme.bodySmall),
+          ],
+        ),
+        if (comments.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.md),
+            child: Text('还没有评论', style: theme.textTheme.bodySmall),
+          )
+        else
+          for (final comment in comments)
+            _CommentRow(
+              comment: comment,
+              authorLabel: handlerLabels[comment.authorUserId] ?? '协作成员',
+              canDelete: widget.canWrite && comment.deletedAt == null,
+              onDelete: () => _deleteComment(comment),
+            ),
+        const SizedBox(height: MuyuSpacing.sm),
+        TextField(
+          key: const Key('task-comment-input'),
+          controller: _comment,
+          enabled: widget.canWrite,
+          minLines: 1,
+          maxLines: 3,
+          decoration: InputDecoration(
+            hintText: '写评论……',
+            suffixIcon: IconButton(
+              key: const Key('task-comment-submit'),
+              tooltip: '发送评论',
+              onPressed: !widget.canWrite || _commenting ? null : _addComment,
+              icon: _commenting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConflicts(
+    BuildContext context,
+    List<Map<String, dynamic>> conflicts,
+  ) {
+    if (conflicts.isEmpty) return const SizedBox.shrink();
+    return ExpansionTile(
+      key: const Key('task-conflicts-section'),
+      initiallyExpanded: true,
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      leading: Icon(
+        Icons.warning_amber,
+        color: Theme.of(context).colorScheme.error,
+      ),
+      title: Text('待解决冲突 ${conflicts.length}'),
+      children: [
+        for (final conflict in conflicts)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('任务内容存在同步冲突'),
+            subtitle: const Text('请选择保留当前内容或采用对方修改'),
+            trailing: Wrap(
+              children: [
+                TextButton(
+                  key: Key('resolve-conflict-${conflict['id']}'),
+                  onPressed: widget.canWrite
+                      ? () => _resolveConflict(
+                          conflict['id'] as String,
+                          'current',
+                        )
+                      : null,
+                  child: const Text('保留当前'),
+                ),
+                TextButton(
+                  onPressed: widget.canWrite
+                      ? () => _resolveConflict(
+                          conflict['id'] as String,
+                          'proposed',
+                        )
+                      : null,
+                  child: const Text('采用对方'),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   static String _dateText(DateTime? value) =>
       value?.toUtc().toIso8601String() ?? '';
+
+  static DateTime? _dateValueAsDate(String text) {
+    final value = text.trim();
+    return value.isEmpty ? null : DateTime.tryParse(value);
+  }
 
   static String? _dateValue(String text) {
     final value = text.trim();
@@ -547,8 +1405,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       final pendingApproval = widget.sync.state.approvalRequests.any(
         (request) => request.taskId == task.id && request.status == 'PENDING',
       );
-      final quadrant = _selectedQuadrant;
-      final progress = _selectedProgress;
       final comments =
           widget.sync.state.comments
               .where((comment) => comment.taskId == task.id)
@@ -579,346 +1435,697 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         reviewerUserId: task.reviewerUserId,
         actorUserId: viewerId,
       );
+      final subtasks = task.parentTaskId == null
+          ? _subtasksFor(task)
+          : const <TaskItem>[];
+      final parent = _parentFor(task);
       return Scaffold(
         appBar: AppBar(
-          title: Text(task.title),
+          title: const Text('任务详情'),
           actions: [
             IconButton(
               key: const Key('task-save-button'),
-              tooltip: '保存任务',
+              tooltip: _editing ? '保存任务' : '编辑任务',
               onPressed: !widget.canWrite || _saving || task.deletedAt != null
                   ? null
-                  : _save,
+                  : _editing
+                  ? _save
+                  : _beginEditing,
               icon: _saving
                   ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.save),
+                  : Icon(_editing ? Icons.save_outlined : Icons.edit_outlined),
             ),
+            if (_editing)
+              IconButton(
+                key: const Key('task-edit-cancel'),
+                tooltip: '取消编辑',
+                onPressed: _saving ? null : _cancelEditing,
+                icon: const Icon(Icons.close),
+              ),
           ],
         ),
         body: ListView(
           padding: const EdgeInsets.all(MuyuSpacing.lg),
           children: [
             if (widget.sync.state.errorMessage != null)
-              Text(
-                widget.sync.state.errorMessage!,
-                key: const Key('task-error'),
+              _InlineNotice(
+                messageKey: const Key('task-error'),
+                icon: Icons.sync_problem_outlined,
+                color: Theme.of(context).colorScheme.error,
+                message: widget.sync.state.errorMessage!,
               ),
             if (_handlerError != null)
-              Text(_handlerError!, key: const Key('task-handler-error')),
+              _InlineNotice(
+                messageKey: const Key('task-handler-error'),
+                icon: Icons.info_outline,
+                color: Theme.of(context).colorScheme.error,
+                message: _handlerError!,
+              ),
             if (_formError != null)
-              Text(_formError!, key: const Key('task-form-error')),
-            Text(
-              task.taskNumber.isEmpty ? '任务' : '任务编号：${task.taskNumber}',
-              key: const Key('task-number'),
-            ),
-            Text(
-              isOwner ? '当前设备是任务负责人' : '协作成员，修改需负责人审批',
-              key: const Key('task-permission-hint'),
-            ),
-            if (task.parentTaskId != null)
-              Text('父任务：${task.parentTaskId}', key: const Key('task-parent')),
+              _InlineNotice(
+                messageKey: const Key('task-form-error'),
+                icon: Icons.error_outline,
+                color: Theme.of(context).colorScheme.error,
+                message: _formError!,
+              ),
             if (_pendingMessage != null || pendingApproval)
-              Card(
-                key: const Key('task-pending-approval'),
-                child: Text(_pendingMessage ?? '等待负责人审批'),
+              _InlineNotice(
+                messageKey: const Key('task-pending-approval'),
+                icon: Icons.hourglass_top_outlined,
+                color: Theme.of(context).colorScheme.primary,
+                message: _pendingMessage ?? '等待负责人审批',
               ),
-            TextField(
-              key: const Key('task-detail-title'),
-              controller: _title,
-              enabled: widget.canWrite,
-              decoration: const InputDecoration(labelText: '标题'),
-            ),
-            const SizedBox(height: MuyuSpacing.sm),
-            DropdownButtonFormField<String>(
-              key: const Key('task-quadrant-select'),
-              initialValue: quadrant,
-              decoration: const InputDecoration(labelText: '四象限（必选）'),
-              items: _quadrantLabels.entries
-                  .map(
-                    (entry) => DropdownMenuItem(
-                      value: entry.key,
-                      child: Text(entry.value),
+            Card(
+              key: const Key('task-detail-card'),
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.all(MuyuSpacing.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHeader(context, task, handlerLabels, isOwner),
+                    const Divider(height: MuyuSpacing.xxl),
+                    if (_editing)
+                      _buildEditor(
+                        context,
+                        task,
+                        handlerIds,
+                        activeHandlerIds,
+                        handlerLabels,
+                      )
+                    else
+                      _buildReadOnlyAttributes(context, task, handlerLabels),
+                    const Divider(height: MuyuSpacing.xxl),
+                    _buildStatusActions(
+                      context,
+                      task,
+                      transitionStatuses,
+                      resumeHandlerIds,
+                      activeHandlerIds,
+                      handlerLabels,
                     ),
-                  )
-                  .toList(),
-              onChanged: !widget.canWrite || task.deletedAt != null
-                  ? null
-                  : (value) {
-                      if (value != null) {
-                        setState(() => _selectedQuadrant = value);
-                      }
-                    },
-            ),
-            const SizedBox(height: MuyuSpacing.sm),
-            TextField(
-              key: const Key('task-detail-label-input'),
-              controller: _label,
-              enabled:
-                  widget.canWrite &&
-                  task.deletedAt == null &&
-                  _selectedLabels.length < 10,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _addLabel(),
-              decoration: InputDecoration(
-                labelText: '标签（可选）',
-                errorText: _labelError,
-                suffixIcon: IconButton(
-                  key: const Key('task-detail-label-add'),
-                  tooltip: '添加标签',
-                  onPressed:
-                      widget.canWrite &&
-                          task.deletedAt == null &&
-                          _selectedLabels.length < 10
-                      ? _addLabel
-                      : null,
-                  icon: const Icon(Icons.add),
-                ),
-              ),
-            ),
-            if (_selectedLabels.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: MuyuSpacing.xs),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: MuyuSpacing.xs,
-                    runSpacing: MuyuSpacing.xs,
-                    children: [
-                      for (final label in _selectedLabels)
-                        InputChip(
-                          key: Key('task-label-chip-$label'),
-                          label: Text(label),
-                          deleteIcon: Icon(
-                            Icons.close,
-                            key: Key('task-label-remove-$label'),
-                          ),
-                          onDeleted: !widget.canWrite || task.deletedAt != null
-                              ? null
-                              : () => _removeLabel(label),
-                        ),
+                    const Divider(height: MuyuSpacing.xxl),
+                    _buildRelationships(
+                      context,
+                      task,
+                      subtasks,
+                      parent,
+                      handlerLabels,
+                    ),
+                    const Divider(height: MuyuSpacing.xxl),
+                    _buildComments(context, comments, handlerLabels),
+                    if (conflicts.isNotEmpty) ...[
+                      const Divider(height: MuyuSpacing.xxl),
+                      _buildConflicts(context, conflicts),
                     ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: MuyuSpacing.sm),
-            TextField(
-              key: const Key('task-detail-description'),
-              controller: _description,
-              maxLines: 3,
-              enabled: widget.canWrite,
-              decoration: const InputDecoration(labelText: '描述'),
-            ),
-            const SizedBox(height: MuyuSpacing.sm),
-            TextField(
-              key: const Key('task-detail-due-at'),
-              controller: _dueAt,
-              enabled: widget.canWrite,
-              decoration: const InputDecoration(labelText: '截止时间（ISO 8601，必填）'),
-            ),
-            const SizedBox(height: MuyuSpacing.sm),
-            TextField(
-              key: const Key('task-detail-planned-start-at'),
-              controller: _plannedStartAt,
-              enabled: widget.canWrite,
-              decoration: const InputDecoration(labelText: '计划开始（ISO 8601，可选）'),
-            ),
-            const SizedBox(height: MuyuSpacing.sm),
-            TextField(
-              key: const Key('task-detail-estimated-minutes'),
-              controller: _estimatedMinutes,
-              keyboardType: TextInputType.number,
-              enabled: widget.canWrite,
-              decoration: const InputDecoration(labelText: '预计工时（分钟）'),
-            ),
-            const SizedBox(height: MuyuSpacing.lg),
-            Text('状态：${taskStatusLabel(task.status)}'),
-            if (normalizeTaskStatus(task.status) == 'REVIEW') ...[
-              Text(
-                '验收人：${handlerLabels[task.reviewerUserId] ?? task.reviewerUserId ?? '未指定'}',
-                key: const Key('task-reviewer-summary'),
-              ),
-              if (task.reviewRejectionReason != null &&
-                  task.reviewRejectionReason!.trim().isNotEmpty)
-                Text(
-                  '退回原因：${task.reviewRejectionReason}',
-                  key: const Key('task-review-rejection-reason'),
-                ),
-            ],
-            if (normalizeTaskStatus(task.status) == 'IN_PROGRESS')
-              DropdownButtonFormField<int>(
-                key: const Key('task-progress-select'),
-                initialValue: const [20, 40, 60, 80].contains(progress)
-                    ? progress
-                    : task.progress ?? 20,
-                decoration: const InputDecoration(labelText: '当前进度'),
-                items: const [20, 40, 60, 80]
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text('$value%'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: !widget.canWrite || task.deletedAt != null
-                    ? null
-                    : (value) => setState(() => _selectedProgress = value),
-              ),
-            if (handlerIds.isNotEmpty)
-              DropdownButtonFormField<String>(
-                key: const Key('task-handler-select'),
-                initialValue: handlerIds.contains(task.currentHandlerId)
-                    ? task.currentHandlerId
-                    : task.currentHandlerId,
-                decoration: const InputDecoration(labelText: '负责人'),
-                items: handlerIds
-                    .map(
-                      (id) => DropdownMenuItem(
-                        value: id,
-                        enabled: activeHandlerIds.contains(id),
-                        child: Text(handlerLabels[id] ?? id),
-                      ),
-                    )
-                    .toList(),
-                onChanged: !widget.canWrite || task.deletedAt != null
-                    ? null
-                    : _changeHandler,
-              ),
-            if (normalizeTaskStatus(task.status) == 'BLOCKED')
-              DropdownButtonFormField<String>(
-                key: const Key('task-resume-handler-select'),
-                initialValue: selectedResumeHandlerId,
-                decoration: const InputDecoration(labelText: '恢复负责人'),
-                items: resumeHandlerIds
-                    .map(
-                      (id) => DropdownMenuItem(
-                        value: id,
-                        enabled: activeHandlerIds.contains(id),
-                        child: Text(handlerLabels[id] ?? id),
-                      ),
-                    )
-                    .toList(),
-                onChanged: !widget.canWrite || task.deletedAt != null
-                    ? null
-                    : _changeResumeHandler,
-              ),
-            const SizedBox(height: MuyuSpacing.sm),
-            Wrap(
-              spacing: MuyuSpacing.sm,
-              runSpacing: MuyuSpacing.sm,
-              children: [
-                for (final status in transitionStatuses)
-                  OutlinedButton(
-                    key: Key('task-status-${status.toLowerCase()}'),
-                    onPressed: !widget.canWrite || task.deletedAt != null
-                        ? null
-                        : () => _transition(status),
-                    child: Text(
-                      taskStatusActionLabel(
-                        currentStatus: task.status,
-                        targetStatus: status,
-                      ),
-                    ),
-                  ),
-                OutlinedButton(
-                  key: const Key('task-delay-button'),
-                  onPressed: !widget.canWrite || task.deletedAt != null
-                      ? null
-                      : _addDelay,
-                  child: const Text('记录延期'),
-                ),
-              ],
-            ),
-            const SizedBox(height: MuyuSpacing.xl),
-            TextField(
-              key: const Key('task-comment-input'),
-              controller: _comment,
-              enabled: widget.canWrite,
-              decoration: InputDecoration(
-                labelText: '添加评论',
-                suffixIcon: IconButton(
-                  key: const Key('task-comment-submit'),
-                  tooltip: '发送评论',
-                  onPressed: !widget.canWrite || _commenting
-                      ? null
-                      : _addComment,
-                  icon: _commenting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send),
+                  ],
                 ),
               ),
             ),
-            if (comments.isNotEmpty) ...[
-              const SizedBox(height: MuyuSpacing.md),
-              const Text('评论记录'),
-              for (final comment in comments)
-                Card(
-                  key: Key('task-comment-${comment.id}'),
-                  child: ListTile(
-                    title: Text(
-                      comment.deletedAt == null ? comment.body : '评论已删除',
-                    ),
-                    subtitle: Text(
-                      comment.deletedAt == null
-                          ? '作者：${comment.authorUserId}'
-                          : '已删除 · 作者：${comment.authorUserId}',
-                    ),
-                    trailing: comment.deletedAt != null
-                        ? null
-                        : IconButton(
-                            key: Key('task-comment-delete-${comment.id}'),
-                            tooltip: '删除评论',
-                            onPressed: !widget.canWrite
-                                ? null
-                                : () => _deleteComment(comment),
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                  ),
-                ),
-            ],
-            if (conflicts.isNotEmpty) ...[
-              const SizedBox(height: MuyuSpacing.xl),
-              const Text('待解决冲突'),
-              for (final conflict in conflicts)
-                Card(
-                  child: ListTile(
-                    title: Text('冲突 ${conflict['id']}'),
-                    trailing: Wrap(
-                      children: [
-                        TextButton(
-                          key: Key('resolve-conflict-${conflict['id']}'),
-                          onPressed: widget.canWrite
-                              ? () => _resolveConflict(
-                                  conflict['id'] as String,
-                                  'current',
-                                )
-                              : null,
-                          child: const Text('保留当前'),
-                        ),
-                        TextButton(
-                          onPressed: widget.canWrite
-                              ? () => _resolveConflict(
-                                  conflict['id'] as String,
-                                  'proposed',
-                                )
-                              : null,
-                          child: const Text('采用对方'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
           ],
         ),
       );
     },
   );
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({
+    this.messageKey,
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
+
+  final Key? messageKey;
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: MuyuSpacing.md),
+    padding: const EdgeInsets.all(MuyuSpacing.md),
+    decoration: BoxDecoration(
+      color: color.withAlpha(20),
+      border: Border.all(color: color.withAlpha(80)),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: MuyuSpacing.sm),
+        Expanded(child: Text(message, key: messageKey)),
+      ],
+    ),
+  );
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(
+      horizontal: MuyuSpacing.sm,
+      vertical: MuyuSpacing.xs,
+    ),
+    decoration: BoxDecoration(
+      color: color.withAlpha(20),
+      border: Border.all(color: color.withAlpha(100)),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      label,
+      style: Theme.of(context).textTheme.labelMedium?.copyWith(color: color),
+    ),
+  );
+}
+
+class _DetailAttributeRow extends StatelessWidget {
+  const _DetailAttributeRow({
+    required this.icon,
+    required this.label,
+    required this.child,
+    this.iconColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget child;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: iconColor ?? Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: MuyuSpacing.sm),
+        SizedBox(
+          width: 68,
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ),
+        const SizedBox(width: MuyuSpacing.md),
+        Expanded(
+          child: Align(alignment: Alignment.centerRight, child: child),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DateEditor extends StatefulWidget {
+  const _DateEditor({
+    required this.fieldKey,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+    required this.controller,
+  });
+
+  final Key fieldKey;
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  final TextEditingController controller;
+
+  @override
+  State<_DateEditor> createState() => _DateEditorState();
+}
+
+class _DateEditorState extends State<_DateEditor> {
+  late final TextEditingController _displayController;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayController = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DateEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value &&
+        _displayController.text != widget.value) {
+      _displayController.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _displayController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(
+    key: widget.fieldKey,
+    controller: _displayController,
+    onTap: null,
+    onChanged: (value) {
+      // The visible field uses Chinese text while the parent keeps ISO data.
+      // This also preserves the existing widget-test contract for clearing a
+      // deadline through the keyed field.
+      if (value.trim().isEmpty) {
+        widget.controller.clear();
+      } else {
+        final parsed = DateTime.tryParse(value);
+        widget.controller.text = parsed?.toUtc().toIso8601String() ?? value;
+      }
+    },
+    decoration: InputDecoration(
+      labelText: widget.label,
+      hintText: '请选择日期和时间',
+      prefixIcon: Icon(widget.icon),
+      suffixIcon: IconButton(
+        tooltip: '选择${widget.label}',
+        onPressed: widget.onTap,
+        icon: Icon(
+          widget.value == '未设置'
+              ? Icons.event_outlined
+              : Icons.check_circle_outline,
+          size: 18,
+        ),
+      ),
+    ),
+  );
+}
+
+class _QuadrantChoice extends StatelessWidget {
+  const _QuadrantChoice({
+    super.key,
+    required this.value,
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String value;
+  final String label;
+  final Color color;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    label: '$value $label',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.symmetric(
+          horizontal: MuyuSpacing.md,
+          vertical: MuyuSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? color.withAlpha(25) : Colors.transparent,
+          border: Border.all(color: selected ? color : color.withAlpha(110)),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              selected ? Icons.priority_high : Icons.priority_high_outlined,
+              color: color,
+              size: 18,
+            ),
+            const SizedBox(width: MuyuSpacing.xs),
+            Text(
+              '$value $label',
+              style: Theme.of(context).textTheme.labelMedium
+                  ?.copyWith(color: color),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _StateNotice extends StatelessWidget {
+  const _StateNotice({
+    required this.icon,
+    required this.title,
+    required this.lines,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(MuyuSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: theme.colorScheme.primary),
+          const SizedBox(width: MuyuSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleMedium),
+                for (final line in lines) ...[
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Text(line),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RelatedTaskRow extends StatelessWidget {
+  const _RelatedTaskRow({
+    required this.task,
+    required this.handlerLabel,
+    required this.statusColor,
+    required this.statusIcon,
+    required this.dueText,
+    required this.onTap,
+    this.dueHint,
+    this.parent = false,
+  });
+
+  final TaskItem task;
+  final String handlerLabel;
+  final Color statusColor;
+  final IconData statusIcon;
+  final String dueText;
+  final String? dueHint;
+  final VoidCallback onTap;
+  final bool parent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(statusIcon, color: statusColor, size: 22),
+            const SizedBox(width: MuyuSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task.taskNumber.isEmpty
+                        ? task.title
+                        : '${task.taskNumber}  ${task.title}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Wrap(
+                    spacing: MuyuSpacing.sm,
+                    runSpacing: MuyuSpacing.xs,
+                    children: [
+                      Text(
+                        parent ? '负责人：$handlerLabel' : handlerLabel,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      Text(dueText, style: theme.textTheme.bodySmall),
+                      if (dueHint != null)
+                        Text(
+                          dueHint!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.error,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: MuyuSpacing.sm),
+            Icon(
+              Icons.chevron_right,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommentRow extends StatelessWidget {
+  const _CommentRow({
+    required this.comment,
+    required this.authorLabel,
+    required this.canDelete,
+    required this.onDelete,
+  });
+
+  final TaskComment comment;
+  final String authorLabel;
+  final bool canDelete;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final deleted = comment.deletedAt != null;
+    return Padding(
+      key: Key('task-comment-${comment.id}'),
+      padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: theme.colorScheme.primaryContainer,
+            child: Text(
+              authorLabel.characters.first,
+              style: theme.textTheme.labelMedium,
+            ),
+          ),
+          const SizedBox(width: MuyuSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(authorLabel, style: theme.textTheme.labelLarge),
+                const SizedBox(height: MuyuSpacing.xs),
+                Text(
+                  deleted ? '评论已删除' : comment.body,
+                  style: deleted
+                      ? theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontStyle: FontStyle.italic,
+                        )
+                      : theme.textTheme.bodyMedium,
+                ),
+                if (comment.createdAt != null) ...[
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Text(
+                    _commentDate(comment.createdAt!),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (canDelete && !deleted)
+            IconButton(
+              key: Key('task-comment-delete-${comment.id}'),
+              tooltip: '删除评论',
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline, size: 18),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _commentDate(DateTime value) {
+    final local = value.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$month月$day日 $hour:$minute';
+  }
+}
+
+class _CreateSubtaskSheet extends StatefulWidget {
+  const _CreateSubtaskSheet({required this.parent, required this.sync});
+
+  final TaskItem parent;
+  final WorkspaceSyncController sync;
+
+  @override
+  State<_CreateSubtaskSheet> createState() => _CreateSubtaskSheetState();
+}
+
+class _CreateSubtaskSheetState extends State<_CreateSubtaskSheet> {
+  final _title = TextEditingController();
+  String _quadrant = 'Q1';
+  String? _error;
+  bool _creating = false;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    final title = _title.text.trim();
+    if (title.isEmpty || _creating) {
+      setState(() => _error = '请输入子任务标题');
+      return;
+    }
+    setState(() {
+      _creating = true;
+      _error = null;
+    });
+    try {
+      final created = await widget.sync.create(
+        title,
+        quadrant: _quadrant,
+        parentTaskId: widget.parent.id,
+      );
+      if (!mounted) return;
+      if (created == null) {
+        setState(() {
+          _creating = false;
+          _error = '子任务创建失败，请稍后重试';
+        });
+        return;
+      }
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _creating = false;
+        _error = '$error';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        MuyuSpacing.lg,
+        MuyuSpacing.md,
+        MuyuSpacing.lg,
+        MediaQuery.viewInsetsOf(context).bottom + MuyuSpacing.lg,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('新增子任务', style: theme.textTheme.titleLarge),
+          const SizedBox(height: MuyuSpacing.xs),
+          Text(
+            widget.parent.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: MuyuSpacing.md),
+          TextField(
+            key: const Key('task-subtask-title'),
+            controller: _title,
+            autofocus: true,
+            enabled: !_creating,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _create(),
+            decoration: InputDecoration(labelText: '子任务标题', errorText: _error),
+          ),
+          const SizedBox(height: MuyuSpacing.md),
+          Text('四象限（必选）', style: theme.textTheme.labelLarge),
+          const SizedBox(height: MuyuSpacing.sm),
+          Wrap(
+            spacing: MuyuSpacing.sm,
+            runSpacing: MuyuSpacing.sm,
+            children: [
+              for (final entry
+                  in _TaskDetailScreenState._quadrantLabels.entries)
+                _QuadrantChoice(
+                  value: entry.key,
+                  label: entry.value.substring(3),
+                  color: _subtaskQuadrantColor(context, entry.key),
+                  selected: _quadrant == entry.key,
+                  onTap: _creating
+                      ? null
+                      : () => setState(() => _quadrant = entry.key),
+                ),
+            ],
+          ),
+          const SizedBox(height: MuyuSpacing.lg),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const Key('task-subtask-create'),
+              onPressed: _creating ? null : _create,
+              icon: _creating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add),
+              label: const Text('创建子任务'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _subtaskQuadrantColor(BuildContext context, String quadrant) {
+    final extension = Theme.of(context).extension<MuyuThemeExtension>();
+    return switch (quadrant) {
+      'Q1' => extension?.quadrantQ1 ?? Theme.of(context).colorScheme.error,
+      'Q2' => extension?.quadrantQ2 ?? Theme.of(context).colorScheme.primary,
+      'Q3' => extension?.quadrantQ3 ?? Theme.of(context).colorScheme.primary,
+      'Q4' => extension?.quadrantQ4 ?? Theme.of(context).colorScheme.primary,
+      _ => Theme.of(context).colorScheme.onSurfaceVariant,
+    };
+  }
 }

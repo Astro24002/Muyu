@@ -221,7 +221,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Q2 重要不紧急').last);
+    await tester.tap(find.byKey(const Key('task-create-quadrant-option-Q2')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('task-create-label-button')));
     await tester.pumpAndSettle();
@@ -262,6 +262,8 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
 
     expect(find.byKey(const Key('task-label-chip-工作')), findsOneWidget);
     expect(find.byKey(const Key('task-label-chip-婚礼')), findsOneWidget);
@@ -291,17 +293,30 @@ void main() {
         home: TaskDetailScreen(task: sampleTask(), sync: sync),
       ),
     );
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
 
-    await tester.tap(find.byKey(const Key('task-quadrant-select')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Q2 重要不紧急').last);
+    final listState = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    listState.position.jumpTo(listState.position.maxScrollExtent);
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('task-quadrant-select')));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('task-quadrant-option-Q2')),
+    );
+    await tester.tap(find.byKey(const Key('task-quadrant-option-Q2')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('task-save-button')));
     await tester.pumpAndSettle();
 
     expect(repository.updatedFields?['quadrant'], 'Q2');
     expect(sync.state.snapshot!.tasks.single.quadrant, 'Q1');
-    expect(find.byKey(const Key('task-pending-approval')), findsOneWidget);
+    expect(
+      find.byKey(const Key('task-pending-approval'), skipOffstage: false),
+      findsOneWidget,
+    );
     expect(find.text('Original'), findsWidgets);
   });
 }

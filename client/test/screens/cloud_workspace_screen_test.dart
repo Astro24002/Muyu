@@ -586,10 +586,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('task-detail-title')))
-          .enabled,
-      isFalse,
+      tester.widget<Text>(find.byKey(const Key('task-detail-title'))).data,
+      'Read only',
     );
     expect(
       tester

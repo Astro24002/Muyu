@@ -158,10 +158,16 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
 
-    await tester.drag(find.byType(ListView), const Offset(0, -500));
-    await tester.pumpAndSettle();
+    final listState = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    listState.position.jumpTo(listState.position.maxScrollExtent);
+    await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('task-handler-select')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('task-handler-select')));
     await tester.pumpAndSettle();
 
@@ -181,6 +187,8 @@ void main() {
           home: TaskDetailScreen(task: detailTask(), sync: sync),
         ),
       );
+      await tester.tap(find.byKey(const Key('task-save-button')));
+      await tester.pump();
 
       await tester.drag(find.byType(ListView), const Offset(0, -500));
       await tester.pump();
@@ -247,6 +255,8 @@ void main() {
         home: TaskDetailScreen(task: task, sync: sync),
       ),
     );
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('task-detail-due-at')));
     await tester.enterText(find.byKey(const Key('task-detail-due-at')), '');
     await tester.ensureVisible(find.byKey(const Key('task-save-button')));
@@ -293,7 +303,14 @@ void main() {
         home: TaskDetailScreen(task: task, sync: sync),
       ),
     );
-    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
+    final listState = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    listState.position.jumpTo(listState.position.maxScrollExtent);
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('task-handler-select')));
     await tester.pump();
 
     final select = tester.widget<DropdownButton<String>>(
@@ -306,7 +323,7 @@ void main() {
       (item) => item.value == 'revoked-user',
     );
     expect(revoked.enabled, isFalse);
-    expect(find.text('revoked-user'), findsOneWidget);
+    expect(find.text('协作成员'), findsOneWidget);
   });
 
   testWidgets('does not submit a stale resume handler during recovery', (

@@ -52,6 +52,8 @@ void main() {
             sync: sync,
             state: state,
             canWrite: false,
+            showCompleted: true,
+            showFailed: true,
             onTaskTap: (_) {},
           ),
         ),
@@ -111,7 +113,7 @@ void main() {
         ),
       );
 
-      expect(find.text('当前任务 1'), findsOneWidget);
+      expect(find.text('当前任务 1'), findsNothing);
       expect(find.text('当前阻塞 1'), findsOneWidget);
       expect(find.text('待我验收 1'), findsOneWidget);
     },

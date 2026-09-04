@@ -49,8 +49,8 @@ class TaskListView extends StatefulWidget {
     this.selectedLabel,
     this.sort = TaskListSort.dueAt,
     this.showSubtitle = true,
-    this.showCompleted = true,
-    this.showFailed = true,
+    this.showCompleted = false,
+    this.showFailed = false,
   });
 
   final WorkspaceSyncController sync;
@@ -68,7 +68,7 @@ class TaskListView extends StatefulWidget {
 }
 
 class _TaskListViewState extends State<TaskListView> {
-  final _collapsedGroups = <String>{};
+  final _collapsedGroups = <String>{'past'};
   final _expandedTasks = <String>{};
 
   @override
@@ -163,12 +163,6 @@ class _HomeActionSummary extends StatelessWidget {
     final sections =
         <({String key, String title, HomeTaskSection section, IconData icon})>[
           (
-            key: 'current',
-            title: '当前任务',
-            section: home.currentTasks,
-            icon: Icons.play_circle_outline,
-          ),
-          (
             key: 'blocked',
             title: '当前阻塞',
             section: home.blockedTasks,
@@ -181,6 +175,12 @@ class _HomeActionSummary extends StatelessWidget {
             icon: Icons.fact_check_outlined,
           ),
         ];
+    final visibleSections = sections
+        .where((item) => item.section.items.isNotEmpty || item.section.hasMore)
+        .toList(growable: false);
+    if (visibleSections.isEmpty && home.pendingApprovalCount == 0) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
       child: DecoratedBox(
@@ -191,17 +191,14 @@ class _HomeActionSummary extends StatelessWidget {
         ),
         child: Column(
           children: [
-            for (final item in sections)
-              if (item.section.items.isNotEmpty ||
-                  item.section.hasMore ||
-                  item.key == 'current')
-                _HomeActionSection(
-                  key: Key('home-action-section-${item.key}'),
-                  title: item.title,
-                  icon: item.icon,
-                  section: item.section,
-                  onTaskTap: onTaskTap,
-                ),
+            for (final item in visibleSections)
+              _HomeActionSection(
+                key: Key('home-action-section-${item.key}'),
+                title: item.title,
+                icon: item.icon,
+                section: item.section,
+                onTaskTap: onTaskTap,
+              ),
             if (home.pendingApprovalCount > 0)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
@@ -340,7 +337,8 @@ class TaskListSection extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    group.title,
+                    '${group.title} ${group.tasks.length}',
+                    key: Key('task-section-title-${group.key}'),
                     style: Theme.of(context).textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
@@ -355,11 +353,6 @@ class TaskListSection extends StatelessWidget {
                     ),
                   ],
                   const Spacer(),
-                  Text(
-                    '${group.tasks.length}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(width: MuyuSpacing.xs),
                   Icon(
                     expanded
                         ? Icons.keyboard_arrow_up

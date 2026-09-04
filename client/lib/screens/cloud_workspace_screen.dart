@@ -76,8 +76,8 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   String? _selectedTaskLabel;
   TaskListSort _taskListSort = TaskListSort.dueAt;
   bool _showTaskSubtitle = true;
-  bool _showCompleted = true;
-  bool _showFailed = true;
+  bool _showCompleted = false;
+  bool _showFailed = false;
 
   @override
   void initState() {
@@ -275,11 +275,13 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         child: const Text('显示副标题'),
       ),
       CheckedPopupMenuItem<_TaskListMenuAction>(
+        key: const Key('task-list-toggle-completed'),
         value: _TaskListMenuAction.toggleCompleted,
         checked: _showCompleted,
         child: const Text('显示已完成任务'),
       ),
       CheckedPopupMenuItem<_TaskListMenuAction>(
+        key: const Key('task-list-toggle-failed'),
         value: _TaskListMenuAction.toggleFailed,
         checked: _showFailed,
         child: const Text('显示已取消任务'),

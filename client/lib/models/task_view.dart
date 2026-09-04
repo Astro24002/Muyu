@@ -131,8 +131,8 @@ class TaskView {
     String? label,
     DateTime? now,
     TaskListSort sort = TaskListSort.dueAt,
-    bool showCompleted = true,
-    bool showFailed = true,
+    bool showCompleted = false,
+    bool showFailed = false,
   }) {
     final current = (now ?? DateTime.now()).toLocal();
     final today = DateTime(current.year, current.month, current.day);
@@ -155,23 +155,25 @@ class TaskView {
       final due = task.dueAt?.toLocal();
       return due == null || !_dateOnly(due).isBefore(today);
     });
+    final terminalTasks = _sortForList(terminal, sort, terminal: true);
     return [
       TaskListGroup(
         key: 'past',
-        title: '过去',
+        title: '已经延期',
         actionLabel: '顺延至今天',
         tasks: _sortForList(past, sort),
       ),
       TaskListGroup(
         key: 'upcoming',
-        title: '今天 / 即将到期',
+        title: '即将到期',
         tasks: _sortForList(upcoming, sort),
       ),
-      TaskListGroup(
-        key: 'terminal',
-        title: '已完成 / 已取消',
-        tasks: _sortForList(terminal, sort, terminal: true),
-      ),
+      if (showCompleted || showFailed)
+        TaskListGroup(
+          key: 'terminal',
+          title: '已完成 / 已取消',
+          tasks: terminalTasks,
+        ),
     ];
   }
 

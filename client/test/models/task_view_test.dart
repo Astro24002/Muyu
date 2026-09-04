@@ -176,7 +176,7 @@ void main() {
     );
   });
 
-  test('list groups omit the obsolete unscheduled section', () {
+  test('list groups use delayed and upcoming sections and hide terminal work by default', () {
     final now = DateTime(2026, 8, 31, 12);
     final groups = TaskView.listGroups([
       makeTask('past', 'TODO', DateTime(2026, 8, 30, 9)),
@@ -187,16 +187,44 @@ void main() {
       makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
     ], now: now);
 
-    expect(groups.map((group) => group.key), ['past', 'upcoming', 'terminal']);
+    expect(groups.map((group) => group.key), ['past', 'upcoming']);
+    expect(groups[0].title, '已经延期');
+    expect(groups[1].title, '即将到期');
     expect(groups[0].tasks.map((item) => item.id), ['past']);
     expect(groups[1].tasks.map((item) => item.id), ['today', 'future', 'none']);
-    expect(groups[2].tasks.map((item) => item.id), ['done', 'failed']);
+  });
+
+  test('list groups show terminal section only when completed or cancelled is enabled', () {
+    final tasks = [
+      makeTask('done', 'DONE', DateTime(2026, 8, 29)),
+      makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
+    ];
+
+    final completedOnly = TaskView.listGroups(
+      tasks,
+      showCompleted: true,
+      showFailed: false,
+    );
+    expect(completedOnly.map((group) => group.key), [
+      'past',
+      'upcoming',
+      'terminal',
+    ]);
+    expect(completedOnly.last.tasks.map((task) => task.id), ['done']);
+
+    final allTerminal = TaskView.listGroups(
+      tasks,
+      showCompleted: true,
+      showFailed: true,
+    );
+    expect(allTerminal.last.tasks.map((task) => task.id), ['done', 'failed']);
+    expect(allTerminal.last.title, '已完成 / 已取消');
   });
 
   test('list groups keep legacy COMPLETED tasks out of active sections', () {
     final groups = TaskView.listGroups([
       makeTask('legacy-completed', 'COMPLETED', null),
-    ]);
+    ], showCompleted: true);
 
     expect(groups[0].tasks, isEmpty);
     expect(groups[1].tasks, isEmpty);
@@ -218,7 +246,7 @@ void main() {
     expect(groups.expand((group) => group.tasks).map((item) => item.id), [
       'work',
     ]);
-    expect(groups.last.tasks, isEmpty);
+    expect(groups.map((group) => group.key), ['past', 'upcoming']);
   });
 
   test('list groups sort each group by the selected sort mode', () {

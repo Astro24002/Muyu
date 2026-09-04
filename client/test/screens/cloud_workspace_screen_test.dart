@@ -757,6 +757,74 @@ void main() {
   });
 
   testWidgets(
+    '清单 defaults to collapsed delayed tasks and expanded upcoming tasks',
+    (tester) async {
+      final repo = FakeTaskRepository()
+        ..tasks.addAll([
+          task(
+            'delayed',
+            'Delayed',
+            dueAt: DateTime.now().subtract(const Duration(days: 1)),
+          ),
+          task(
+            'upcoming',
+            'Upcoming',
+            dueAt: DateTime.now().add(const Duration(days: 1)),
+          ),
+          task('done', 'Done', status: 'DONE'),
+        ]);
+      final sync = await readyController(repo);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+        ),
+      );
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('task-section-title-past')))
+            .data,
+        '已经延期 1',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('task-section-title-upcoming')))
+            .data,
+        '即将到期 1',
+      );
+      expect(find.text('Delayed'), findsNothing);
+      expect(find.text('Upcoming'), findsOneWidget);
+      expect(find.text('Done'), findsNothing);
+      expect(find.text('已完成 / 已取消'), findsNothing);
+    },
+  );
+
+  testWidgets('清单更多菜单打开终止任务后显示已完成/已取消分组', (tester) async {
+    final repo = FakeTaskRepository()
+      ..tasks.add(task('done', 'Done', status: 'DONE'));
+    final sync = await readyController(repo);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('task-list-row-done')), findsNothing);
+    await tester.tap(find.byKey(const Key('task-list-more-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.ancestor(
+        of: find.text('显示已完成任务'),
+        matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已完成 / 已取消 1'), findsOneWidget);
+    expect(find.byKey(const ValueKey('task-list-row-done')), findsOneWidget);
+  });
+
+  testWidgets(
     'task views use edge pull-to-refresh with always-scrollable lists',
     (tester) async {
       final sync = await readyController(FakeTaskRepository());
@@ -815,10 +883,7 @@ void main() {
       find.byKey(const Key('task-section-header-unscheduled')),
       findsNothing,
     );
-    expect(
-      find.byKey(const Key('task-section-header-terminal')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('task-section-header-terminal')), findsNothing);
     expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
   });
 }

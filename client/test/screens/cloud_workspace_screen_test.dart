@@ -240,6 +240,31 @@ ApiClient testApi() => ApiClient(
   httpClient: MockClient((_) async => http.Response(jsonEncode({}), 200)),
 );
 
+ApiClient profileTestApi() => ApiClient(
+  baseUrl: 'https://api.example',
+  httpClient: MockClient((request) async {
+    if (request.url.path == '/api/v1/devices') {
+      return http.Response(
+        jsonEncode([
+          {
+            'id': 'device-1',
+            'platform': 'ANDROID',
+            'label': 'Pixel 8',
+            'status': 'ACTIVE',
+            'can_write': true,
+            'is_current': true,
+            'created_at': '2026-09-01T00:00:00Z',
+            'enrolled_at': '2026-09-01T00:00:00Z',
+            'revoked_at': null,
+          },
+        ]),
+        200,
+      );
+    }
+    return http.Response(jsonEncode({}), 200);
+  }),
+);
+
 Future<WorkspaceSyncController> readyController(FakeTaskRepository repo) async {
   final controller = WorkspaceSyncController(repo);
   await controller.refresh();
@@ -311,6 +336,43 @@ void main() {
     expect(find.byType(MyProfileScreen), findsOneWidget);
     expect(find.text('我的'), findsWidgets);
   });
+
+  testWidgets(
+    'classification management can be popped before the workspace is disposed',
+    (tester) async {
+      final sync = await readyController(FakeTaskRepository());
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: muyuLightTheme(),
+          home: CloudWorkspaceScreen(
+            api: profileTestApi(),
+            syncController: sync,
+            session: loggedInSession,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('profile-classification-management')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('classification-management-screen')),
+        findsOneWidget,
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-list-destination')));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('profile AppBar exposes approval center and Web QR actions', (
     tester,

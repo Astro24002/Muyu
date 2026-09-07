@@ -82,21 +82,33 @@ class WorkspaceSyncController extends ChangeNotifier {
   StreamSubscription? _hintsSubscription;
   Future<void>? _refreshInFlight;
   Future<void>? _pullInFlight;
+  bool _disposed = false;
 
-  Future<bool> get canMutate async => _repository != null && !state.isStale;
+  Future<bool> get canMutate async =>
+      _repository != null && !_disposed && !state.isStale;
 
   Future<void> start() async {
-    if (_repository == null) return;
+    final repository = _repository;
+    if (repository == null || _disposed) return;
     await _restoreCachedSnapshot();
+    if (_disposed) return;
     await refresh();
+    if (_disposed) return;
     scheduleMicrotask(() {
-      _hintsSubscription = _repository.openWorkspaceHints().listen((hint) {
-        if (hint.cursor > state.cursor) pull();
+      if (_disposed) return;
+      final subscription = repository.openWorkspaceHints().listen((hint) {
+        if (!_disposed && hint.cursor > state.cursor) pull();
       });
+      if (_disposed) {
+        unawaited(subscription.cancel());
+        return;
+      }
+      _hintsSubscription = subscription;
     });
   }
 
   Future<void> refresh() {
+    if (_disposed) return Future<void>.value();
     final existing = _refreshInFlight;
     if (existing != null) return existing;
     final operation = _refreshSnapshot();
@@ -108,10 +120,11 @@ class WorkspaceSyncController extends ChangeNotifier {
   }
 
   Future<void> _refreshSnapshot() async {
-    if (_repository == null) return;
+    if (_repository == null || _disposed) return;
     _setLoading();
     try {
       final snapshot = await _repository.snapshot();
+      if (_disposed) return;
       if (!snapshot.isValidForWorkspace()) {
         throw const FormatException('workspace snapshot contains foreign data');
       }
@@ -120,6 +133,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         classifications: snapshot.classifications,
         hasClassificationContract: snapshot.hasClassificationContract,
       );
+      if (_disposed) return;
       state = WorkspaceSyncState(
         snapshot: snapshot,
         isStale: false,
@@ -127,12 +141,15 @@ class WorkspaceSyncController extends ChangeNotifier {
       );
       await _writeCache(snapshot);
     } catch (error) {
+      if (_disposed) return;
       state = state.copyWith(isStale: true, errorMessage: '$error');
     }
-    notifyListeners();
+    if (_disposed) return;
+    _notifyIfActive();
   }
 
   Future<void> pull() {
+    if (_disposed) return Future<void>.value();
     final existing = _pullInFlight;
     if (existing != null) return existing;
     final operation = _pullChanges();
@@ -146,9 +163,10 @@ class WorkspaceSyncController extends ChangeNotifier {
   Future<void> _pullChanges() async {
     final repository = _repository;
     final current = state.snapshot;
-    if (repository == null || current == null) return;
+    if (repository == null || current == null || _disposed) return;
     try {
       final result = await repository.changes(afterCursor: current.cursor);
+      if (_disposed) return;
       if (!result.isValidFor(
         workspaceId: current.workspaceId,
         afterCursor: current.cursor,
@@ -194,16 +212,19 @@ class WorkspaceSyncController extends ChangeNotifier {
         classifications: next.classifications,
         hasClassificationContract: next.hasClassificationContract,
       );
+      if (_disposed) return;
       state = WorkspaceSyncState(snapshot: next, isStale: false, home: home);
       await _writeCache(state.snapshot!);
-      notifyListeners();
+      if (_disposed) return;
+      _notifyIfActive();
     } catch (error) {
+      if (_disposed) return;
       if (error is FormatException || error is TypeError) {
         await refresh();
         return;
       }
       state = state.copyWith(isStale: true, errorMessage: '$error');
-      notifyListeners();
+      _notifyIfActive();
     }
   }
 
@@ -230,7 +251,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       actorUserId: actorUserId,
     )) {
       state = state.copyWith(errorMessage: '当前用户不能执行该状态操作。');
-      notifyListeners();
+      _notifyIfActive();
       return null;
     }
     final isReviewReturn =
@@ -240,7 +261,7 @@ class WorkspaceSyncController extends ChangeNotifier {
     if (isReviewReturn &&
         (normalizedReviewReason == null || normalizedReviewReason.isEmpty)) {
       state = state.copyWith(errorMessage: '退回待验收任务需要填写退回原因。');
-      notifyListeners();
+      _notifyIfActive();
       return null;
     }
     try {
@@ -276,7 +297,7 @@ class WorkspaceSyncController extends ChangeNotifier {
         isStale: isFieldConflict ? state.isStale : state.snapshot != null,
         errorMessage: '$error',
       );
-      notifyListeners();
+      _notifyIfActive();
       return null;
     }
   }
@@ -625,13 +646,18 @@ class WorkspaceSyncController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _hintsSubscription?.cancel();
+    _disposed = true;
+    _refreshInFlight = null;
+    _pullInFlight = null;
+    final subscription = _hintsSubscription;
+    _hintsSubscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
     super.dispose();
   }
 
   void _setLoading() {
     state = state.copyWith(loading: true, errorMessage: null);
-    notifyListeners();
+    _notifyIfActive();
   }
 
   TaskItem? _task(String taskId) {
@@ -699,7 +725,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       isStale: false,
       home: state.home,
     );
-    notifyListeners();
+    _notifyIfActive();
   }
 
   void _mergeApproval(TaskApprovalRequest approval) {
@@ -850,12 +876,12 @@ class WorkspaceSyncController extends ChangeNotifier {
       isStale: false,
       home: state.home,
     );
-    if (notify) notifyListeners();
+    if (notify) _notifyIfActive();
   }
 
   void _setError(Object error) {
     state = state.copyWith(errorMessage: '$error');
-    notifyListeners();
+    _notifyIfActive();
   }
 
   Future<bool> _mergeApiConflict(Object error) async {
@@ -974,7 +1000,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       home: state.home,
     );
     await _writeCache(next);
-    notifyListeners();
+    _notifyIfActive();
 
     if (targetCursor > current.cursor) {
       await _reconcileConflictCursor(targetCursor);
@@ -999,9 +1025,10 @@ class WorkspaceSyncController extends ChangeNotifier {
     if (cache == null || workspaceId == null || workspaceId.isEmpty) return;
     try {
       final snapshot = await cache.read(workspaceId);
+      if (_disposed) return;
       if (snapshot == null || snapshot.workspaceId != workspaceId) return;
       state = WorkspaceSyncState(snapshot: snapshot, isStale: true);
-      notifyListeners();
+      _notifyIfActive();
     } catch (_) {
       // A cache is an optimization; network sync remains authoritative.
     }
@@ -1043,7 +1070,7 @@ class WorkspaceSyncController extends ChangeNotifier {
       hasClassificationContract: current.hasClassificationContract,
     );
     state = state.copyWith(home: home);
-    notifyListeners();
+    _notifyIfActive();
   }
 
   bool _homeUsesOnlyApprovedClassifications(
@@ -1067,6 +1094,10 @@ class WorkspaceSyncController extends ChangeNotifier {
     } catch (_) {
       // A persistence failure must not discard a fresh network snapshot.
     }
+  }
+
+  void _notifyIfActive() {
+    if (!_disposed) notifyListeners();
   }
 
   static String _requestId() {

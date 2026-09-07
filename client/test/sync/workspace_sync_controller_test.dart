@@ -50,9 +50,11 @@ const syncClassification = WorkspaceClassification(
 
 class FakeSyncRepository implements WorkspaceSyncRepository {
   final hints = <WorkspaceChanged>[];
+  int hintsSubscriptionCalls = 0;
   int snapshotCalls = 0;
   bool failSnapshots = false;
   Completer<WorkspaceSnapshot>? snapshotCompleter;
+  Completer<WorkspaceChanges>? changesCompleter;
   final requestedAfterCursors = <int>[];
   final queuedChanges = <WorkspaceChanges>[];
   final queuedSnapshots = <WorkspaceSnapshot>[];
@@ -138,7 +140,10 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   }
 
   @override
-  Stream<WorkspaceChanged> openWorkspaceHints() => Stream.fromIterable(hints);
+  Stream<WorkspaceChanged> openWorkspaceHints() {
+    hintsSubscriptionCalls++;
+    return Stream.fromIterable(hints);
+  }
 
   @override
   Future<WorkspaceSnapshot> snapshot() async {
@@ -158,6 +163,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   @override
   Future<WorkspaceChanges> changes({required int afterCursor}) async {
     requestedAfterCursors.add(afterCursor);
+    final completer = changesCompleter;
+    if (completer != null) return completer.future;
     if (queuedChanges.isNotEmpty) return queuedChanges.removeAt(0);
     return WorkspaceChanges(
       workspaceId: 'w1',
@@ -259,6 +266,55 @@ void main() {
 
     expect(repository.snapshotCalls, 1);
     expect(controller.state.isStale, isFalse);
+  });
+
+  test(
+    'dispose prevents a pending start from publishing or opening hints',
+    () async {
+      final repository = FakeSyncRepository()
+        ..snapshotCompleter = Completer<WorkspaceSnapshot>();
+      final controller = WorkspaceSyncController(repository);
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      final start = controller.start();
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.snapshotCalls, 1);
+      expect(controller.state.loading, isTrue);
+      final stateAtDispose = controller.state;
+      expect(notifications, 1);
+
+      controller.dispose();
+      repository.snapshotCompleter!.complete(
+        const WorkspaceSnapshot(workspaceId: 'w1', cursor: 11, tasks: []),
+      );
+      await start;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.state, same(stateAtDispose));
+      expect(notifications, 1);
+      expect(repository.hintsSubscriptionCalls, 0);
+    },
+  );
+
+  test('dispose prevents a pending pull from publishing changes', () async {
+    final repository = FakeSyncRepository();
+    final controller = WorkspaceSyncController(repository);
+    await controller.refresh();
+    repository.changesCompleter = Completer<WorkspaceChanges>();
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+
+    final pull = controller.pull();
+    final stateAtDispose = controller.state;
+    controller.dispose();
+    repository.changesCompleter!.complete(
+      const WorkspaceChanges(workspaceId: 'w1', cursor: 12, changes: []),
+    );
+    await pull;
+
+    expect(controller.state, same(stateAtDispose));
+    expect(notifications, 0);
   });
 
   test(

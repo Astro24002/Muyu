@@ -31,9 +31,12 @@ def test_classification_requires_partner_approval_and_syncs_after_approval(db_en
     approval = pending.json()["approval_request"]
     assert approval["request_type"] == "CLASSIFICATION_CREATE"
     assert approval["task_id"] is None
-    assert client.get(
-        "/api/v1/workspaces/current/classifications", headers=_headers(owner)
-    ).json() == []
+    assert [
+        item["name"]
+        for item in client.get(
+            "/api/v1/workspaces/current/classifications", headers=_headers(owner)
+        ).json()
+    ] == ["默认"]
 
     approved = client.post(
         f"/api/v1/workspaces/{approval['workspace_id']}/approval-requests/{approval['id']}/approve",
@@ -47,7 +50,7 @@ def test_classification_requires_partner_approval_and_syncs_after_approval(db_en
         "/api/v1/workspaces/current/classifications", headers=_headers(owner)
     )
     assert classifications.status_code == 200, classifications.text
-    assert [item["name"] for item in classifications.json()] == ["工作"]
+    assert {item["name"] for item in classifications.json()} == {"默认", "工作"}
 
     task = client.post(
         "/api/v1/tasks",

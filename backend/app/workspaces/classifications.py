@@ -10,6 +10,7 @@ from app.db.models import WorkspaceClassification
 
 
 MAX_CLASSIFICATION_LENGTH = 5
+DEFAULT_CLASSIFICATION_NAME = "默认"
 
 
 class ClassificationError(ValueError):
@@ -109,6 +110,39 @@ class ClassificationService:
         }
 
 
+def ensure_default_classification(
+    session: Session,
+    workspace_id: UUID,
+    created_by: UUID,
+) -> WorkspaceClassification:
+    """Ensure every newly-created workspace has its system classification.
+
+    ``默认`` is provisioned by the system, so it bypasses the ordinary
+    two-person classification approval flow.  The lookup makes the helper
+    safe for retries and for callers that may run after a partial bootstrap.
+    """
+    _, normalized = normalize_classification_name(DEFAULT_CLASSIFICATION_NAME)
+    existing = session.scalar(
+        select(WorkspaceClassification)
+        .where(
+            WorkspaceClassification.workspace_id == workspace_id,
+            WorkspaceClassification.normalized_name == normalized,
+        )
+        .with_for_update()
+    )
+    if existing is not None:
+        return existing
+    row = WorkspaceClassification(
+        workspace_id=workspace_id,
+        name=DEFAULT_CLASSIFICATION_NAME,
+        normalized_name=normalized,
+        created_by=created_by,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
 def normalize_classification_names(values: Iterable[object]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -162,8 +196,10 @@ def validate_active_classifications(
 
 
 __all__ = [
+    "DEFAULT_CLASSIFICATION_NAME",
     "ClassificationError",
     "ClassificationService",
+    "ensure_default_classification",
     "MAX_CLASSIFICATION_LENGTH",
     "normalize_classification_name",
     "normalize_classification_names",

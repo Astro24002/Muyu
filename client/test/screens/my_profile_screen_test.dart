@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/auth/mobile_session_store.dart';
+import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/user.dart';
+import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/screens/my_profile_screen.dart';
+import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/workspace/device_repository.dart';
 
 class FakeDeviceRepository implements DeviceRepository {
@@ -99,5 +102,72 @@ void main() {
     );
     await tester.tap(qr);
     expect(tapped, isTrue);
+  });
+
+  testWidgets('opens classification management from the My tab', (
+    tester,
+  ) async {
+    final sync = WorkspaceSyncController.unavailable()
+      ..state = WorkspaceSyncState(
+        isStale: false,
+        snapshot: const WorkspaceSnapshot(
+          workspaceId: 'workspace-1',
+          cursor: 1,
+          tasks: [],
+          classifications: [
+            WorkspaceClassification(
+              id: 'classification-default',
+              workspaceId: 'workspace-1',
+              name: '默认',
+              createdBy: 'user-1',
+            ),
+          ],
+        ),
+      );
+    const session = MobileSession(
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      deviceId: 'device-1',
+      user: User(
+        id: 'user-1',
+        phone: '+8613800138000',
+        nickname: 'Muyu',
+        avatarKey: '',
+        role: 'member',
+      ),
+      expiresAt: null,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyProfileScreen(
+          session: session,
+          repository: FakeDeviceRepository(),
+          sync: sync,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('profile-classification-management')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('classification-management-screen')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const Key('classification-management-item-classification-default'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('默认'), findsOneWidget);
+    expect(
+      find.byKey(const Key('classification-management-create')),
+      findsOneWidget,
+    );
   });
 }

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import ApprovalStatus, DeviceStatus, MembershipStatus
-from app.db.models import AndroidDevice, User, WorkspaceMembership
+from app.db.models import AndroidDevice, User, WorkspaceClassification, WorkspaceMembership
 from app.devices.signatures import signed_action_payload
 from app.workspaces.service import WorkspaceService
 
@@ -72,3 +72,12 @@ def test_first_workspace_invite_and_signed_partner_approval(db_engine) -> None:
         assert membership.status == MembershipStatus.ACTIVE
         assert candidate_device.status == DeviceStatus.ACTIVE
         assert request.status == ApprovalStatus.APPROVED
+        default_classification = session.scalar(
+            select(WorkspaceClassification).where(
+                WorkspaceClassification.workspace_id == workspace.id,
+                WorkspaceClassification.normalized_name == "默认",
+            )
+        )
+        assert default_classification is not None
+        assert default_classification.name == "默认"
+        assert default_classification.created_by == owner.id

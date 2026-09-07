@@ -10,6 +10,7 @@ import '../theme/muyu_theme.dart';
 import '../workspace/device_repository.dart';
 import '../workspace/workspace_bootstrap_repository.dart';
 import 'device_management_screen.dart';
+import 'classification_management_screen.dart';
 import 'profile_edit_screen.dart';
 
 class MyProfileScreen extends StatefulWidget {
@@ -166,6 +167,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       _personalProfile(context, data),
       const SizedBox(height: MuyuSpacing.md),
       _workspaceMatch(data),
+      const SizedBox(height: MuyuSpacing.md),
+      _classificationManagementTile(),
       const SizedBox(height: MuyuSpacing.md),
       _overviewCard(),
       const SizedBox(height: MuyuSpacing.md),
@@ -350,6 +353,30 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 MaterialPageRoute(
                   builder: (_) => DeviceManagementScreen(
                     repository: widget.managementRepository!,
+                    canWrite: widget.canWrite,
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _classificationManagementTile() {
+    final sync = widget.sync;
+    final count = sync?.state.classifications.length ?? 0;
+    return Card(
+      child: ListTile(
+        key: const Key('profile-classification-management'),
+        leading: const Icon(Icons.label_outline),
+        title: const Text('分类管理'),
+        subtitle: Text('$count 个已批准分类'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: sync == null
+            ? null
+            : () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ClassificationManagementScreen(
+                    sync: sync,
                     canWrite: widget.canWrite,
                   ),
                 ),

@@ -24,7 +24,6 @@ import 'task_schedule_view.dart';
 import '../widgets/task_system_app_bar.dart';
 
 enum _TaskListMenuAction {
-  createClassification,
   sortDueAt,
   sortQuadrant,
   sortUpdatedAt,
@@ -245,12 +244,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     onSelected: _handleTaskListMenuAction,
     itemBuilder: (context) => [
       const PopupMenuItem<_TaskListMenuAction>(
-        key: Key('task-list-create-classification'),
-        value: _TaskListMenuAction.createClassification,
-        child: Text('新建分类'),
-      ),
-      const PopupMenuDivider(),
-      const PopupMenuItem<_TaskListMenuAction>(
         enabled: false,
         child: Text('排序'),
       ),
@@ -318,8 +311,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
 
   void _handleTaskListMenuAction(_TaskListMenuAction action) {
     switch (action) {
-      case _TaskListMenuAction.createClassification:
-        _openCreateClassification();
       case _TaskListMenuAction.sortDueAt:
         setState(() => _taskListSort = TaskListSort.dueAt);
       case _TaskListMenuAction.sortQuadrant:
@@ -339,47 +330,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
 
   void _openTaskListDrawer() {
     _scaffoldKey.currentState?.openDrawer();
-  }
-
-  Future<void> _openCreateClassification() async {
-    if (!widget.canWrite || _sync.state.snapshot == null) return;
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新建分类'),
-        content: TextField(
-          key: const Key('create-classification-input'),
-          controller: controller,
-          autofocus: true,
-          maxLength: 5,
-          decoration: const InputDecoration(hintText: '最多 5 个字符'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const Key('create-classification-submit'),
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('提交审批'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    final trimmed = name?.trim() ?? '';
-    if (!mounted || trimmed.isEmpty) return;
-    try {
-      final approval = await _sync.createClassification(trimmed);
-      if (mounted && approval != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('分类已提交，等待对方审批')));
-      }
-    } catch (_) {
-      // The sync controller exposes the authoritative error state.
-    }
   }
 
   void _openApprovals() {
@@ -989,7 +939,7 @@ class _TaskLabelPickerState extends State<_TaskLabelPicker> {
           ] else
             const Padding(
               padding: EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
-              child: Text('暂无已批准分类，请先在更多菜单中新建分类'),
+              child: Text('暂无已批准分类，请前往“我的”→“分类管理”创建'),
             ),
           const SizedBox(height: MuyuSpacing.md),
           Align(

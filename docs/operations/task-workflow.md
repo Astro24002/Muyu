@@ -28,12 +28,14 @@ operations, conflicts, comments, delays, and workspace cursors.
 
 ## Classification contract
 
-Classifications are workspace-level records, not free-form task labels. A
-member submits a `CLASSIFICATION_CREATE` approval request from the client; the
-other member must approve it before the name appears in the selectable list.
-Names are trimmed, compared case-insensitively, and limited to five Unicode
-characters. Duplicate approved names and duplicate pending requests are
-rejected.
+Classifications are workspace-level records, not free-form task labels. Every
+Workspace receives the system classification “默认” during bootstrap; it is
+immediately selectable and does not create an approval request. For every
+other name, a member opens Android “我的 → 分类管理” and submits a
+`CLASSIFICATION_CREATE` approval request; the other member must approve it
+before the name appears in the selectable list. Names are trimmed, compared
+case-insensitively, and limited to five Unicode characters. Duplicate approved
+names and duplicate pending requests are rejected.
 
 Every task stores the selected name in the compatibility-shaped field
 `labels: ["分类名"]`. The server canonicalizes its display spelling from the

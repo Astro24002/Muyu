@@ -782,6 +782,7 @@ void main() {
     expect(find.text('显示已完成任务'), findsOneWidget);
     expect(find.text('显示已取消任务'), findsOneWidget);
     expect(find.text('任务审批'), findsNothing);
+    expect(find.text('新建分类'), findsNothing);
     expect(find.text('批量编辑'), findsNothing);
     expect(find.text('刷新'), findsNothing);
     expect(find.text('扫码登录 Web'), findsNothing);

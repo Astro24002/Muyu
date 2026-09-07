@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.providers.fake import FakeSmsProvider
 from app.db.enums import ApprovalStatus, DeviceStatus, InviteStatus, MembershipStatus
-from app.db.models import AndroidDevice, DeviceAuthorizationRequest, User, WorkspaceInvite, WorkspaceMembership
+from app.db.models import (
+    AndroidDevice,
+    DeviceAuthorizationRequest,
+    User,
+    WorkspaceClassification,
+    WorkspaceInvite,
+    WorkspaceMembership,
+)
 from app.main import create_app
 
 
@@ -91,6 +98,15 @@ def test_bind_partner_creates_one_owner_and_pending_invite(db_engine) -> None:
         assert len(memberships) == 1
         assert memberships[0].member_slot == 1
         assert memberships[0].status == MembershipStatus.ACTIVE
+
+        default_classification = session.scalar(
+            select(WorkspaceClassification).where(
+                WorkspaceClassification.workspace_id == UUID(body["workspace"]["id"]),
+                WorkspaceClassification.normalized_name == "默认",
+            )
+        )
+        assert default_classification is not None
+        assert default_classification.created_by == owner.id
 
         invites = session.scalars(select(WorkspaceInvite)).all()
         assert len(invites) == 1

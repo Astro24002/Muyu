@@ -910,7 +910,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         Text('分类（必选一个）', style: theme.textTheme.labelLarge),
         const SizedBox(height: MuyuSpacing.sm),
         if (widget.sync.state.classifications.isEmpty)
-          Text('暂无已批准分类，请在清单的更多菜单中新建分类', style: theme.textTheme.bodySmall)
+          Text('暂无已批准分类，请前往“我的”→“分类管理”创建', style: theme.textTheme.bodySmall)
         else
           Wrap(
             key: const Key('task-detail-classification-options'),
@@ -2116,7 +2116,7 @@ class _CreateSubtaskSheetState extends State<_CreateSubtaskSheet> {
           Text('分类（必选一个）', style: theme.textTheme.labelLarge),
           const SizedBox(height: MuyuSpacing.sm),
           if (widget.sync.state.classifications.isEmpty)
-            Text('暂无已批准分类，请先在清单的更多菜单中新建分类')
+            Text('暂无已批准分类，请前往“我的”→“分类管理”创建')
           else
             Wrap(
               spacing: MuyuSpacing.xs,

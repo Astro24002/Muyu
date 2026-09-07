@@ -15,19 +15,19 @@ describe('TaskComposer', () => {
     expect(screen.getByLabelText('任务标题')).toBeInTheDocument();
     expect(screen.getByLabelText('下一步描述')).toBeInTheDocument();
     expect(screen.getByLabelText('四象限')).toBeInTheDocument();
-    expect(screen.getByLabelText('标签')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '分类' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '  写周报  ' } });
     fireEvent.change(screen.getByLabelText('下一步描述'), { target: { value: '先列出本周完成事项' } });
     fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
-    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '工作, 重要，工作' } });
+    fireEvent.click(screen.getByRole('radio', { name: '工作' }));
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
-    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('写周报', '先列出本周完成事项', 'Q1', ['工作', '重要']));
+    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('写周报', '先列出本周完成事项', 'Q1', ['工作']));
     expect(screen.getByLabelText('任务标题')).toHaveValue('');
     expect(screen.getByLabelText('下一步描述')).toHaveValue('');
     expect(screen.getByLabelText('四象限')).toHaveValue('');
-    expect(screen.getByLabelText('标签')).toHaveValue('');
+    expect(screen.getByRole('radio', { name: '工作' })).not.toBeChecked();
   });
 
   it('reports title and quadrant validation at the form and does not submit invalid drafts', () => {
@@ -68,7 +68,7 @@ describe('TaskComposer', () => {
     expect(screen.getByLabelText('任务标题')).toHaveValue('保留这份草稿');
     expect(screen.getByLabelText('下一步描述')).toHaveValue('网络恢复后继续');
     expect(screen.getByLabelText('四象限')).toHaveValue('Q2');
-    expect(screen.getByLabelText('标签')).toHaveValue('等待');
+    expect(screen.getByRole('radio', { name: '工作' })).toBeChecked();
   });
 
   it('keeps the draft when the sync controller handles a network error in state', async () => {
@@ -91,7 +91,7 @@ function fillDraft(): void {
   fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '保留这份草稿' } });
   fireEvent.change(screen.getByLabelText('下一步描述'), { target: { value: '网络恢复后继续' } });
   fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q2' } });
-  fireEvent.change(screen.getByLabelText('标签'), { target: { value: '等待' } });
+  fireEvent.click(screen.getByRole('radio', { name: '工作' }));
 }
 
 function createFakeSync(): {
@@ -136,5 +136,6 @@ function makeSnapshot(): WorkspaceSnapshot {
     conflicts: [],
     cursor: 1,
     viewer_user_id: 'viewer',
+    classifications: [{ id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'viewer', created_at: null }],
   };
 }

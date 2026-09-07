@@ -49,6 +49,18 @@ class MemoryMobileSessionStore implements MobileSessionStore {
   Future<void> write(MobileSession session) async => value = session;
 
   @override
+  Future<void> replaceUser(User user) async {
+    if (value == null) return;
+    value = MobileSession(
+      accessToken: value!.accessToken,
+      refreshToken: value!.refreshToken,
+      deviceId: value!.deviceId,
+      user: user,
+      expiresAt: value!.expiresAt,
+    );
+  }
+
+  @override
   Future<void> clear() async => value = null;
 }
 

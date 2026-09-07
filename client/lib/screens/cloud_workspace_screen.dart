@@ -24,6 +24,7 @@ import 'task_schedule_view.dart';
 import '../widgets/task_system_app_bar.dart';
 
 enum _TaskListMenuAction {
+  createClassification,
   sortDueAt,
   sortQuadrant,
   sortUpdatedAt,
@@ -221,6 +222,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         titleContent: _TaskCategorySelector(
           categories: TaskView.listCategories(
             state.snapshot?.tasks ?? const <TaskItem>[],
+            approvedClassifications: state.classifications.map(
+              (classification) => classification.name,
+            ),
           ),
           selectedLabel: _selectedTaskLabel,
           onSelected: (label) => setState(() => _selectedTaskLabel = label),
@@ -240,6 +244,12 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     icon: const Icon(Icons.more_vert),
     onSelected: _handleTaskListMenuAction,
     itemBuilder: (context) => [
+      const PopupMenuItem<_TaskListMenuAction>(
+        key: Key('task-list-create-classification'),
+        value: _TaskListMenuAction.createClassification,
+        child: Text('新建分类'),
+      ),
+      const PopupMenuDivider(),
       const PopupMenuItem<_TaskListMenuAction>(
         enabled: false,
         child: Text('排序'),
@@ -308,6 +318,8 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
 
   void _handleTaskListMenuAction(_TaskListMenuAction action) {
     switch (action) {
+      case _TaskListMenuAction.createClassification:
+        _openCreateClassification();
       case _TaskListMenuAction.sortDueAt:
         setState(() => _taskListSort = TaskListSort.dueAt);
       case _TaskListMenuAction.sortQuadrant:
@@ -327,6 +339,47 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
 
   void _openTaskListDrawer() {
     _scaffoldKey.currentState?.openDrawer();
+  }
+
+  Future<void> _openCreateClassification() async {
+    if (!widget.canWrite || _sync.state.snapshot == null) return;
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('新建分类'),
+        content: TextField(
+          key: const Key('create-classification-input'),
+          controller: controller,
+          autofocus: true,
+          maxLength: 5,
+          decoration: const InputDecoration(hintText: '最多 5 个字符'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('create-classification-submit'),
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('提交审批'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = name?.trim() ?? '';
+    if (!mounted || trimmed.isEmpty) return;
+    try {
+      final approval = await _sync.createClassification(trimmed);
+      if (mounted && approval != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('分类已提交，等待对方审批')));
+      }
+    } catch (_) {
+      // The sync controller exposes the authoritative error state.
+    }
   }
 
   void _openApprovals() {
@@ -592,12 +645,10 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
   }
 
   List<String> _availableLabels() {
-    final labels = <String>{};
-    for (final task
-        in widget.sync.state.snapshot?.tasks ?? const <TaskItem>[]) {
-      labels.addAll(task.labels);
-    }
-    labels.addAll(_labels);
+    final labels = <String>{
+      for (final classification in widget.sync.state.classifications)
+        classification.name,
+    };
     final values = labels.toList()
       ..sort((left, right) => left.compareTo(right));
     return values;
@@ -629,6 +680,10 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
     final title = _title.text.trim();
     final quadrant = _selectedQuadrant;
     if (title.isEmpty || quadrant == null || _creating || !widget.enabled) {
+      return;
+    }
+    if (_labels.length != 1) {
+      setState(() => _createError = '请选择一个已批准分类');
       return;
     }
     setState(() => _creating = true);
@@ -702,7 +757,8 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                     widget.enabled &&
                         !_creating &&
                         _title.text.trim().isNotEmpty &&
-                        _selectedQuadrant != null
+                        _selectedQuadrant != null &&
+                        _labels.length == 1
                     ? _createTask
                     : null,
                 icon: _creating
@@ -771,22 +827,55 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                         ),
                 ),
               ),
-              IconButton(
-                key: const Key('task-create-label-button'),
-                tooltip: '选择标签',
-                onPressed: widget.enabled && !_creating ? _pickLabels : null,
-                style: IconButton.styleFrom(
-                  backgroundColor: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest,
-                  foregroundColor: Theme.of(context).colorScheme.primary,
-                  shape: const CircleBorder(),
-                ),
-                icon: Icon(
-                  _labels.isEmpty ? Icons.star_border : Icons.star,
-                  color: _labels.isEmpty
-                      ? Theme.of(context).colorScheme.onSurfaceVariant
-                      : Theme.of(context).colorScheme.primary,
+              Flexible(
+                fit: FlexFit.loose,
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: _labels.isEmpty
+                      ? IconButton(
+                          key: const Key('task-create-label-button'),
+                          onPressed: widget.enabled && !_creating
+                              ? _pickLabels
+                              : null,
+                          style: IconButton.styleFrom(
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            foregroundColor: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            shape: const CircleBorder(),
+                          ),
+                          icon: const Icon(Icons.star_border),
+                        )
+                      : FilledButton.icon(
+                          key: const Key('task-create-label-button'),
+                          onPressed: widget.enabled && !_creating
+                              ? _pickLabels
+                              : null,
+                          icon: const Icon(Icons.star, size: 18),
+                          label: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _categoryButtonText(),
+                              maxLines: 1,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            foregroundColor: Theme.of(context)
+                                .colorScheme
+                                .primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            minimumSize: const Size(0, 40),
+                            shape: const StadiumBorder(),
+                          ),
+                        ),
                 ),
               ),
               IconButton(
@@ -813,29 +902,14 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
               ),
             ],
           ),
-          if (_labels.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: MuyuSpacing.xs),
-              child: Wrap(
-                spacing: MuyuSpacing.xs,
-                runSpacing: MuyuSpacing.xs,
-                children: [
-                  for (final label in _labels)
-                    InputChip(
-                      key: Key('task-create-label-chip-$label'),
-                      avatar: const Icon(Icons.star, size: 16),
-                      label: Text(label),
-                      onDeleted: widget.enabled && !_creating
-                          ? () => setState(() => _labels.remove(label))
-                          : null,
-                    ),
-                ],
-              ),
-            ),
         ],
       ),
     ),
   );
+
+  String _categoryButtonText() {
+    return _labels.single;
+  }
 }
 
 class _TaskLabelPicker extends StatefulWidget {
@@ -852,60 +926,21 @@ class _TaskLabelPicker extends StatefulWidget {
 }
 
 class _TaskLabelPickerState extends State<_TaskLabelPicker> {
-  static const _maxLabelTotalLength = 320;
-
-  late final TextEditingController _label;
   late final List<String> _availableLabels;
   final _selectedLabels = <String>[];
-  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _label = TextEditingController();
     _availableLabels = [...widget.availableLabels];
-    _selectedLabels.addAll(widget.initialLabels);
+    if (widget.initialLabels.isNotEmpty) {
+      _selectedLabels.add(widget.initialLabels.first);
+    }
   }
 
   @override
   void dispose() {
-    _label.dispose();
     super.dispose();
-  }
-
-  void _addLabel() {
-    final label = _label.text.trim();
-    if (label.isEmpty) return;
-    final normalized = label.toLowerCase();
-    if (label.runes.length > 32) {
-      setState(() => _error = '标签不能超过 32 个字符');
-      return;
-    }
-    if (_selectedLabels.length >= 10) {
-      setState(() => _error = '最多添加 10 个标签');
-      return;
-    }
-    final totalLength = _selectedLabels.fold<int>(
-      0,
-      (total, item) => total + item.runes.length,
-    );
-    if (totalLength + label.runes.length > _maxLabelTotalLength) {
-      setState(() => _error = '标签总长度不能超过 320 个字符');
-      return;
-    }
-    if (_selectedLabels.any((item) => item.toLowerCase() == normalized)) {
-      _label.clear();
-      return;
-    }
-    setState(() {
-      _error = null;
-      _selectedLabels.add(label);
-      if (!_availableLabels.any((item) => item.toLowerCase() == normalized)) {
-        _availableLabels.add(label);
-        _availableLabels.sort();
-      }
-      _label.clear();
-    });
   }
 
   @override
@@ -921,27 +956,11 @@ class _TaskLabelPickerState extends State<_TaskLabelPicker> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '选择标签',
+            '选择分类（必选一个）',
             style: Theme.of(context).textTheme.titleLarge
                 ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: MuyuSpacing.sm),
-          TextField(
-            key: const Key('task-create-label-input'),
-            controller: _label,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _addLabel(),
-            decoration: InputDecoration(
-              labelText: '添加分类',
-              errorText: _error,
-              suffixIcon: IconButton(
-                key: const Key('task-create-label-add'),
-                tooltip: '添加标签',
-                onPressed: _addLabel,
-                icon: const Icon(Icons.add),
-              ),
-            ),
-          ),
           if (_availableLabels.isNotEmpty) ...[
             const SizedBox(height: MuyuSpacing.sm),
             Wrap(
@@ -949,16 +968,16 @@ class _TaskLabelPickerState extends State<_TaskLabelPicker> {
               runSpacing: MuyuSpacing.xs,
               children: [
                 for (final label in _availableLabels)
-                  FilterChip(
+                  ChoiceChip(
                     key: Key('task-create-label-option-$label'),
                     label: Text(label),
                     selected: _selectedLabels.contains(label),
                     onSelected: (selected) {
                       setState(() {
                         if (selected) {
-                          if (_selectedLabels.length < 10) {
-                            _selectedLabels.add(label);
-                          }
+                          _selectedLabels
+                            ..clear()
+                            ..add(label);
                         } else {
                           _selectedLabels.remove(label);
                         }
@@ -967,7 +986,11 @@ class _TaskLabelPickerState extends State<_TaskLabelPicker> {
                   ),
               ],
             ),
-          ],
+          ] else
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
+              child: Text('暂无已批准分类，请先在更多菜单中新建分类'),
+            ),
           const SizedBox(height: MuyuSpacing.md),
           Align(
             alignment: Alignment.centerRight,

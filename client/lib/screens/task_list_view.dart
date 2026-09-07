@@ -689,9 +689,9 @@ class TaskLabelFilter extends StatelessWidget {
   Widget build(BuildContext context) => DropdownButtonFormField<String>(
     key: fieldKey,
     initialValue: labels.contains(selectedLabel) ? selectedLabel : '',
-    decoration: const InputDecoration(labelText: '标签筛选'),
+    decoration: const InputDecoration(labelText: '分类筛选'),
     items: [
-      const DropdownMenuItem(value: '', child: Text('全部标签')),
+      const DropdownMenuItem(value: '', child: Text('全部分类')),
       for (final label in labels)
         DropdownMenuItem(value: label, child: Text(label)),
     ],

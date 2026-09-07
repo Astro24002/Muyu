@@ -3,6 +3,8 @@
 abstract interface class TaskMutationResult {}
 
 class TaskItem implements TaskMutationResult {
+  static const maxClassificationLength = 5;
+
   TaskItem({
     required this.id,
     this.workspaceId,
@@ -41,7 +43,7 @@ class TaskItem implements TaskMutationResult {
     this.deletedAt,
   }) : status = _normalizeStatus(status),
        quadrant = _validateQuadrant(quadrant),
-       labels = List.unmodifiable(labels),
+       labels = _normalizeLabels(labels),
        _progress = progress;
 
   final String id;
@@ -245,15 +247,50 @@ class TaskItem implements TaskMutationResult {
   };
 
   static List<String> _parseLabels(Map<String, dynamic> json) {
-    // Omitted labels are accepted for cached pre-label snapshots. Values from
-    // a mixed-type array are ignored, but a non-array is malformed protocol
-    // data and must not replace the last valid snapshot.
+    // Omitted labels are accepted for cached pre-classification snapshots.
+    // The wire field remains an array for compatibility, but a task can have
+    // at most one classification.
     if (!json.containsKey('labels')) return const [];
     final value = json['labels'];
     if (value is! List) {
       throw const FormatException('task labels must be an array of strings');
     }
-    return value.whereType<String>().toList(growable: false);
+    if (value.length > 1) {
+      throw const FormatException('task must have at most one classification');
+    }
+    if (value.isEmpty) return const [];
+    final label = value.single;
+    if (label is! String || label.trim().isEmpty) {
+      throw const FormatException(
+        'task classification must be a non-empty string',
+      );
+    }
+    final normalized = label.trim();
+    if (normalized.runes.length > maxClassificationLength) {
+      throw const FormatException(
+        'task classification must be at most 5 characters',
+      );
+    }
+    return <String>[normalized];
+  }
+
+  static List<String> _normalizeLabels(Iterable<String> values) {
+    final labels = values.map((value) => value.trim()).toList(growable: false);
+    if (labels.length > 1) {
+      throw const FormatException('task must have at most one classification');
+    }
+    if (labels.isEmpty) return const [];
+    if (labels.single.isEmpty) {
+      throw const FormatException(
+        'task classification must be a non-empty string',
+      );
+    }
+    if (labels.single.runes.length > maxClassificationLength) {
+      throw const FormatException(
+        'task classification must be at most 5 characters',
+      );
+    }
+    return List.unmodifiable(labels);
   }
 
   static int? _derivedProgress(String status) => switch (status) {

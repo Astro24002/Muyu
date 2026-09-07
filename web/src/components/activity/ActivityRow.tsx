@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import type { ActivityEvent } from '../../api/types';
+import { activityLabel as operationLabel } from '../../tasks/activity-label';
 
 export interface ActivityRowProps {
   event: ActivityEvent;
@@ -31,15 +32,7 @@ function activityLabel(event: ActivityEvent): string {
   if (event.kind === 'comment') return '添加评论';
   if (event.kind === 'delay') return '延期任务';
 
-  const labels: Record<string, string> = {
-    CREATE: '创建任务',
-    UPDATE: '更新任务',
-    PATCH: '更新任务',
-    TRANSITION: '更新状态',
-    DELETE: '删除任务',
-    RESTORE: '恢复任务',
-  };
-  return labels[event.operation_type ?? ''] ?? '更新任务';
+  return event.operation_type ? operationLabel(event.operation_type) : '更新任务';
 }
 
 function actorLabel(event: ActivityEvent): string {

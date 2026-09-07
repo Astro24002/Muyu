@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../core/api_client.dart';
 import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
+import '../models/classification.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
 import '../models/home.dart';
@@ -36,6 +37,9 @@ class WorkspaceSyncState {
       snapshot?.approvalRequests ?? const <TaskApprovalRequest>[];
 
   List<TaskComment> get comments => snapshot?.comments ?? const <TaskComment>[];
+
+  List<WorkspaceClassification> get classifications =>
+      snapshot?.classifications ?? const <WorkspaceClassification>[];
 
   WorkspaceSyncState copyWith({
     WorkspaceSnapshot? snapshot,
@@ -111,7 +115,11 @@ class WorkspaceSyncController extends ChangeNotifier {
       if (!snapshot.isValidForWorkspace()) {
         throw const FormatException('workspace snapshot contains foreign data');
       }
-      final home = await _loadHome(snapshot.workspaceId);
+      final home = await _loadHome(
+        snapshot.workspaceId,
+        classifications: snapshot.classifications,
+        hasClassificationContract: snapshot.hasClassificationContract,
+      );
       state = WorkspaceSyncState(
         snapshot: snapshot,
         isStale: false,
@@ -155,28 +163,38 @@ class WorkspaceSyncController extends ChangeNotifier {
           .toList();
       final approvals = [...current.approvalRequests];
       final comments = [...current.comments];
+      final classifications = [...current.classifications];
       for (final change in result.changes) {
         _applyTask(tasks, change, current.workspaceId);
         _applyConflict(conflicts, change, current.workspaceId);
         _applyApproval(approvals, change, current.workspaceId);
         _applyComment(comments, change, current.workspaceId);
+        _applyClassification(classifications, change, current.workspaceId);
       }
-      final home = await _loadHome(current.workspaceId);
-      state = WorkspaceSyncState(
-        snapshot: WorkspaceSnapshot(
-          workspaceId: current.workspaceId,
-          cursor: result.cursor,
-          tasks: tasks,
-          members: current.members,
-          conflicts: conflicts,
-          viewerUserId: current.viewerUserId,
-          comments: comments,
-          approvalRequests: approvals,
-          fetchedAt: DateTime.now(),
-        ),
-        isStale: false,
-        home: home,
+      final next = WorkspaceSnapshot(
+        workspaceId: current.workspaceId,
+        cursor: result.cursor,
+        tasks: tasks,
+        members: current.members,
+        conflicts: conflicts,
+        viewerUserId: current.viewerUserId,
+        comments: comments,
+        approvalRequests: approvals,
+        classifications: classifications,
+        hasClassificationContract: current.hasClassificationContract,
+        fetchedAt: DateTime.now(),
       );
+      if (!next.isValidForWorkspace()) {
+        throw const FormatException(
+          'workspace changes contain invalid classification data',
+        );
+      }
+      final home = await _loadHome(
+        next.workspaceId,
+        classifications: next.classifications,
+        hasClassificationContract: next.hasClassificationContract,
+      );
+      state = WorkspaceSyncState(snapshot: next, isStale: false, home: home);
       await _writeCache(state.snapshot!);
       notifyListeners();
     } catch (error) {
@@ -277,11 +295,23 @@ class WorkspaceSyncController extends ChangeNotifier {
     if (repository == null || state.snapshot == null || state.isStale) {
       return null;
     }
+    if (labels.length != 1 || labels.single.trim().isEmpty) {
+      throw const FormatException('任务必须选择一个已批准分类');
+    }
+    final normalizedLabels = <String>[labels.single.trim()];
+    final approvedNames = {
+      for (final classification in state.classifications)
+        classification.name.trim().toLowerCase(),
+    };
+    if (state.classifications.isEmpty ||
+        !approvedNames.contains(normalizedLabels.single.toLowerCase())) {
+      throw const FormatException('任务只能选择已批准分类');
+    }
     try {
       final created = await repository.create(
         title: title,
         quadrant: quadrant,
-        labels: labels,
+        labels: normalizedLabels,
         description: description,
         dueAt: dueAt,
         parentTaskId: parentTaskId,
@@ -307,6 +337,20 @@ class WorkspaceSyncController extends ChangeNotifier {
     final repository = _repository;
     final task = _task(taskId);
     if (repository == null || task == null || state.isStale) return null;
+    if (fields.containsKey('labels')) {
+      final value = fields['labels'];
+      if (value is! List || value.length != 1 || value.first is! String) {
+        throw const FormatException('任务必须选择一个已批准分类');
+      }
+      final classification = (value.first as String).trim();
+      final approved = state.classifications.any(
+        (item) =>
+            item.name.trim().toLowerCase() == classification.toLowerCase(),
+      );
+      if (classification.isEmpty || !approved) {
+        throw const FormatException('任务只能选择已批准分类');
+      }
+    }
     try {
       final result = await repository.update(
         taskId,
@@ -342,13 +386,14 @@ class WorkspaceSyncController extends ChangeNotifier {
     final repository = _repository;
     final snapshot = state.snapshot;
     if (repository == null || snapshot == null || state.isStale) return null;
+    final normalizedChanges = _normalizeApprovalChanges(proposedChanges);
     try {
       final approval = await repository.createApprovalRequest(
         workspaceId: snapshot.workspaceId,
         taskId: taskId,
         commentId: commentId,
         requestType: requestType,
-        proposedChanges: proposedChanges,
+        proposedChanges: normalizedChanges,
         baseFieldVersions: baseFieldVersions,
         requestId: _requestId(),
       );
@@ -356,6 +401,44 @@ class WorkspaceSyncController extends ChangeNotifier {
       return approval;
     } catch (error) {
       if (await _mergeApiConflict(error)) return null;
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskApprovalRequest?> createClassification(String name) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    if (repository == null || snapshot == null || state.isStale) return null;
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.runes.length > 5) {
+      throw const FormatException('分类名称不能为空且不能超过 5 个字符');
+    }
+    final normalizedKey = normalized.toLowerCase();
+    if (state.classifications.any(
+      (classification) =>
+          classification.name.trim().toLowerCase() == normalizedKey,
+    )) {
+      throw const FormatException('该分类已存在');
+    }
+    if (state.approvalRequests.any(
+      (request) =>
+          request.requestType == 'CLASSIFICATION_CREATE' &&
+          request.status == 'PENDING' &&
+          request.proposedChanges['name'] is String &&
+          (request.proposedChanges['name'] as String).trim().toLowerCase() ==
+              normalizedKey,
+    )) {
+      throw const FormatException('该分类已提交审批');
+    }
+    try {
+      final approval = await repository.createClassification(
+        name: normalized,
+        requestId: _requestId(),
+      );
+      _mergeApproval(approval);
+      return approval;
+    } catch (error) {
       _setError(error);
       rethrow;
     }
@@ -558,6 +641,33 @@ class WorkspaceSyncController extends ChangeNotifier {
     return null;
   }
 
+  Map<String, Object?> _normalizeApprovalChanges(
+    Map<String, Object?> proposedChanges,
+  ) {
+    final normalized = Map<String, Object?>.from(proposedChanges);
+    if (!normalized.containsKey('labels')) return normalized;
+    final value = normalized['labels'];
+    if (value is! List || value.length != 1 || value.single is! String) {
+      throw const FormatException('任务必须选择一个已批准分类');
+    }
+    final requested = (value.single as String).trim();
+    if (requested.isEmpty) {
+      throw const FormatException('任务必须选择一个已批准分类');
+    }
+    WorkspaceClassification? approved;
+    for (final classification in state.classifications) {
+      if (classification.name.trim().toLowerCase() == requested.toLowerCase()) {
+        approved = classification;
+        break;
+      }
+    }
+    if (approved == null) {
+      throw const FormatException('任务只能选择已批准分类');
+    }
+    normalized['labels'] = <String>[approved.name];
+    return normalized;
+  }
+
   void _replaceTask(TaskItem updated) {
     final current = state.snapshot;
     if (current == null) return;
@@ -568,18 +678,24 @@ class WorkspaceSyncController extends ChangeNotifier {
     final tasks = [...current.tasks]
       ..removeWhere((item) => item.id == updated.id)
       ..add(updated);
+    final next = WorkspaceSnapshot(
+      workspaceId: current.workspaceId,
+      cursor: current.cursor,
+      tasks: tasks,
+      members: current.members,
+      conflicts: current.conflicts,
+      viewerUserId: current.viewerUserId,
+      comments: current.comments,
+      approvalRequests: current.approvalRequests,
+      classifications: current.classifications,
+      hasClassificationContract: current.hasClassificationContract,
+      fetchedAt: DateTime.now(),
+    );
+    if (!next.isValidForWorkspace()) {
+      throw const FormatException('task contains an unapproved classification');
+    }
     state = WorkspaceSyncState(
-      snapshot: WorkspaceSnapshot(
-        workspaceId: current.workspaceId,
-        cursor: current.cursor,
-        tasks: tasks,
-        members: current.members,
-        conflicts: current.conflicts,
-        viewerUserId: current.viewerUserId,
-        comments: current.comments,
-        approvalRequests: current.approvalRequests,
-        fetchedAt: DateTime.now(),
-      ),
+      snapshot: next,
       isStale: false,
       home: state.home,
     );
@@ -639,11 +755,18 @@ class WorkspaceSyncController extends ChangeNotifier {
         ..removeWhere((item) => item.id == result.comment!.id)
         ..add(result.comment!);
     }
+    final classifications = [...current.classifications];
+    if (result.classification != null) {
+      classifications
+        ..removeWhere((item) => item.id == result.classification!.id)
+        ..add(result.classification!);
+    }
     _setResources(
       current,
       tasks: tasks,
       comments: comments,
       approvalRequests: approvals,
+      classifications: classifications,
       cursor: result.cursor == null
           ? null
           : result.cursor! > current.cursor
@@ -661,13 +784,30 @@ class WorkspaceSyncController extends ChangeNotifier {
     if (approval.workspaceId != current.workspaceId) {
       throw const FormatException('approval belongs to another workspace');
     }
+    final task = result.task;
+    if (task != null &&
+        (task.workspaceId != null && task.workspaceId != current.workspaceId)) {
+      throw const FormatException('approved task belongs to another workspace');
+    }
+    if (task != null && approval.taskId != task.id) {
+      throw const FormatException('approved task does not match approval');
+    }
     final comment = result.comment;
-    if (comment == null) return;
-    if (comment.workspaceId != current.workspaceId ||
-        comment.taskId != approval.taskId ||
-        approval.commentId == null ||
-        approval.commentId != comment.id) {
+    if (comment != null &&
+        (comment.workspaceId != current.workspaceId ||
+            comment.taskId != approval.taskId ||
+            approval.commentId == null ||
+            approval.commentId != comment.id)) {
       throw const FormatException('comment does not match approval workspace');
+    }
+    final classification = result.classification;
+    if (classification != null &&
+        (classification.workspaceId != current.workspaceId ||
+            approval.requestType != 'CLASSIFICATION_CREATE' ||
+            approval.taskId != null)) {
+      throw const FormatException(
+        'classification does not match approval workspace',
+      );
     }
   }
 
@@ -683,21 +823,30 @@ class WorkspaceSyncController extends ChangeNotifier {
     List<TaskItem>? tasks,
     List<TaskComment>? comments,
     List<TaskApprovalRequest>? approvalRequests,
+    List<WorkspaceClassification>? classifications,
     int? cursor,
     required bool notify,
   }) {
+    final next = WorkspaceSnapshot(
+      workspaceId: current.workspaceId,
+      cursor: cursor ?? current.cursor,
+      tasks: tasks ?? current.tasks,
+      members: current.members,
+      conflicts: current.conflicts,
+      viewerUserId: current.viewerUserId,
+      comments: comments ?? current.comments,
+      approvalRequests: approvalRequests ?? current.approvalRequests,
+      classifications: classifications ?? current.classifications,
+      hasClassificationContract: current.hasClassificationContract,
+      fetchedAt: DateTime.now(),
+    );
+    if (!next.isValidForWorkspace()) {
+      throw const FormatException(
+        'workspace resources contain invalid classification data',
+      );
+    }
     state = WorkspaceSyncState(
-      snapshot: WorkspaceSnapshot(
-        workspaceId: current.workspaceId,
-        cursor: cursor ?? current.cursor,
-        tasks: tasks ?? current.tasks,
-        members: current.members,
-        conflicts: current.conflicts,
-        viewerUserId: current.viewerUserId,
-        comments: comments ?? current.comments,
-        approvalRequests: approvalRequests ?? current.approvalRequests,
-        fetchedAt: DateTime.now(),
-      ),
+      snapshot: next,
       isStale: false,
       home: state.home,
     );
@@ -811,8 +960,14 @@ class WorkspaceSyncController extends ChangeNotifier {
       viewerUserId: current.viewerUserId,
       comments: current.comments,
       approvalRequests: current.approvalRequests,
+      classifications: current.classifications,
+      hasClassificationContract: current.hasClassificationContract,
       fetchedAt: DateTime.now(),
     );
+    if (!next.isValidForWorkspace()) {
+      await refresh();
+      return false;
+    }
     state = WorkspaceSyncState(
       snapshot: next,
       isStale: false,
@@ -852,7 +1007,11 @@ class WorkspaceSyncController extends ChangeNotifier {
     }
   }
 
-  Future<HomeResponse?> _loadHome(String workspaceId) async {
+  Future<HomeResponse?> _loadHome(
+    String workspaceId, {
+    required List<WorkspaceClassification> classifications,
+    required bool hasClassificationContract,
+  }) async {
     final repository = _repository;
     if (repository == null) return null;
     try {
@@ -860,6 +1019,12 @@ class WorkspaceSyncController extends ChangeNotifier {
       if (home == null) return null;
       if (!home.isValidForWorkspace(workspaceId)) {
         throw const FormatException('home projection contains foreign data');
+      }
+      if (hasClassificationContract &&
+          !_homeUsesOnlyApprovedClassifications(home, classifications)) {
+        throw const FormatException(
+          'home projection contains an unapproved classification',
+        );
       }
       return home;
     } catch (_) {
@@ -872,9 +1037,28 @@ class WorkspaceSyncController extends ChangeNotifier {
   Future<void> _refreshHome() async {
     final current = state.snapshot;
     if (current == null) return;
-    final home = await _loadHome(current.workspaceId);
+    final home = await _loadHome(
+      current.workspaceId,
+      classifications: current.classifications,
+      hasClassificationContract: current.hasClassificationContract,
+    );
     state = state.copyWith(home: home);
     notifyListeners();
+  }
+
+  bool _homeUsesOnlyApprovedClassifications(
+    HomeResponse home,
+    List<WorkspaceClassification> classifications,
+  ) {
+    final approvedNames = {
+      for (final classification in classifications)
+        classification.name.trim().toLowerCase(),
+    };
+    return home.allTasks.every((task) {
+      if (task.labels.isEmpty) return true;
+      return task.labels.length == 1 &&
+          approvedNames.contains(task.labels.single.trim().toLowerCase());
+    });
   }
 
   Future<void> _writeCache(WorkspaceSnapshot snapshot) async {
@@ -989,6 +1173,28 @@ class WorkspaceSyncController extends ChangeNotifier {
       comments.add(change.comment!);
     } else {
       comments[index] = change.comment!;
+    }
+  }
+
+  static void _applyClassification(
+    List<WorkspaceClassification> classifications,
+    WorkspaceChange change,
+    String workspaceId,
+  ) {
+    if (change.resourceType != 'classification' ||
+        change.classification == null ||
+        change.classification!.workspaceId != workspaceId) {
+      return;
+    }
+    final index = classifications.indexWhere(
+      (item) => item.id == change.resourceId,
+    );
+    if (change.action.toUpperCase() == 'DELETED') {
+      if (index != -1) classifications.removeAt(index);
+    } else if (index == -1) {
+      classifications.add(change.classification!);
+    } else {
+      classifications[index] = change.classification!;
     }
   }
 }

@@ -32,6 +32,7 @@ from app.tasks.approval_schemas import ApprovalRequestCreate
 from app.tasks.approvals import TaskApprovalResult, TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace(session: Session, member_count: int = 2, phone_seed: int = 8000) -> tuple[list[User], Workspace]:
@@ -51,6 +52,8 @@ def _workspace(session: Session, member_count: int = 2, phone_seed: int = 8000) 
     )
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    if users:
+        seed_approved_classification(session, workspace.id, users[0].id)
     return users, workspace
 
 
@@ -61,6 +64,7 @@ def _task(session: Session, workspace: Workspace, owner: User):
         uuid4(),
         "Original",
         quadrant="Q1",
+        labels=["工作"],
     )
 
 
@@ -111,7 +115,7 @@ def test_create_rejects_workspaces_without_exactly_two_active_members(db_engine,
             task_id = uuid4()
         else:
             requester = users[0]
-            task_id = TaskService(session).create(workspace.id, requester.id, uuid4(), "Original", quadrant="Q1").id
+            task_id = TaskService(session).create(workspace.id, requester.id, uuid4(), "Original", quadrant="Q1", labels=["工作"]).id
 
         with pytest.raises(TaskConflictError) as error:
             _create_update(session, workspace, requester, task_id)

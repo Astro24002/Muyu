@@ -21,7 +21,7 @@ class ApprovalRequestCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: UUID
-    task_id: UUID
+    task_id: UUID | None = None
     comment_id: UUID | None = None
     request_type: TaskApprovalRequestType
     proposed_changes: dict[str, Any] = Field(default_factory=dict)
@@ -29,6 +29,14 @@ class ApprovalRequestCreate(BaseModel):
 
     @model_validator(mode="after")
     def versions_match_changed_fields(self) -> "ApprovalRequestCreate":
+        if self.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            if self.task_id is not None or self.comment_id is not None:
+                raise ValueError("classification approval cannot target a task or comment")
+            if set(self.proposed_changes) != {"name"} or self.base_field_versions:
+                raise ValueError("classification approval requires only a name")
+            return self
+        if self.task_id is None:
+            raise ValueError("task_id is required for task approvals")
         if self.request_type in {
             TaskApprovalRequestType.TASK_UPDATE,
             TaskApprovalRequestType.QUADRANT_UPDATE,
@@ -56,7 +64,7 @@ class ApprovalRequestRead(BaseModel):
 
     id: UUID
     workspace_id: UUID
-    task_id: UUID
+    task_id: UUID | None
     comment_id: UUID | None
     requester_id: UUID
     approver_id: UUID
@@ -84,6 +92,7 @@ class ApprovalActionResult(BaseModel):
     approval_request: ApprovalRequestRead
     task: dict[str, Any] | None = None
     comment: dict[str, Any] | None = None
+    classification: dict[str, Any] | None = None
     cursor: int | None = None
 
     @property

@@ -87,6 +87,7 @@ function makeSnapshot(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnap
     viewer_user_id: 'viewer',
     comments: [],
     approval_requests: [incomingApproval],
+    classifications: [{ id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'viewer', created_at: null }],
     ...overrides,
   };
 }
@@ -343,6 +344,7 @@ describe('React accessibility contract', () => {
     fireEvent.click(within(composer.container).getByRole('button', { name: '记下一件事' }));
     fireEvent.change(within(composer.container).getByLabelText('任务标题'), { target: { value: '新任务' } });
     fireEvent.change(within(composer.container).getByLabelText('四象限'), { target: { value: 'Q2' } });
+    fireEvent.click(within(composer.container).getByRole('radio', { name: '工作' }));
     fireEvent.click(within(composer.container).getByRole('button', { name: '创建任务' }));
     expect(within(composer.container).getByRole('button', { name: '正在保存' })).toBeInTheDocument();
     assertBusyIsAnnounced(composer.container);

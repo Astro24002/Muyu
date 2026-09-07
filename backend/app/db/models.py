@@ -116,6 +116,34 @@ class WorkspaceMembership(Base):
     updated_at = _created()
 
 
+class WorkspaceClassification(Base):
+    """An approved classification shared by every task in a workspace."""
+
+    __tablename__ = "workspace_classifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "normalized_name",
+            name="uq_workspace_classifications_normalized_name",
+        ),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(5), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(5), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at = _created()
+
+
 class WorkspaceInvite(Base):
     __tablename__ = "workspace_invites"
 
@@ -344,7 +372,7 @@ class TaskOperation(Base):
 
     id = _id()
     workspace_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False)
+    task_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"))
     actor_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     actor_device_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("android_devices.id", ondelete="RESTRICT"))
     web_session_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("web_sessions.id", ondelete="RESTRICT"))
@@ -419,10 +447,9 @@ class TaskApprovalRequest(Base):
         ForeignKey("workspaces.id", name="fk_task_approval_requests_workspace_id", ondelete="CASCADE"),
         nullable=False,
     )
-    task_id: Mapped[UUID] = mapped_column(
+    task_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("tasks.id", name="fk_task_approval_requests_task_id", ondelete="RESTRICT"),
-        nullable=False,
     )
     comment_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),

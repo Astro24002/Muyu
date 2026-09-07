@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, TaskStatus
 from app.db.models import (
     ActivityEvent,
+    TaskConflict,
     TaskOperation,
     TaskStatusHistory,
     User,
@@ -20,6 +21,7 @@ from app.db.models import (
 )
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
@@ -51,6 +53,7 @@ def _workspace(session: Session) -> tuple[User, User, Workspace]:
         ]
     )
     session.flush()
+    seed_approved_classification(session, workspace.id, owner.id)
     return owner, reviewer, workspace
 
 
@@ -58,7 +61,7 @@ def test_proposed_status_conflict_is_one_replayable_operation_with_adjacent_curs
     with Session(db_engine) as session:
         owner, _reviewer, workspace = _workspace(session)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "状态冲突", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "状态冲突", quadrant="Q1", labels=["工作"])
         started = service.transition(
             workspace.id,
             owner.id,
@@ -178,3 +181,45 @@ def test_proposed_status_conflict_is_one_replayable_operation_with_adjacent_curs
         assert session.scalar(
             select(WorkspaceCursor.next_cursor).where(WorkspaceCursor.workspace_id == workspace_id)
         ) == 7
+
+
+def test_proposed_classification_conflict_cannot_bypass_single_value_validation(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, _reviewer, workspace = _workspace(session)
+        service = TaskService(session, now=lambda: NOW)
+        task = service.create(
+            workspace.id,
+            owner.id,
+            uuid4(),
+            "分类冲突",
+            quadrant="Q1",
+            labels=["工作"],
+        )
+        conflict = TaskConflict(
+            workspace_id=workspace.id,
+            task_id=task.id,
+            target="labels",
+            base_value=["工作"],
+            current_value=["工作"],
+            proposed_value=["工作", "婚礼"],
+            base_version=1,
+            current_version=1,
+            request_id=uuid4(),
+            status=ConflictStatus.OPEN,
+        )
+        session.add(conflict)
+        session.flush()
+
+        with pytest.raises(TaskConflictError) as error:
+            service.resolve_conflict(
+                workspace.id,
+                owner.id,
+                task.id,
+                conflict.id,
+                uuid4(),
+                "proposed",
+            )
+
+        assert error.value.code == "invalid_request"
+        assert task.labels == ["工作"]
+        assert conflict.status == ConflictStatus.OPEN

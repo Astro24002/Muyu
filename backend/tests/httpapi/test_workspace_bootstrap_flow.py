@@ -145,7 +145,7 @@ def test_partner_first_device_accepts_invite_without_device_approval(db_engine) 
         assert session.scalars(select(DeviceAuthorizationRequest)).all() == []
 
 
-def test_pending_second_device_can_accept_membership_but_needs_approval(db_engine) -> None:
+def test_second_device_can_accept_membership_without_device_approval(db_engine) -> None:
     client = _client(db_engine)
     owner = _login(client, "+8613800138000", "AQID")
     binding = client.post(
@@ -168,11 +168,9 @@ def test_pending_second_device_can_accept_membership_but_needs_approval(db_engin
 
     assert response.status_code == 200, response.text
     assert response.json()["state"] == "READY"
-    assert response.json()["device"] == {"status": "UNVERIFIED", "can_write": False}
+    assert response.json()["device"] == {"status": "VERIFIED", "can_write": True}
     with Session(db_engine) as session:
-        request = session.scalar(select(DeviceAuthorizationRequest))
-        assert request is not None
-        assert request.status == ApprovalStatus.PENDING
+        assert session.scalars(select(DeviceAuthorizationRequest)).all() == []
         membership = session.scalar(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.user_id == UUID(str(partner_first["user"]["id"])),
@@ -183,7 +181,7 @@ def test_pending_second_device_can_accept_membership_but_needs_approval(db_engin
         assert membership.status == MembershipStatus.ACTIVE
         device = session.get(AndroidDevice, UUID(str(partner_second["device_id"])))
         assert device is not None
-        assert device.status == DeviceStatus.PENDING
+        assert device.status == DeviceStatus.ACTIVE
 
 
 def test_self_phone_and_second_workspace_are_rejected(db_engine) -> None:

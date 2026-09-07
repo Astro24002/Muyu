@@ -22,12 +22,12 @@ def _schemas():
         pytest.fail(f"bootstrap schemas are not exposed yet: {error}")
 
 
-def test_device_registration_status_is_active_only_for_the_first_device() -> None:
+def test_device_registration_status_is_active_for_every_sms_device() -> None:
     schemas = _schemas()
 
     assert schemas.device_status_for_device_count(0) is DeviceStatus.ACTIVE
-    assert schemas.device_status_for_device_count(1) is DeviceStatus.PENDING
-    assert schemas.device_status_for_device_count(2) is DeviceStatus.PENDING
+    assert schemas.device_status_for_device_count(1) is DeviceStatus.ACTIVE
+    assert schemas.device_status_for_device_count(2) is DeviceStatus.ACTIVE
 
 
 def test_bootstrap_states_and_public_device_statuses_are_stable() -> None:

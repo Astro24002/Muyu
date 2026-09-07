@@ -47,7 +47,11 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
           TaskLabelFilter(
             key: const Key('task-schedule-label-filter'),
             fieldKey: const Key('task-schedule-label-filter-field'),
-            labels: collectTaskLabels(tasks),
+            labels: widget.state.classifications.isEmpty
+                ? collectTaskLabels(tasks)
+                : widget.state.classifications
+                      .map((classification) => classification.name)
+                      .toList(),
             selectedLabel: _selectedLabel,
             onChanged: (value) => setState(() => _selectedLabel = value),
           ),

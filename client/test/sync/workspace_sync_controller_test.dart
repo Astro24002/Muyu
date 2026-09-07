@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/core/api_client.dart';
+import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_approval_request.dart';
 import 'package:muyu_client/models/home.dart';
@@ -17,6 +18,7 @@ TaskItem task(
   String status = 'TODO',
   String currentHandlerId = 'user-1',
   String? reviewerUserId,
+  List<String> labels = const ['工作'],
 }) => TaskItem(
   id: 'task-1',
   workspaceId: workspaceId,
@@ -36,7 +38,14 @@ TaskItem task(
   statusVersion: 1,
   createdAt: DateTime.utc(2026, 8, 24),
   updatedAt: DateTime.utc(2026, 8, 24),
-  labels: const [],
+  labels: labels,
+);
+
+const syncClassification = WorkspaceClassification(
+  id: 'classification-work',
+  workspaceId: 'w1',
+  name: '工作',
+  createdBy: 'user-1',
 );
 
 class FakeSyncRepository implements WorkspaceSyncRepository {
@@ -53,6 +62,8 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   String? lastTargetStatus;
   String? lastReviewRejectionReason;
   String? createRequestId;
+  int approvalRequestCalls = 0;
+  Map<String, Object?>? lastApprovalChanges;
   HomeResponse? homeProjection;
   int homeCalls = 0;
 
@@ -99,6 +110,34 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
   }) async => task('resolved');
 
   @override
+  Future<TaskApprovalRequest> createApprovalRequest({
+    String? workspaceId,
+    required String taskId,
+    String? commentId,
+    required String requestType,
+    required Map<String, Object?> proposedChanges,
+    required Map<String, int> baseFieldVersions,
+    required String requestId,
+  }) async {
+    approvalRequestCalls++;
+    lastApprovalChanges = Map<String, Object?>.from(proposedChanges);
+    return TaskApprovalRequest(
+      id: 'approval-$approvalRequestCalls',
+      workspaceId: workspaceId ?? 'w1',
+      taskId: taskId,
+      commentId: commentId,
+      requesterId: 'user-1',
+      approverId: 'user-2',
+      requestType: requestType,
+      proposedChanges: Map<String, dynamic>.from(proposedChanges),
+      baseFieldVersions: baseFieldVersions,
+      requestId: requestId,
+      status: 'PENDING',
+      createdAt: DateTime.utc(2026, 9, 7),
+    );
+  }
+
+  @override
   Stream<WorkspaceChanged> openWorkspaceHints() => Stream.fromIterable(hints);
 
   @override
@@ -112,6 +151,7 @@ class FakeSyncRepository implements WorkspaceSyncRepository {
       workspaceId: 'w1',
       cursor: 11,
       tasks: [task('Server title')],
+      classifications: const [syncClassification],
     );
   }
 
@@ -222,6 +262,99 @@ void main() {
   });
 
   test(
+    'recovers from an incremental task containing an unapproved classification',
+    () async {
+      final repository = FakeSyncRepository();
+      repository.queuedSnapshots.addAll([
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Initial')],
+          classifications: const [syncClassification],
+          hasClassificationContract: true,
+        ),
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 12,
+          tasks: [task('Authoritative')],
+          classifications: const [syncClassification],
+          hasClassificationContract: true,
+        ),
+      ]);
+      repository.queuedChanges.add(
+        WorkspaceChanges(
+          workspaceId: 'w1',
+          cursor: 12,
+          changes: [
+            WorkspaceChange.taskUpdated(
+              cursor: 12,
+              task: task('Unapproved', labels: const ['婚礼']),
+            ),
+          ],
+        ),
+      );
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+      await controller.pull();
+
+      expect(repository.snapshotCalls, 2);
+      expect(controller.state.snapshot!.tasks.single.title, 'Authoritative');
+      expect(controller.state.snapshot!.tasks.single.labels, const ['工作']);
+      expect(controller.state.cursor, 12);
+    },
+  );
+
+  test(
+    'generic approvals validate a task classification before dispatch',
+    () async {
+      final repository = FakeSyncRepository();
+      final controller = WorkspaceSyncController(repository);
+      await controller.refresh();
+
+      await expectLater(
+        controller.createApprovalRequest(
+          'task-1',
+          requestType: 'TASK_UPDATE',
+          proposedChanges: {
+            'labels': ['工作', '婚礼'],
+          },
+          baseFieldVersions: const {'labels': 1},
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      await expectLater(
+        controller.createApprovalRequest(
+          'task-1',
+          requestType: 'TASK_UPDATE',
+          proposedChanges: {
+            'labels': ['婚礼'],
+          },
+          baseFieldVersions: const {'labels': 1},
+        ),
+        throwsA(isA<FormatException>()),
+      );
+
+      expect(repository.approvalRequestCalls, 0);
+
+      final approval = await controller.createApprovalRequest(
+        'task-1',
+        requestType: 'TASK_UPDATE',
+        proposedChanges: {
+          'labels': [' 工作 '],
+        },
+        baseFieldVersions: const {'labels': 1},
+      );
+
+      expect(approval, isNotNull);
+      expect(repository.approvalRequestCalls, 1);
+      expect(repository.lastApprovalChanges, {
+        'labels': ['工作'],
+      });
+    },
+  );
+
+  test(
     'refresh loads the server action projection without making it required',
     () async {
       final repository = FakeSyncRepository()
@@ -246,6 +379,38 @@ void main() {
       expect(controller.state.home?.currentTasks.items.single.title, 'Current');
       expect(controller.state.home?.currentTasks.hasMore, isTrue);
       expect(controller.state.home?.pendingApprovalCount, 2);
+    },
+  );
+
+  test(
+    'does not expose a home task with an unapproved classification',
+    () async {
+      final repository = FakeSyncRepository()
+        ..homeProjection = HomeResponse(
+          currentTasks: HomeTaskSection(
+            items: [
+              task('Unapproved home task', labels: const ['婚礼']),
+            ],
+          ),
+          blockedTasks: HomeTaskSection(items: const []),
+          reviewTasks: HomeTaskSection(items: const []),
+          pendingApprovalCount: 0,
+        );
+      repository.queuedSnapshots.add(
+        WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 11,
+          tasks: [task('Authoritative')],
+          classifications: const [syncClassification],
+          hasClassificationContract: true,
+        ),
+      );
+      final controller = WorkspaceSyncController(repository);
+
+      await controller.refresh();
+
+      expect(controller.state.snapshot!.tasks.single.title, 'Authoritative');
+      expect(controller.state.home, isNull);
     },
   );
 
@@ -1047,7 +1212,11 @@ void main() {
     final controller = WorkspaceSyncController(repository);
     await controller.refresh();
 
-    final created = await controller.create('Created title', quadrant: 'Q1');
+    final created = await controller.create(
+      'Created title',
+      quadrant: 'Q1',
+      labels: const ['工作'],
+    );
 
     expect(created!.title, 'Created title');
     expect(

@@ -141,7 +141,7 @@ void main() {
     'filterByLabel matches labels case-insensitively and preserves order',
     () {
       final tasks = [
-        makeTask('work', 'TODO', null, labels: ['Work', '党员']),
+        makeTask('work', 'TODO', null, labels: ['Work']),
         makeTask('home', 'TODO', null, labels: ['Home']),
         makeTask('work-again', 'TODO', null, labels: ['work']),
       ];
@@ -157,7 +157,7 @@ void main() {
 
   test('list categories count unfinished top-level tasks only', () {
     final tasks = [
-      makeTask('work-active', 'IN_PROGRESS', null, labels: ['工作', '常规事项']),
+      makeTask('work-active', 'IN_PROGRESS', null, labels: ['工作']),
       makeTask('work-done', 'DONE', null, labels: ['工作']),
       makeTask(
         'child',
@@ -176,7 +176,7 @@ void main() {
     expect(categories.first.unfinishedCount, 2);
     expect(
       categories.skip(1).map((item) => (item.label, item.unfinishedCount)),
-      [('婚礼', 1), ('工作', 1), ('常规事项', 1)],
+      [('婚礼', 1), ('工作', 1)],
     );
   });
 

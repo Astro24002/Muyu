@@ -2,7 +2,8 @@ import { Plus } from 'lucide-react';
 import { useId, useState, type FormEvent, type JSX } from 'react';
 import type { TaskItem, TaskQuadrant } from '../../api/types';
 import { useWorkspaceState } from '../../app/use-external-state';
-import { parseTaskLabelsInput, TASK_QUADRANTS } from '../../tasks/task-model';
+import { classificationNames, classificationNameSet } from '../../tasks/classification';
+import { TASK_QUADRANTS } from '../../tasks/task-model';
 import type { WorkspaceSyncController } from '../../sync/workspace-sync';
 import { Button } from '../ui/Button';
 
@@ -24,10 +25,10 @@ interface TaskDraft {
   title: string;
   description: string;
   quadrant: TaskItem['quadrant'] | '';
-  labels: string;
+  labels: string[];
 }
 
-const EMPTY_DRAFT: TaskDraft = { title: '', description: '', quadrant: '', labels: '' };
+const EMPTY_DRAFT: TaskDraft = { title: '', description: '', quadrant: '', labels: [] };
 
 export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand }: TaskComposerProps): JSX.Element {
   const state = useWorkspaceState(sync);
@@ -38,7 +39,6 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
   const titleId = useId();
   const descriptionId = useId();
   const quadrantId = useId();
-  const labelsId = useId();
   const errorId = useId();
   const disabled = busy || submitting || state.loading || state.stale || state.authRequired;
 
@@ -64,12 +64,13 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
       setError('请选择四象限。');
       return;
     }
-
-    let labels: string[];
-    try {
-      labels = draft.labels.trim() ? parseTaskLabelsInput(draft.labels) : [];
-    } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : '任务标签格式无效。');
+    if (draft.labels.length !== 1) {
+      setError('请选择一个已批准分类。');
+      return;
+    }
+    const allowedClassifications = classificationNameSet(state.snapshot?.classifications);
+    if (allowedClassifications.size === 0 || !allowedClassifications.has(draft.labels[0].toLocaleLowerCase())) {
+      setError('任务只能选择已批准分类。');
       return;
     }
 
@@ -78,7 +79,7 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
     setError(null);
     try {
       const create = onCreateTask ?? ((title: string, description: string, quadrant: TaskQuadrant, nextLabels: string[]) => sync.createTask(title, description, quadrant, nextLabels));
-      await create(draft.title.trim(), draft.description, draft.quadrant, labels);
+      await create(draft.title.trim(), draft.description, draft.quadrant, draft.labels);
       const currentError = sync.state.error;
       if (currentError && currentError !== previousError) {
         setError(currentError);
@@ -152,18 +153,29 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
             {TASK_QUADRANTS.map((quadrant) => <option key={quadrant} value={quadrant}>{quadrant}</option>)}
           </select>
         </div>
-        <div className="task-composer__field">
-          <label htmlFor={labelsId}>标签</label>
-          <input
-            id={labelsId}
-            type="text"
-            value={draft.labels}
-            disabled={disabled}
-            placeholder="用逗号分隔标签"
-            aria-describedby={error ? errorId : undefined}
-            onChange={(event) => updateDraft('labels', event.target.value)}
-          />
-        </div>
+        <fieldset className="task-composer__field task-composer__classifications" aria-label="分类">
+          <legend>分类</legend>
+          {classificationNames(state.snapshot?.classifications).length === 0 ? (
+            <p className="task-composer__hint">暂无已批准分类，请先创建分类。</p>
+          ) : (
+            <div className="task-composer__classification-options">
+              {classificationNames(state.snapshot?.classifications).map((name) => (
+                <label key={name} className="task-composer__classification-option">
+                  <input
+                    type="radio"
+                    name="task-classification"
+                    value={name}
+                    checked={draft.labels[0] === name}
+                    disabled={disabled}
+                    aria-label={name}
+                    onChange={() => updateDraft('labels', [name])}
+                  />
+                  <span>{name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </fieldset>
         {error ? <p id={errorId} className="task-composer__error" role="alert">{error}</p> : null}
         <Button type="submit" tone="primary" disabled={disabled}>
           {submitting ? '正在保存' : '创建任务'}

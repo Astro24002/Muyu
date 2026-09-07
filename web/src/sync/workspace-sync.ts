@@ -1,7 +1,8 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
-import type { ApprovalActionResult, HomeResponse, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceSnapshot } from '../api/types';
+import type { ApprovalActionResult, HomeResponse, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceClassification, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
-import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskItem, upsertTask } from '../tasks/task-model';
+import { classificationNames as approvedClassificationNames } from '../tasks/classification';
+import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskItem, parseTaskLabels, upsertTask } from '../tasks/task-model';
 
 export interface WorkspaceSyncState {
   snapshot: WorkspaceSnapshot | null;
@@ -62,6 +63,7 @@ export type WorkspaceSyncApi = Pick<ApiClient,
   | 'rejectApproval'
   | 'cancelApproval'
   | 'deleteTaskComment'
+  | 'createWorkspaceClassification'
 >>;
 
 const INITIAL_STATE: WorkspaceSyncState = {
@@ -159,7 +161,13 @@ export class WorkspaceSyncController {
     try {
       const home = await this.api.getHome();
       if (!isCurrent()) return;
-      this.setState({ home: normalizeHomeResponse(home, snapshot.workspace_id) });
+      this.setState({
+        home: normalizeHomeResponse(
+          home,
+          snapshot.workspace_id,
+          snapshot.classifications,
+        ),
+      });
     } catch (error) {
       if (!isCurrent()) return;
       this.setState({
@@ -170,7 +178,43 @@ export class WorkspaceSyncController {
   }
 
   async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = []): Promise<void> {
-    await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({ requestId: this.requestIdFactory(), title, description, quadrant, labels }));
+    const classifications = this.currentState.snapshot?.classifications ?? [];
+    const available = approvedClassificationNames(classifications);
+    if (!Array.isArray(labels) || labels.length !== 1 || typeof labels[0] !== 'string' || labels[0].trim().length === 0) {
+      this.setState({ error: '任务必须选择一个已批准分类。' });
+      return;
+    }
+    const classification = labels[0].trim();
+    if (available.length === 0 || !available.some((name) => name.toLocaleLowerCase() === classification.toLocaleLowerCase())) {
+      this.setState({ error: '任务只能选择已批准分类。' });
+      return;
+    }
+    const approvedName = available.find((name) => name.toLocaleLowerCase() === classification.toLocaleLowerCase())!;
+    await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({ requestId: this.requestIdFactory(), title, description, quadrant, labels: [approvedName] }));
+  }
+
+  async createClassification(name: string): Promise<PendingApproval | undefined> {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || !this.api.createWorkspaceClassification) return undefined;
+    const normalized = name.trim();
+    if (!normalized || Array.from(normalized).length > 5) {
+      this.setState({ error: '分类名称不能为空且不能超过 5 个字符。' });
+      return undefined;
+    }
+    const names = classificationNames(snapshot.classifications ?? []);
+    if (names.has(normalized.toLocaleLowerCase())) {
+      this.setState({ error: '该分类已存在。' });
+      return undefined;
+    }
+    let result: PendingApproval | undefined;
+    await this.run('无法提交分类审批，请检查网络后重试。', async (isCurrent) => {
+      const response = await this.api.createWorkspaceClassification!({ requestId: this.requestIdFactory(), name: normalized });
+      if (!isCurrent()) return;
+      if (!isPendingApproval(response)) throw new Error('分类审批响应无效。');
+      result = response;
+      this.mergeApproval(response.approval_request);
+    });
+    return result;
   }
 
   async patchTask(taskId: string, changes: EditableTaskChanges): Promise<TaskWriteResult | undefined> {
@@ -179,11 +223,27 @@ export class WorkspaceSyncController {
       this.setState({ error: '任务不存在，请刷新后重试。' });
       return undefined;
     }
-    const fields = Object.keys(changes);
+    const normalizedChanges: EditableTaskChanges = { ...changes };
+    if (Object.prototype.hasOwnProperty.call(changes, 'labels')) {
+      const value: unknown = changes.labels;
+      if (!Array.isArray(value) || value.length !== 1 || typeof value[0] !== 'string' || value[0].trim().length === 0) {
+        this.setState({ error: '任务必须选择一个已批准分类。' });
+        return undefined;
+      }
+      const available = approvedClassificationNames(this.currentState.snapshot?.classifications ?? []);
+      const requested = value[0].trim();
+      const approvedName = available.find((name) => name.toLocaleLowerCase() === requested.toLocaleLowerCase());
+      if (!approvedName) {
+        this.setState({ error: '任务只能选择已批准分类。' });
+        return undefined;
+      }
+      normalizedChanges.labels = [approvedName];
+    }
+    const fields = Object.keys(normalizedChanges);
     const baseFieldVersions = Object.fromEntries(fields.map((field) => [field, task.field_versions[field] ?? 1]));
     return this.write('无法更新任务，请检查网络后重试。', () => this.api.patchTask(taskId, {
       requestId: this.requestIdFactory(),
-      changes,
+      changes: normalizedChanges,
       baseFieldVersions,
     }));
   }
@@ -262,6 +322,18 @@ export class WorkspaceSyncController {
       this.setState({ error: '当前 API 不支持审批操作，请刷新页面后重试。' });
       return undefined;
     }
+    let proposedChanges: Record<string, unknown>;
+    try {
+      proposedChanges = normalizeApprovalChanges(
+        input.proposedChanges,
+        snapshot.classifications ?? [],
+      );
+    } catch (error) {
+      this.setState({
+        error: error instanceof Error ? error.message : '审批内容无效。',
+      });
+      return undefined;
+    }
     const cursorBeforeWrite = this.currentState.cursor;
     let created: TaskApprovalRequest | undefined;
     await this.run('无法提交审批请求，请检查网络后重试。', async (isCurrent) => {
@@ -271,7 +343,7 @@ export class WorkspaceSyncController {
         taskId,
         commentId: input.commentId,
         requestType: input.requestType,
-        proposedChanges: input.proposedChanges,
+        proposedChanges,
         baseFieldVersions: input.baseFieldVersions,
       });
       if (!isCurrent()) return;
@@ -420,9 +492,17 @@ export class WorkspaceSyncController {
         return;
       }
       appliedChanges = changes.changes.length > 0;
-      for (const change of changes.changes) {
+      try {
+        for (const change of changes.changes) {
+          if (!isCurrent()) return;
+          this.applyChange(change);
+        }
+      } catch {
         if (!isCurrent()) return;
-        this.applyChange(change);
+        recovered = true;
+        await this.loadSnapshot(isCurrent);
+        if (isCurrent()) appliedCursor = this.currentState.cursor;
+        return;
       }
       if (!isCurrent()) return;
       const lastReturnedCursor = changes.changes.length === 0
@@ -468,6 +548,9 @@ export class WorkspaceSyncController {
       this.mergeApproval(change.resource, change.cursor, false);
     } else if (change.resource_type === 'comment' && isTaskComment(change.resource)) {
       this.mergeComment(change.resource, change.cursor, false);
+    } else if (change.resource_type === 'classification' && isWorkspaceClassification(change.resource)) {
+      if (change.action.toUpperCase() === 'DELETED') this.removeClassification(change.resource_id);
+      else this.mergeClassification(change.resource, change.cursor, false);
     }
   }
 
@@ -475,7 +558,14 @@ export class WorkspaceSyncController {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
-    const nextSnapshot = { ...snapshot, tasks: upsertTask(snapshot.tasks, normalizeTaskResource(task, snapshot.workspace_id)), cursor: nextCursor };
+    const nextSnapshot = {
+      ...snapshot,
+      tasks: upsertTask(
+        snapshot.tasks,
+        normalizeTaskResource(task, snapshot.workspace_id, snapshot.classifications),
+      ),
+      cursor: nextCursor,
+    };
     this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
   }
 
@@ -516,6 +606,25 @@ export class WorkspaceSyncController {
     this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, comments, approvals: nextSnapshot.approval_requests, stale: false, error: null, authRequired: false });
   }
 
+  private mergeClassification(classification: WorkspaceClassification, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const normalized = normalizeClassificationResource(classification, snapshot.workspace_id);
+    const classifications = upsertClassification(snapshot.classifications ?? [], normalized);
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, classifications, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+  }
+
+  private removeClassification(classificationId: string): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const classifications = (snapshot.classifications ?? []).filter((item) => item.id !== classificationId);
+    if (classifications.length === (snapshot.classifications ?? []).length) return;
+    const nextSnapshot = { ...snapshot, classifications };
+    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+  }
+
   private mergeConflict(conflict: TaskConflict, cursor = this.currentState.cursor, updateCursor = false): void {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
@@ -540,16 +649,26 @@ export class WorkspaceSyncController {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
     const approval = normalizeApprovalResource(result.approval_request, snapshot.workspace_id);
-    const task = result.task ? normalizeTaskResource(result.task, snapshot.workspace_id) : undefined;
-    const comment = result.comment ? normalizeCommentResource(result.comment, snapshot.workspace_id, approval.task_id) : undefined;
+    const task = result.task
+      ? normalizeTaskResource(
+        result.task,
+        snapshot.workspace_id,
+        snapshot.classifications,
+      )
+      : undefined;
+    const comment = result.comment ? normalizeCommentResource(result.comment, snapshot.workspace_id, approval.task_id ?? undefined) : undefined;
+    const classification = result.classification ? normalizeClassificationResource(result.classification, snapshot.workspace_id) : undefined;
     const approvals = [...(snapshot.approval_requests ?? [])].filter((item) => item.id !== approval.id);
     approvals.push(approval);
     const tasks = task ? upsertTask(snapshot.tasks, task) : snapshot.tasks;
     const comments = comment
       ? [...(snapshot.comments ?? [])].filter((item) => item.id !== comment.id).concat(comment)
       : snapshot.comments ?? [];
+    const classifications = classification
+      ? upsertClassification(snapshot.classifications ?? [], classification)
+      : snapshot.classifications;
     const cursor = updateCursor && typeof result.cursor === 'number' && result.cursor > snapshot.cursor ? result.cursor : snapshot.cursor;
-    const nextSnapshot = { ...snapshot, tasks, comments, approval_requests: approvals, cursor };
+    const nextSnapshot = { ...snapshot, tasks, comments, approval_requests: approvals, classifications, cursor };
     this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, home: undefined, stale: false, error: null, authRequired: false });
   }
 
@@ -615,7 +734,11 @@ export class WorkspaceSyncController {
     const tasks = [...snapshot.tasks];
     for (const conflict of incoming) {
       if (conflict.current_snapshot && isTaskItem(conflict.current_snapshot)) {
-        const currentTask = normalizeTaskResource(conflict.current_snapshot, snapshot.workspace_id);
+        const currentTask = normalizeTaskResource(
+          conflict.current_snapshot,
+          snapshot.workspace_id,
+          snapshot.classifications,
+        );
         const mergedTasks = upsertTask(tasks, currentTask);
         tasks.splice(0, tasks.length, ...mergedTasks);
       }
@@ -853,6 +976,7 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
   const cursor = value.cursor;
   const comments = value.comments ?? [];
   const approvalRequests = value.approval_requests ?? [];
+  const classifications = value.classifications;
 
   if (typeof workspaceId !== 'string'
     || workspaceId.length === 0
@@ -874,6 +998,16 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
     throw new Error('workspace snapshot is invalid');
   }
 
+  if (classifications !== undefined
+    && (!Array.isArray(classifications)
+      || !classifications.every((item) => isWorkspaceClassification(item) && item.workspace_id === workspaceId))) {
+    throw new Error('workspace snapshot classifications are invalid');
+  }
+
+  const parsedClassifications = classifications as WorkspaceClassification[] | undefined;
+  const parsedTasks = tasks.map(parseTaskItem);
+  ensureTaskClassificationsApproved(parsedTasks, parsedClassifications);
+
   const viewerUserId = value.viewer_user_id;
   if (viewerUserId !== undefined && !isNullableString(viewerUserId)) {
     throw new Error('workspace snapshot viewer is invalid');
@@ -888,44 +1022,73 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
       status: workspace.status,
     },
     members,
-    tasks: tasks.map(parseTaskItem),
+    tasks: parsedTasks,
     conflicts,
     cursor,
     viewer_user_id: viewerUserId === undefined ? null : viewerUserId,
     comments,
     approval_requests: approvalRequests,
+    classifications: parsedClassifications,
   };
 }
 
-function normalizeHomeResponse(value: unknown, workspaceId: string): HomeResponse {
+function normalizeHomeResponse(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+): HomeResponse {
   if (!isRecord(value) || !isNonNegativeSafeInteger(value.pending_approval_count)) {
     throw new Error('home response is invalid');
   }
   return {
-    current_tasks: normalizeHomeTaskSection(value.current_tasks, workspaceId),
-    blocked_tasks: normalizeHomeTaskSection(value.blocked_tasks, workspaceId),
-    review_tasks: normalizeHomeTaskSection(value.review_tasks, workspaceId),
+    current_tasks: normalizeHomeTaskSection(
+      value.current_tasks,
+      workspaceId,
+      classifications,
+    ),
+    blocked_tasks: normalizeHomeTaskSection(
+      value.blocked_tasks,
+      workspaceId,
+      classifications,
+    ),
+    review_tasks: normalizeHomeTaskSection(
+      value.review_tasks,
+      workspaceId,
+      classifications,
+    ),
     pending_approval_count: value.pending_approval_count,
   };
 }
 
-function normalizeHomeTaskSection(value: unknown, workspaceId: string): HomeResponse['current_tasks'] {
+function normalizeHomeTaskSection(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+): HomeResponse['current_tasks'] {
   if (!isRecord(value)
     || !Array.isArray(value.items)
     || typeof value.has_more !== 'boolean'
     || !value.items.every((item) => isTaskItem(item) && item.workspace_id === workspaceId)) {
     throw new Error('home task section is invalid');
   }
-  return { items: value.items.map(parseTaskItem), has_more: value.has_more };
+  const items = value.items.map(parseTaskItem);
+  ensureTaskClassificationsApproved(items, classifications);
+  return { items, has_more: value.has_more };
 }
 
-function normalizeTaskResource(value: unknown, workspaceId: string): TaskItem {
+function normalizeTaskResource(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+): TaskItem {
   if (!isRecord(value)) throw new Error('task response is not an object');
   const { cursor: _ackCursor, ...candidate } = value;
   if (!isTaskItem(candidate) || candidate.workspace_id !== workspaceId) {
     throw new Error('task response belongs to another workspace');
   }
-  return parseTaskItem(candidate);
+  const task = parseTaskItem(candidate);
+  ensureTaskClassificationsApproved([task], classifications);
+  return task;
 }
 
 function normalizeApprovalResource(value: unknown, workspaceId: string): TaskApprovalRequest {
@@ -935,6 +1098,13 @@ function normalizeApprovalResource(value: unknown, workspaceId: string): TaskApp
     throw new Error('approval response belongs to another workspace');
   }
   return candidate;
+}
+
+function normalizeClassificationResource(value: unknown, workspaceId: string): WorkspaceClassification {
+  if (!isWorkspaceClassification(value) || value.workspace_id !== workspaceId) {
+    throw new Error('classification response belongs to another workspace');
+  }
+  return value;
 }
 
 function normalizeCommentResource(value: unknown, workspaceId: string, taskId?: string): TaskComment {
@@ -1003,8 +1173,8 @@ function isApprovalRequest(value: unknown): value is TaskApprovalRequest {
     && value.id.length > 0
     && typeof value.workspace_id === 'string'
     && value.workspace_id.length > 0
-    && typeof value.task_id === 'string'
-    && value.task_id.length > 0
+    && ((typeof value.task_id === 'string' && value.task_id.length > 0)
+      || (value.task_id === null && value.request_type === 'CLASSIFICATION_CREATE'))
     && isNullableString(value.comment_id)
     && typeof value.requester_id === 'string'
     && value.requester_id.length > 0
@@ -1021,6 +1191,20 @@ function isApprovalRequest(value: unknown): value is TaskApprovalRequest {
     && isNullableString(value.reviewed_by)
     && isNullableString(value.rejection_reason)
     && (value.resolved_cursor === null || isValidCursor(value.resolved_cursor));
+}
+
+function isWorkspaceClassification(value: unknown): value is WorkspaceClassification {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
+    && typeof value.name === 'string'
+    && value.name.trim().length > 0
+    && Array.from(value.name.trim()).length <= 5
+    && typeof value.created_by === 'string'
+    && value.created_by.length > 0
+    && (value.created_at === null || typeof value.created_at === 'string');
 }
 
 function isTaskComment(value: unknown): value is TaskComment {
@@ -1059,6 +1243,7 @@ function isValidChangeResource(resourceType: string, resource: unknown, workspac
   }
   if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'comment') return isTaskComment(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'classification') return isWorkspaceClassification(resource) && resource.workspace_id === workspaceId;
   return false;
 }
 
@@ -1145,7 +1330,55 @@ function isApprovalRequestType(value: unknown): value is TaskApprovalRequest['re
     || value === 'TASK_DELETE'
     || value === 'TASK_RESTORE'
     || value === 'COMMENT_DELETE'
-    || value === 'HANDLER_TRANSFER';
+    || value === 'HANDLER_TRANSFER'
+    || value === 'CLASSIFICATION_CREATE';
+}
+
+function classificationNames(classifications: WorkspaceClassification[]): Set<string> {
+  return new Set(classifications.map((classification) => classification.name.trim().toLocaleLowerCase()));
+}
+
+function ensureTaskClassificationsApproved(
+  tasks: TaskItem[],
+  classifications?: WorkspaceClassification[],
+): void {
+  // Older cached snapshots did not carry the classifications resource. Keep
+  // them readable until the next authoritative snapshot replaces them.
+  if (classifications === undefined) return;
+  const approved = classificationNames(classifications);
+  for (const task of tasks) {
+    if (task.labels.length === 0) continue;
+    if (task.labels.length !== 1
+      || !approved.has(task.labels[0].trim().toLocaleLowerCase())) {
+      throw new Error('任务包含未批准分类。');
+    }
+  }
+}
+
+function normalizeApprovalChanges(
+  proposedChanges: Record<string, unknown>,
+  classifications: WorkspaceClassification[],
+): Record<string, unknown> {
+  if (!Object.prototype.hasOwnProperty.call(proposedChanges, 'labels')) {
+    return { ...proposedChanges };
+  }
+  const labels = parseTaskLabels(proposedChanges.labels);
+  if (labels.length !== 1) {
+    throw new Error('任务必须选择一个已批准分类。');
+  }
+  const approved = approvedClassificationNames(classifications).find(
+    (name) => name.toLocaleLowerCase() === labels[0].toLocaleLowerCase(),
+  );
+  if (!approved) {
+    throw new Error('任务只能选择已批准分类。');
+  }
+  return { ...proposedChanges, labels: [approved] };
+}
+
+function upsertClassification(classifications: WorkspaceClassification[], classification: WorkspaceClassification): WorkspaceClassification[] {
+  const index = classifications.findIndex((item) => item.id === classification.id);
+  if (index === -1) return [...classifications, classification];
+  return classifications.map((item) => item.id === classification.id ? classification : item);
 }
 
 function isApprovalRequestStatus(value: unknown): value is TaskApprovalRequest['status'] {

@@ -32,6 +32,7 @@ def _create_task(
         "request_id": str(uuid4()),
         "title": title,
         "quadrant": "Q2",
+        "labels": ["工作"],
     }
     if due_at is not None:
         payload["due_at"] = due_at

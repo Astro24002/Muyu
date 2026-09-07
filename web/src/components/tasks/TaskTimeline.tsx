@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import type { ActivityEvent } from '../../api/types';
+import { activityLabel } from '../../tasks/activity-label';
 import { Button } from '../ui/Button';
 
 export type { ActivityEvent } from '../../api/types';
@@ -67,15 +68,7 @@ function eventLabel(event: ActivityEvent): string {
 }
 
 function operationLabel(value: string): string {
-  const labels: Record<string, string> = {
-    CREATE: '创建任务',
-    UPDATE: '更新任务',
-    PATCH: '更新任务',
-    TRANSITION: '更新状态',
-    DELETE: '删除任务',
-    RESTORE: '恢复任务',
-  };
-  return labels[value] ?? value;
+  return activityLabel(value);
 }
 
 function actorLabel(event: ActivityEvent): string {

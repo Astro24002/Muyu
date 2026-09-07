@@ -54,13 +54,13 @@ export function TaskFilters({ value, onChange, disabled = false }: TaskFiltersPr
       </label>
 
       <label className="task-filters__field task-filters__field--label">
-        <span>标签</span>
+        <span>分类</span>
         <input
           type="search"
-          aria-label="标签"
+          aria-label="分类"
           value={value.label}
           disabled={disabled}
-          placeholder="筛选标签"
+          placeholder="筛选分类"
           onChange={(event) => onChange({ ...value, label: event.target.value })}
         />
       </label>

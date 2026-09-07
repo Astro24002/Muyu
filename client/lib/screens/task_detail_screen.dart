@@ -28,11 +28,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _dueAt;
   late final TextEditingController _plannedStartAt;
   late final TextEditingController _estimatedMinutes;
-  final _label = TextEditingController();
   final _comment = TextEditingController();
   late String _selectedQuadrant;
   late List<String> _selectedLabels;
-  String? _labelError;
   String? _handlerError;
   String? _selectedResumeHandlerId;
   int? _selectedProgress;
@@ -68,7 +66,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _dueAt.dispose();
     _plannedStartAt.dispose();
     _estimatedMinutes.dispose();
-    _label.dispose();
     _comment.dispose();
     super.dispose();
   }
@@ -87,7 +84,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     'Q3': 'Q3 紧急不重要',
     'Q4': 'Q4 不重要不紧急',
   };
-  static const _maxLabelTotalLength = 320;
 
   static List<String> _normalizeLabels(Iterable<String> labels) {
     final result = <String>[];
@@ -95,7 +91,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     for (final value in labels) {
       final label = value.trim();
       if (label.isEmpty || !seen.add(label.toLowerCase())) continue;
+      // The storage field is list-shaped for protocol compatibility, but the
+      // task domain now has a single classification. Keep legacy snapshots
+      // readable while exposing only the first value to the editor.
       result.add(label);
+      break;
     }
     return result;
   }
@@ -164,8 +164,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _selectedQuadrant = task.quadrant;
     _selectedResumeHandlerId = task.resumeHandlerId ?? task.currentHandlerId;
     _selectedProgress = task.progress;
-    _label.clear();
-    _labelError = null;
     _formError = null;
   }
 
@@ -217,57 +215,43 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     setState(() => _plannedStartAt.text = picked.toUtc().toIso8601String());
   }
 
-  void _addLabel() {
-    final label = _label.text.trim();
-    if (label.isEmpty) return;
-    final normalized = label.toLowerCase();
-    if (label.runes.length > 32) {
-      setState(() => _labelError = '标签不能超过 32 个字符');
-      return;
-    }
-    if (_selectedLabels.length >= 10) {
-      setState(() => _labelError = '最多添加 10 个标签');
-      return;
-    }
-    final totalLength = _selectedLabels.fold<int>(
-      0,
-      (total, item) => total + item.runes.length,
-    );
-    if (totalLength + label.runes.length > _maxLabelTotalLength) {
-      setState(() => _labelError = '标签总长度不能超过 320 个字符');
-      return;
-    }
-    if (_selectedLabels.any((item) => item.toLowerCase() == normalized)) {
-      setState(() {
-        _label.clear();
-        _labelError = null;
-      });
-      return;
-    }
-    setState(() {
-      _selectedLabels.add(label);
-      _label.clear();
-      _labelError = null;
-    });
-  }
-
   void _removeLabel(String label) {
     setState(() {
       _selectedLabels.remove(label);
-      _labelError = null;
     });
   }
 
   Future<void> _save() async {
     final title = _title.text.trim();
     if (!widget.canWrite || title.isEmpty || _saving) return;
+    final current = _current;
+    final labelsChanged = !_sameLabels(_selectedLabels, current.labels);
+    final approvedClassifications = {
+      for (final classification in widget.sync.state.classifications)
+        classification.name.trim().toLowerCase(),
+    };
+    // Legacy snapshots may contain an empty classification array. Allow edits
+    // to unrelated fields, but require exactly one approved classification
+    // whenever the classification itself is changed.
+    if (labelsChanged) {
+      if (_selectedLabels.length != 1) {
+        setState(() => _formError = '任务必须选择一个已批准分类');
+        return;
+      }
+      if (approvedClassifications.isEmpty ||
+          _selectedLabels.any(
+            (label) => !approvedClassifications.contains(label.toLowerCase()),
+          )) {
+        setState(() => _formError = '任务只能选择已批准分类');
+        return;
+      }
+    }
     final estimateText = _estimatedMinutes.text.trim();
     final estimate = estimateText.isEmpty ? null : int.tryParse(estimateText);
     if (estimateText.isNotEmpty && (estimate == null || estimate < 0)) {
       setState(() {});
       return;
     }
-    final current = _current;
     final dueAt = _dateValue(_dueAt.text);
     final dueChanged = dueAt != current.dueAt?.toIso8601String();
     if (dueChanged && dueAt == null) {
@@ -285,8 +269,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         'planned_start_at': _dateValue(_plannedStartAt.text),
       if (estimate != current.estimatedMinutes) 'estimated_minutes': estimate,
       if (_selectedQuadrant != current.quadrant) 'quadrant': _selectedQuadrant,
-      if (!_sameLabels(_selectedLabels, current.labels))
-        'labels': List.unmodifiable(_selectedLabels),
+      if (labelsChanged) 'labels': List.unmodifiable(_selectedLabels),
       if (current.status == 'IN_PROGRESS' &&
           _selectedProgress != current.progress)
         'progress': _selectedProgress,
@@ -924,28 +907,47 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           onTap: _pickDueAt,
         ),
         const SizedBox(height: MuyuSpacing.md),
-        Text('分类', style: theme.textTheme.labelLarge),
+        Text('分类（必选一个）', style: theme.textTheme.labelLarge),
         const SizedBox(height: MuyuSpacing.sm),
-        TextField(
-          key: const Key('task-detail-label-input'),
-          controller: _label,
-          enabled: widget.canWrite && _selectedLabels.length < 10,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => _addLabel(),
-          decoration: InputDecoration(
-            hintText: '输入分类名称',
-            errorText: _labelError,
-            prefixIcon: const Icon(Icons.star_outline),
-            suffixIcon: IconButton(
-              key: const Key('task-detail-label-add'),
-              tooltip: '添加分类',
-              onPressed: widget.canWrite && _selectedLabels.length < 10
-                  ? _addLabel
-                  : null,
-              icon: const Icon(Icons.add),
-            ),
+        if (widget.sync.state.classifications.isEmpty)
+          Text('暂无已批准分类，请在清单的更多菜单中新建分类', style: theme.textTheme.bodySmall)
+        else
+          Wrap(
+            key: const Key('task-detail-classification-options'),
+            spacing: MuyuSpacing.xs,
+            runSpacing: MuyuSpacing.xs,
+            children: [
+              for (final classification in widget.sync.state.classifications)
+                ChoiceChip(
+                  key: Key(
+                    'task-detail-classification-option-${classification.name}',
+                  ),
+                  label: Text(classification.name),
+                  selected: _selectedLabels.any(
+                    (label) =>
+                        label.toLowerCase() ==
+                        classification.name.toLowerCase(),
+                  ),
+                  onSelected: widget.canWrite
+                      ? (selected) {
+                          setState(() {
+                            if (selected) {
+                              _selectedLabels
+                                ..clear()
+                                ..add(classification.name);
+                            } else {
+                              _selectedLabels.removeWhere(
+                                (label) =>
+                                    label.toLowerCase() ==
+                                    classification.name.toLowerCase(),
+                              );
+                            }
+                          });
+                        }
+                      : null,
+                ),
+            ],
           ),
-        ),
         if (_selectedLabels.isNotEmpty) ...[
           const SizedBox(height: MuyuSpacing.sm),
           Wrap(
@@ -2001,9 +2003,17 @@ class _CreateSubtaskSheet extends StatefulWidget {
 
 class _CreateSubtaskSheetState extends State<_CreateSubtaskSheet> {
   final _title = TextEditingController();
+  final _labels = <String>[];
   String _quadrant = 'Q1';
   String? _error;
   bool _creating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final classifications = widget.sync.state.classifications;
+    if (classifications.isNotEmpty) _labels.add(classifications.first.name);
+  }
 
   @override
   void dispose() {
@@ -2017,6 +2027,10 @@ class _CreateSubtaskSheetState extends State<_CreateSubtaskSheet> {
       setState(() => _error = '请输入子任务标题');
       return;
     }
+    if (_labels.length != 1) {
+      setState(() => _error = '请选择一个已批准分类');
+      return;
+    }
     setState(() {
       _creating = true;
       _error = null;
@@ -2025,6 +2039,7 @@ class _CreateSubtaskSheetState extends State<_CreateSubtaskSheet> {
       final created = await widget.sync.create(
         title,
         quadrant: _quadrant,
+        labels: List.unmodifiable(_labels),
         parentTaskId: widget.parent.id,
       );
       if (!mounted) return;
@@ -2097,6 +2112,45 @@ class _CreateSubtaskSheetState extends State<_CreateSubtaskSheet> {
                 ),
             ],
           ),
+          const SizedBox(height: MuyuSpacing.md),
+          Text('分类（必选一个）', style: theme.textTheme.labelLarge),
+          const SizedBox(height: MuyuSpacing.sm),
+          if (widget.sync.state.classifications.isEmpty)
+            Text('暂无已批准分类，请先在清单的更多菜单中新建分类')
+          else
+            Wrap(
+              spacing: MuyuSpacing.xs,
+              runSpacing: MuyuSpacing.xs,
+              children: [
+                for (final classification in widget.sync.state.classifications)
+                  ChoiceChip(
+                    key: Key(
+                      'task-subtask-classification-${classification.name}',
+                    ),
+                    label: Text(classification.name),
+                    selected: _labels.any(
+                      (label) =>
+                          label.toLowerCase() ==
+                          classification.name.toLowerCase(),
+                    ),
+                    onSelected: _creating
+                        ? null
+                        : (selected) => setState(() {
+                            if (selected) {
+                              _labels
+                                ..clear()
+                                ..add(classification.name);
+                            } else {
+                              _labels.removeWhere(
+                                (label) =>
+                                    label.toLowerCase() ==
+                                    classification.name.toLowerCase(),
+                              );
+                            }
+                          }),
+                  ),
+              ],
+            ),
           const SizedBox(height: MuyuSpacing.lg),
           SizedBox(
             width: double.infinity,

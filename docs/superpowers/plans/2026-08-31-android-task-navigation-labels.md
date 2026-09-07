@@ -1,5 +1,9 @@
 # Android Task Navigation And Labels Implementation Plan
 
+> **历史实施计划：分类部分已被单分类任务模型替代。** 当前施工契约和验收门禁
+> 见 [2026-09-04 单分类任务模型实施计划](./2026-09-04-single-task-classification.md)。
+> 本文的多标签步骤仅用于追溯，不得重新打开多选写入口。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 Android 工作区加入“清单 / 四象限 / 日程 / 我的”底部导航，移除看板，并以必选四象限和多标签分类贯通 PostgreSQL、FastAPI、同步协议及客户端展示。

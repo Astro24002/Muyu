@@ -28,7 +28,7 @@ def _task_with_status(status: str) -> SimpleNamespace:
         description="",
         status=status,
         quadrant="Q1",
-        labels=[],
+        labels=["工作"],
         progress=None,
         current_handler_id=uuid4(),
         blocked_reason=None,

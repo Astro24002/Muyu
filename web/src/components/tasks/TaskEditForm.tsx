@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import type { AppliedTaskWriteResult } from '../../api/client';
-import type { TaskItem, TaskStatus } from '../../api/types';
+import type { TaskItem, TaskStatus, WorkspaceClassification } from '../../api/types';
 import type { TaskDetailActions } from '../../tasks/task-detail-actions';
-import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskLabels, parseTaskLabelsInput, taskTransitionTargets, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
+import { editableClassificationNames, classificationNameSet } from '../../tasks/classification';
+import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskLabels, taskTransitionTargets, TASK_QUADRANTS, type EditableTaskChanges } from '../../tasks/task-model';
 import { statusLabel } from '../../tasks/task-status';
 import { Button } from '../ui/Button';
 
@@ -20,6 +21,7 @@ export interface TaskEditFormProps {
   actions: Pick<TaskDetailActions, 'onSave' | 'onTransition' | 'currentUserId'>;
   currentUserId?: string;
   canWrite?: boolean;
+  classifications?: WorkspaceClassification[];
 }
 
 type DraftField = 'title' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'reviewRejectionReason' | 'progress';
@@ -31,7 +33,7 @@ interface TaskDraft {
   currentHandler: string;
   dueAt: string;
   quadrant: TaskItem['quadrant'] | '';
-  labels: string;
+  labels: string[];
   blockedReason: string;
   resumeHandler: string;
   reviewRejectionReason: string;
@@ -40,14 +42,16 @@ interface TaskDraft {
 
 const progressValues = [20, 40, 60, 80];
 
-export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEditFormProps): JSX.Element {
+export function TaskEditForm({ task, members, actions, currentUserId, canWrite = true, classifications = [] }: TaskEditFormProps): JSX.Element {
   const [draft, setDraft] = useState<TaskDraft>(() => createDraft(task));
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<'save' | 'transition' | null>(null);
   const dirtyFields = useRef<Set<DraftField>>(new Set());
   const draftRef = useRef<TaskDraft>(draft);
   const busyActionRef = useRef<'save' | 'transition' | null>(null);
-  const currentUserId = actions.currentUserId;
+  const viewerUserId = currentUserId ?? actions.currentUserId;
+  const activeClassificationNames = classificationNameSet(classifications);
+  const classificationOptions = editableClassificationNames(classifications, task.labels);
 
   useEffect(() => {
     setDraft((current) => {
@@ -93,11 +97,15 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
       return;
     }
 
-    let labels: string[];
-    try {
-      labels = draft.labels.trim() === '' ? [] : parseTaskLabelsInput(draft.labels);
-    } catch (cause) {
-      setError(errorMessage(cause));
+    const labels = draft.labels;
+    const currentLabels = safeLabels(task.labels);
+    const labelsChanged = labels.length !== currentLabels.length || labels.some((value, index) => value !== currentLabels[index]);
+    if (labelsChanged && labels.length !== 1) {
+      setError('任务必须选择一个已批准分类。');
+      return;
+    }
+    if (labelsChanged && (classifications.length === 0 || labels.some((label) => !activeClassificationNames.has(label.toLocaleLowerCase())))) {
+      setError('任务只能选择已批准分类。');
       return;
     }
 
@@ -116,15 +124,14 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
     if (draft.currentHandler !== task.current_handler_id) changes.current_handler_id = draft.currentHandler;
     if (draft.quadrant !== task.quadrant) changes.quadrant = draft.quadrant;
 
-    const currentLabels = safeLabels(task.labels);
-    if (labels.length !== currentLabels.length || labels.some((value, index) => value !== currentLabels[index])) {
+    if (labelsChanged) {
       changes.labels = labels;
     }
     if (task.status === 'IN_PROGRESS' && Number(draft.progress) !== (task.progress ?? 20)) {
       changes.progress = Number(draft.progress);
     }
 
-    const isTaskOwner = !currentUserId || currentUserId === task.current_handler_id;
+    const isTaskOwner = !viewerUserId || viewerUserId === task.current_handler_id;
     if (!isTaskOwner) {
       const specialChanges = Object.keys(changes).filter((field) => field === 'quadrant' || field === 'current_handler_id');
       const regularChanges = Object.keys(changes).filter((field) => field !== 'quadrant' && field !== 'current_handler_id');
@@ -155,7 +162,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const transition = (): void => {
     const activeHandlerIds = getActiveHandlerIds(members);
     const taskStatus = normalizeTaskStatus(task.status);
-    if (!isTaskTransitionAllowed(task, draft.status, currentUserId)) {
+    if (!isTaskTransitionAllowed(task, draft.status, viewerUserId)) {
       setError('当前用户不能执行该状态操作。');
       return;
     }
@@ -209,7 +216,7 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
   const handlerOptions = getHandlerOptions(task, members, [draft.currentHandler, draft.resumeHandler]);
   const taskStatus = normalizeTaskStatus(task.status);
   const currentStatus = isCanonicalTaskStatus(taskStatus) ? taskStatus : undefined;
-  const transitionStatuses = taskTransitionTargets(task, currentUserId);
+  const transitionStatuses = taskTransitionTargets(task, viewerUserId);
   const transitionDisabled = !canWrite || busyAction !== null;
   const showBlockedFields = draft.status === 'BLOCKED' || taskStatus === 'BLOCKED';
   const showReviewReturnReason = taskStatus === 'REVIEW' && draft.status === 'IN_PROGRESS';
@@ -295,16 +302,29 @@ export function TaskEditForm({ task, members, actions, canWrite = true }: TaskEd
           </select>
         </label>
 
-        <label className="task-detail-field">
-          <span>标签</span>
-          <input
-            aria-label="标签"
-            type="text"
-            value={draft.labels}
-            disabled={!canWrite}
-            onChange={(event) => updateDraft('labels', event.target.value)}
-          />
-        </label>
+        <fieldset className="task-detail-field task-detail-classifications" aria-label="分类">
+          <legend>分类（必选一个）</legend>
+          {classificationOptions.length === 0 ? (
+            <small>暂无已批准分类，请先创建分类。</small>
+          ) : (
+            <div className="task-detail-classifications__options">
+              {classificationOptions.map((name) => (
+                <label key={name}>
+                  <input
+                    type="radio"
+                    name="task-detail-classification"
+                    value={name}
+                    checked={draft.labels.includes(name)}
+                    disabled={!canWrite}
+                    aria-label={name}
+                    onChange={() => updateDraft('labels', [name])}
+                  />
+                  <span>{name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </fieldset>
 
           {showBlockedFields ? (
           <>
@@ -384,7 +404,7 @@ function createDraft(task: TaskItem): TaskDraft {
     currentHandler: task.current_handler_id,
     dueAt: toDateTimeLocalValue(task.due_at),
     quadrant: isTaskQuadrant(task.quadrant) ? task.quadrant : '',
-    labels: safeLabels(task.labels).join(', '),
+    labels: safeLabels(task.labels),
     blockedReason: task.blocked_reason ?? '',
     resumeHandler: task.resume_handler_id ?? task.current_handler_id,
     reviewRejectionReason: '',

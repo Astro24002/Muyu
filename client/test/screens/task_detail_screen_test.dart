@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/workspace_change.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
@@ -7,11 +8,19 @@ import 'package:muyu_client/screens/task_detail_screen.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/sync/workspace_sync_repository.dart';
 
+const detailClassification = WorkspaceClassification(
+  id: 'classification-work',
+  workspaceId: 'w1',
+  name: '工作',
+  createdBy: 'user-1',
+);
+
 TaskItem detailTask({
   String status = 'TODO',
   String currentHandlerId = 'user-1',
   String? resumeHandlerId,
   DateTime? dueAt,
+  List<String> labels = const ['工作'],
 }) => TaskItem(
   id: 'task-1',
   parentTaskId: null,
@@ -29,7 +38,7 @@ TaskItem detailTask({
   statusVersion: 7,
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
-  labels: const [],
+  labels: labels,
   fieldVersions: const {'title': 3, 'description': 2},
   resumeHandlerId: resumeHandlerId,
 );
@@ -52,6 +61,7 @@ class RecordingRepository implements WorkspaceSyncRepository {
       {'user_id': 'user-1', 'display_name': '15028180169'},
       {'user_id': 'user-2', 'display_name': '小雨'},
     ],
+    classifications: const [detailClassification],
     conflicts: const [
       {'id': 'conflict-1', 'task_id': 'task-1', 'status': 'OPEN'},
     ],
@@ -246,6 +256,7 @@ void main() {
           {'user_id': 'user-1'},
           {'user_id': 'user-2'},
         ],
+        classifications: const [detailClassification],
       ),
       isStale: false,
     );
@@ -278,6 +289,44 @@ void main() {
     );
   });
 
+  testWidgets('allows a legacy unclassified task to edit an unrelated field', (
+    tester,
+  ) async {
+    final task = detailTask(labels: const []);
+    final repository = RecordingRepository();
+    final sync = WorkspaceSyncController(repository);
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1'},
+          {'user_id': 'user-2'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('task-detail-title')),
+      'Legacy title',
+    );
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(repository.updatedFields?['title'], 'Legacy title');
+    expect(repository.updatedFields, isNot(contains('labels')));
+  });
+
   testWidgets('keeps a revoked current handler visible but disabled', (
     tester,
   ) async {
@@ -294,6 +343,7 @@ void main() {
           {'user_id': 'user-2'},
           {'user_id': 'revoked-user', 'membership_status': 'REVOKED'},
         ],
+        classifications: const [detailClassification],
       ),
       isStale: false,
     );
@@ -343,6 +393,7 @@ void main() {
           {'user_id': 'user-2'},
           {'user_id': 'revoked-user', 'membership_status': 'REVOKED'},
         ],
+        classifications: const [detailClassification],
       ),
       isStale: false,
     );

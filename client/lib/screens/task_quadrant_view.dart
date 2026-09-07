@@ -47,7 +47,11 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
           TaskLabelFilter(
             key: const Key('task-quadrant-label-filter'),
             fieldKey: const Key('task-quadrant-label-filter-field'),
-            labels: collectTaskLabels(tasks),
+            labels: widget.state.classifications.isEmpty
+                ? collectTaskLabels(tasks)
+                : widget.state.classifications
+                      .map((classification) => classification.name)
+                      .toList(),
             selectedLabel: _selectedLabel,
             onChanged: (value) => setState(() => _selectedLabel = value),
           ),

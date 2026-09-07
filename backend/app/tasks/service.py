@@ -26,12 +26,18 @@ from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.operations import request_fingerprint, status_transition_payload, task_conflict_json
 from app.tasks.numbering import TaskNumberAllocator
+from app.workspaces.classifications import (
+    ClassificationError,
+    validate_active_classifications,
+)
 
 
 MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "quadrant", "progress", "labels"}
 ALLOWED_PROGRESS = {20, 40, 60, 80}
-MAX_TASK_LABELS = 10
-MAX_TASK_LABEL_LENGTH = 32
+# The wire/storage field remains named ``labels`` for backwards compatibility,
+# but the product contract now allows exactly one classification per task.
+MAX_TASK_LABELS = 1
+MAX_TASK_LABEL_LENGTH = 5
 MAX_TASK_LABEL_CHARS = 320
 DEFAULT_TASK_DUE_DAYS = 14
 TRANSITIONS = {
@@ -63,9 +69,14 @@ def _status_activity_type(previous_status: str, target_status: str) -> str | Non
 
 
 def normalize_task_labels(value: object) -> list[str]:
-    """Normalize and validate the small, task-local classification set."""
+    """Normalize the legacy list-shaped field to one task classification."""
     if not isinstance(value, (list, tuple)):
         raise TaskConflictError("invalid_request", "labels must be an array")
+    if len(value) > MAX_TASK_LABELS:
+        raise TaskConflictError(
+            "invalid_request",
+            "a task can belong to only one classification",
+        )
     labels: list[str] = []
     seen: set[str] = set()
     total_chars = 0
@@ -86,11 +97,6 @@ def normalize_task_labels(value: object) -> list[str]:
         seen.add(key)
         labels.append(label)
         total_chars += len(label)
-        if len(labels) > MAX_TASK_LABELS:
-            raise TaskConflictError(
-                "invalid_request",
-                f"a task can have at most {MAX_TASK_LABELS} labels",
-            )
         if total_chars > MAX_TASK_LABEL_CHARS:
             raise TaskConflictError(
                 "invalid_request",
@@ -113,6 +119,15 @@ class TaskService:
             raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
         self._validated_member(workspace_id, actor_user_id)
         normalized_labels = normalize_task_labels([] if labels is None else labels)
+        try:
+            normalized_labels = validate_active_classifications(
+                self.session,
+                workspace_id,
+                normalized_labels,
+                require_one=True,
+            )
+        except ClassificationError as error:
+            raise TaskConflictError(error.code, str(error)) from error
         if parent_task_id is not None:
             parent = self.session.scalar(select(Task).where(Task.id == parent_task_id, Task.workspace_id == workspace_id))
             if parent is None:
@@ -200,6 +215,15 @@ class TaskService:
         if "labels" in changes:
             changes = dict(changes)
             changes["labels"] = normalize_task_labels(changes["labels"])
+            try:
+                changes["labels"] = validate_active_classifications(
+                    self.session,
+                    workspace_id,
+                    changes["labels"],
+                    require_one=True,
+                )
+            except ClassificationError as error:
+                raise TaskConflictError(error.code, str(error)) from error
         if "progress" in changes:
             progress = changes["progress"]
             if progress is not None and progress not in ALLOWED_PROGRESS:
@@ -577,6 +601,18 @@ class TaskService:
                     except (TypeError, ValueError) as exc:
                         raise TaskConflictError("invalid_request", "invalid proposed handler id") from exc
                     task.current_handler_id = value
+                elif conflict.target == "labels":
+                    normalized_labels = normalize_task_labels(conflict.proposed_value)
+                    try:
+                        normalized_labels = validate_active_classifications(
+                            self.session,
+                            workspace_id,
+                            normalized_labels,
+                            require_one=True,
+                        )
+                    except ClassificationError as error:
+                        raise TaskConflictError(error.code, str(error)) from error
+                    task.labels = normalized_labels
                 elif conflict.target not in MUTABLE_FIELDS:
                     raise TaskConflictError("invalid_request", "invalid task conflict field")
                 else:

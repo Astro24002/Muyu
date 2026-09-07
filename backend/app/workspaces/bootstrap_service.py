@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.service import SmsAuthError, normalize_phone as normalize_auth_phone
+from app.auth.profile import public_display_name
 from app.db.enums import ApprovalStatus, BootstrapState, DeviceStatus, InviteStatus, MembershipStatus
 from app.db.models import (
     AndroidDevice,
@@ -24,7 +25,14 @@ from app.db.models import (
     WorkspaceMembership,
 )
 from app.tasks.operations import request_fingerprint
-from app.workspaces.bootstrap_schemas import BootstrapDevice, BootstrapInvite, BootstrapPayload, BootstrapWorkspace, public_device_status
+from app.workspaces.bootstrap_schemas import (
+    BootstrapDevice,
+    BootstrapInvite,
+    BootstrapPayload,
+    BootstrapWorkspace,
+    match_status_for_member_count,
+    public_device_status,
+)
 from app.workspaces.service import WorkspaceConflict
 
 if TYPE_CHECKING:
@@ -339,7 +347,7 @@ class WorkspaceBootstrapService:
         members = [
             {
                 "user_id": membership.user_id,
-                "display_name": user.display_name,
+                "display_name": public_display_name(user),
                 "phone_masked": _mask_phone(user.phone),
                 "member_slot": membership.member_slot,
                 "membership_status": membership.status,
@@ -348,13 +356,7 @@ class WorkspaceBootstrapService:
             for membership, user in rows
         ]
         member_count = len(members)
-        match_status = (
-            "waiting_partner"
-            if member_count < 2
-            else "matched"
-            if member_count == 2
-            else "error"
-        )
+        match_status = match_status_for_member_count(member_count)
         return BootstrapWorkspace(
             id=workspace.id,
             name=workspace.name,

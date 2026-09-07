@@ -11,6 +11,7 @@ from app.db.enums import MembershipStatus, TaskQuadrant
 from app.db.models import Task, User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace(session: Session) -> tuple[User, Workspace]:
@@ -29,6 +30,7 @@ def _workspace(session: Session) -> tuple[User, Workspace]:
     )
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, user.id)
     return user, workspace
 
 
@@ -42,6 +44,7 @@ def test_create_defaults_due_at_to_fourteen_days_after_creation_time(db_engine) 
             uuid4(),
             "默认截止时间",
             quadrant="Q1",
+            labels=["工作"],
         )
 
         assert task.due_at == created_at + timedelta(days=14)
@@ -67,24 +70,24 @@ def test_create_requires_a_quadrant_and_rejects_null_quadrants(db_engine) -> Non
             assert session.scalar(select(Task).where(Task.workspace_id == workspace.id)) is None
 
 
-def test_create_stores_a_required_quadrant_and_multiple_labels(db_engine) -> None:
+def test_create_rejects_multiple_classifications(db_engine) -> None:
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
-        task = TaskService(session).create(
-            workspace.id,
-            user.id,
-            uuid4(),
-            "Labelled task",
-            quadrant="Q2",
-            labels=["工作", "婚礼", "党员"],
-        )
+        with pytest.raises(TaskConflictError) as error:
+            TaskService(session).create(
+                workspace.id,
+                user.id,
+                uuid4(),
+                "Labelled task",
+                quadrant="Q2",
+                labels=["工作", "婚礼"],
+            )
 
-        assert task.quadrant == TaskQuadrant.Q2
-        assert task.labels == ["工作", "婚礼", "党员"]
-        assert TaskService(session).snapshot(task)["labels"] == ["工作", "婚礼", "党员"]
+        assert error.value.code == "invalid_request"
+        assert session.scalar(select(Task).where(Task.workspace_id == workspace.id)) is None
 
 
-def test_create_deduplicates_trimmed_labels_case_insensitively_in_order(db_engine) -> None:
+def test_create_normalizes_one_classification(db_engine) -> None:
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
         task = TaskService(session).create(
@@ -93,10 +96,10 @@ def test_create_deduplicates_trimmed_labels_case_insensitively_in_order(db_engin
             uuid4(),
             "Normalized labels",
             quadrant="Q1",
-            labels=[" 工作 ", "工作", " 婚礼 ", "婚礼", "党员"],
+            labels=[" 工作 "],
         )
 
-        assert task.labels == ["工作", "婚礼", "党员"]
+        assert task.labels == ["工作"]
 
 
 @pytest.mark.parametrize(
@@ -104,8 +107,9 @@ def test_create_deduplicates_trimmed_labels_case_insensitively_in_order(db_engin
     [
         ("empty label", [""]),
         ("whitespace-only label", ["   "]),
-        ("too many labels", [f"label-{index}" for index in range(11)]),
-        ("label too long", ["a" * 33]),
+        ("multiple classifications", ["工作", "婚礼"]),
+        ("duplicate classification entries", ["工作", "工作"]),
+        ("label too long", ["a" * 6]),
     ],
 )
 def test_create_rejects_invalid_labels_before_commit(db_engine, case: str, labels: list[str]) -> None:
@@ -163,6 +167,7 @@ def test_patch_rejects_clearing_the_task_deadline(db_engine) -> None:
             uuid4(),
             "截止时间不可清空",
             quadrant="Q1",
+            labels=["工作"],
         )
         session.commit()
         original_due_at = task.due_at
@@ -191,6 +196,7 @@ def test_patch_parses_iso_task_deadline_values(db_engine) -> None:
             uuid4(),
             "更新截止时间",
             quadrant="Q1",
+            labels=["工作"],
         )
         session.commit()
 

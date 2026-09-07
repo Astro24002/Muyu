@@ -144,7 +144,7 @@ def test_sms_send_provider_failure_does_not_persist_challenge(db_engine) -> None
         assert session.scalars(select(SmsVerificationChallenge)).all() == []
 
 
-def test_existing_workspace_user_gets_pending_device_until_partner_approval(db_engine) -> None:
+def test_existing_workspace_user_gets_a_trusted_second_device(db_engine) -> None:
     client = make_client(db_engine)
     client.post("/api/v1/auth/sms/send", json={"phone": "+8613800138000"})
     code = client.app.state.sms_provider.last_code_for("+8613800138000")
@@ -167,14 +167,10 @@ def test_existing_workspace_user_gets_pending_device_until_partner_approval(db_e
         },
     )
     assert replacement.status_code == 201
-    replacement_headers = {"Authorization": f"Bearer {replacement.json()['access_token']}"}
-    request = client.post(
-        "/api/v1/devices/authorization-requests",
-        headers=replacement_headers,
-        json={"public_key": "BAUG", "label": "Replacement"},
-    )
-    assert request.status_code == 201, request.text
+    assert replacement.json()["device_status"] == "VERIFIED"
+    assert replacement.json()["can_write"] is True
     with Session(db_engine) as session:
         devices = session.scalars(select(AndroidDevice).order_by(AndroidDevice.created_at)).all()
         assert len(devices) == 2
-        assert devices[-1].status == DeviceStatus.PENDING
+        assert devices[-1].status == DeviceStatus.ACTIVE
+        assert devices[-1].enrolled_at is not None

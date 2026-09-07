@@ -30,11 +30,29 @@ to_public_device_status = public_device_status
 
 
 def device_status_for_device_count(existing_device_count: int) -> DeviceStatus:
-    """Return the enrollment state for a device being added to an account."""
+    """Return the enrollment state for a device added through SMS verification.
+
+    SMS verification is the first-release trust boundary: every device that
+    successfully verifies the account's code is immediately writable.  Keep
+    the count argument for compatibility with callers and future policy
+    switches, but do not use it to downgrade a later device to ``PENDING``.
+    """
 
     if existing_device_count < 0:
         raise ValueError("existing device count cannot be negative")
-    return DeviceStatus.ACTIVE if existing_device_count == 0 else DeviceStatus.PENDING
+    return DeviceStatus.ACTIVE
+
+
+def match_status_for_member_count(active_member_count: int) -> Literal["waiting_partner", "matched", "error"]:
+    """Return the stable matching state for an active-member count."""
+
+    if active_member_count < 0:
+        raise ValueError("member count cannot be negative")
+    if active_member_count < 2:
+        return "waiting_partner"
+    if active_member_count == 2:
+        return "matched"
+    return "error"
 
 
 class BootstrapDevice(BaseModel):
@@ -117,6 +135,7 @@ __all__ = [
     "PUBLIC_DEVICE_STATUS_MAP",
     "PublicDeviceStatus",
     "device_status_for_device_count",
+    "match_status_for_member_count",
     "public_device_status",
     "to_public_device_status",
 ]

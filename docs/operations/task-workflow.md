@@ -6,22 +6,41 @@ operations, conflicts, comments, delays, and workspace cursors.
 
 ## Scope
 
-- A Workspace has one or two active members. A task has one or two active
-  assignees, and its current handler must be one of them.
-- Public statuses are `TODO`, `IN_PROGRESS`, `WAITING`, `DONE`, and
-  `CANCELLED`. A `WAITING` transition requires both `blocked_reason` and a
-  valid `resume_handler_id`.
-- The entry form creates a task only after a title and one of the required
-  quadrants (`Q1`-`Q4`) are selected. Labels are optional and entered as a
-  comma-separated classification list. Description, dates, estimate,
-  assignees, and handler changes are edited from the task detail view.
-- Each task stores at most ten normalized labels (each no longer than 32
-  Unicode characters, with a 320-character aggregate limit). Labels are
-  task-local classification values, not permission or workflow entities.
+- A Workspace has exactly two active members. A task has one
+  `current_handler_id`, which is its task负责人; there is no task participant
+  or assignee collection.
+- Public statuses are `TODO`, `IN_PROGRESS`, `BLOCKED`, `REVIEW`, `DONE`, and
+  `CANCELLED`. A `BLOCKED` transition requires a reason and a valid
+  `resume_handler_id`; `REVIEW` is accepted or returned by the other member.
+- The entry form creates a task only after a title, one required quadrant
+  (`Q1`-`Q4`), and exactly one approved workspace classification are selected.
+  Description, dates, estimate, and handler changes are edited from the task
+  detail view.
+- The wire/storage field remains named `labels` for compatibility, but a new
+  task may contain exactly one classification. Classification names are
+  approved workspace records and are limited to five characters. Empty legacy
+  arrays may be read during development migration, but all new create, patch,
+  and approval writes reject zero or multiple classifications.
 - Deletion is soft deletion (`deleted_at`). Restore creates a new operation;
   comments and delays remain append-only facts.
 - Android and Web submit writes only while connected and treat a committed
   server response as success. There is no offline write queue.
+
+## Classification contract
+
+Classifications are workspace-level records, not free-form task labels. A
+member submits a `CLASSIFICATION_CREATE` approval request from the client; the
+other member must approve it before the name appears in the selectable list.
+Names are trimmed, compared case-insensitively, and limited to five Unicode
+characters. Duplicate approved names and duplicate pending requests are
+rejected.
+
+Every task stores the selected name in the compatibility-shaped field
+`labels: ["分类名"]`. The server canonicalizes its display spelling from the
+approved workspace record and validates membership on create, direct patch,
+and approved patch. A request containing two or more names returns
+`422 invalid_request`; clients use a single-choice control and never expose a
+multi-select editor.
 
 ## Write and conflict rules
 
@@ -47,8 +66,9 @@ administrator, group, or multi-person voting path.
 
 The same rule applies to the fields that need explicit agreement:
 
-- task title, description, status, assignee/handler, restore and delete;
-- quadrant changes (`Q1` through `Q4`); and
+- task title, description, status, handler transfer, restore and delete;
+- quadrant changes (`Q1` through `Q4`);
+- classification changes (the complete one-value `labels` field); and
 - deleting a comment written by the other member.
 
 The request lifecycle is:
@@ -160,8 +180,8 @@ the profile view shows the account and Android devices. The old Android board
 tab is not part of the client.
 
 Android and Web open a detail view with task number, handler, status, quadrant,
-labels, dates, and progress metadata. The task负责人 can edit quadrant and
-the complete label array directly. The other member receives the same
-two-person approval flow and the task stays unchanged until approval. Both
-clients refresh from the server after every accepted write and retain the
+classification, dates, and progress metadata. The task负责人 can edit the
+quadrant and one approved classification directly. The other member receives
+the same two-person approval flow and the task stays unchanged until approval.
+Both clients refresh from the server after every accepted write and retain the
 user's draft when a write fails.

@@ -11,7 +11,7 @@ void main() {
       'status': 'TODO',
       'current_handler_id': 'user-a',
       'quadrant': 'Q2',
-      'labels': ['工作', '婚礼'],
+      'labels': ['工作'],
       'blocked_reason': '等待确认',
       'blocked_since': '2026-09-01T02:00:00Z',
       'resume_handler_id': 'user-b',
@@ -31,7 +31,7 @@ void main() {
 
     expect(task.title, '整理旅行计划');
     expect(task.quadrant, 'Q2');
-    expect(task.labels, ['工作', '婚礼']);
+    expect(task.labels, ['工作']);
     expect(task.plannedStartAt, DateTime.utc(2026, 9, 1, 1));
     expect(task.dueAt, isNull);
     expect(task.toJson(), isNot(contains('assignee_ids')));
@@ -128,7 +128,7 @@ void main() {
     expect(() => task.labels.add('党员'), throwsUnsupportedError);
   });
 
-  test('TaskItem defensively keeps only string labels from the wire', () {
+  test('TaskItem rejects malformed multi-classification wire data', () {
     final json = <String, dynamic>{
       'id': 'task-1',
       'parent_task_id': null,
@@ -137,7 +137,7 @@ void main() {
       'status': 'TODO',
       'current_handler_id': 'user-a',
       'quadrant': 'Q1',
-      'labels': [' 工作 ', 1, '婚礼'],
+      'labels': ['工作', '婚礼'],
       'planned_start_at': null,
       'due_at': null,
       'estimated_minutes': null,
@@ -149,9 +149,31 @@ void main() {
       'updated_at': '2026-08-17T00:00:00Z',
     };
 
-    final task = TaskItem.fromJson(json);
+    expect(() => TaskItem.fromJson(json), throwsA(isA<FormatException>()));
+  });
 
-    expect(task.labels, [' 工作 ', '婚礼']);
+  test('TaskItem rejects a classification longer than five characters', () {
+    final json = <String, dynamic>{
+      'id': 'task-1',
+      'parent_task_id': null,
+      'title': '整理旅行计划',
+      'description': '确定交通',
+      'status': 'TODO',
+      'current_handler_id': 'user-a',
+      'quadrant': 'Q1',
+      'labels': ['超长分类名称'],
+      'planned_start_at': null,
+      'due_at': null,
+      'estimated_minutes': null,
+      'completed_at': null,
+      'created_by': 'user-a',
+      'version': 1,
+      'status_version': 1,
+      'created_at': '2026-08-17T00:00:00Z',
+      'updated_at': '2026-08-17T00:00:00Z',
+    };
+
+    expect(() => TaskItem.fromJson(json), throwsA(isA<FormatException>()));
   });
 
   test('TaskItem rejects a non-array labels payload', () {

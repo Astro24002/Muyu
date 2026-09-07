@@ -28,8 +28,10 @@ def _workspace(session: Session):
 
 def _task(session: Session, workspace, user):
     from app.db.models import Task
+    from tests.classification_fixtures import seed_approved_classification
 
-    task = Task(workspace_id=workspace.id, task_number="26080001", title="Schema task", quadrant="Q1", labels=[], created_by=user.id)
+    seed_approved_classification(session, workspace.id, user.id)
+    task = Task(workspace_id=workspace.id, task_number="26080001", title="Schema task", quadrant="Q1", labels=["工作"], created_by=user.id)
     session.add(task)
     session.flush()
     return task
@@ -40,6 +42,7 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
     assert {
         "task_number_sequences",
         "task_approval_requests",
+        "workspace_classifications",
     }.issubset(inspector.get_table_names())
 
     task_columns = {column["name"] for column in inspector.get_columns("tasks")}
@@ -97,6 +100,7 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
             "TASK_RESTORE",
             "COMMENT_DELETE",
             "HANDLER_TRANSFER",
+            "CLASSIFICATION_CREATE",
         ],
         "task_quadrant": ["Q1", "Q2", "Q3", "Q4"],
         "task_status": ["TODO", "IN_PROGRESS", "BLOCKED", "REVIEW", "DONE", "CANCELLED"],

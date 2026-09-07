@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:muyu_client/core/api_client.dart';
+import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_approval_request.dart';
 import 'package:muyu_client/models/workspace_change.dart';
@@ -13,26 +14,28 @@ import 'package:muyu_client/sync/workspace_sync_repository.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-TaskItem sampleTask({String quadrant = 'Q1', List<String> labels = const []}) =>
-    TaskItem(
-      id: 'task-1',
-      parentTaskId: null,
-      title: 'Original',
-      description: '',
-      status: 'TODO',
-      currentHandlerId: 'user-1',
-      quadrant: quadrant,
-      labels: labels,
-      plannedStartAt: null,
-      dueAt: null,
-      estimatedMinutes: null,
-      completedAt: null,
-      createdBy: 'user-1',
-      version: 1,
-      statusVersion: 1,
-      createdAt: DateTime.utc(2026, 8, 31),
-      updatedAt: DateTime.utc(2026, 8, 31),
-    );
+TaskItem sampleTask({
+  String quadrant = 'Q1',
+  List<String> labels = const ['工作'],
+}) => TaskItem(
+  id: 'task-1',
+  parentTaskId: null,
+  title: 'Original',
+  description: '',
+  status: 'TODO',
+  currentHandlerId: 'user-1',
+  quadrant: quadrant,
+  labels: labels,
+  plannedStartAt: null,
+  dueAt: null,
+  estimatedMinutes: null,
+  completedAt: null,
+  createdBy: 'user-1',
+  version: 1,
+  statusVersion: 1,
+  createdAt: DateTime.utc(2026, 8, 31),
+  updatedAt: DateTime.utc(2026, 8, 31),
+);
 
 class LabelRecordingRepository implements WorkspaceSyncRepository {
   LabelRecordingRepository({this.tasks = const [], this.pendingUpdate = false});
@@ -49,6 +52,20 @@ class LabelRecordingRepository implements WorkspaceSyncRepository {
     cursor: 1,
     viewerUserId: 'user-1',
     tasks: tasks,
+    classifications: const [
+      WorkspaceClassification(
+        id: 'classification-work',
+        workspaceId: 'workspace-1',
+        name: '工作',
+        createdBy: 'user-1',
+      ),
+      WorkspaceClassification(
+        id: 'classification-wedding',
+        workspaceId: 'workspace-1',
+        name: '婚礼',
+        createdBy: 'user-1',
+      ),
+    ],
   );
 
   @override
@@ -196,7 +213,7 @@ void main() {
     expect(find.textContaining('负责人 user-1'), findsNothing);
   });
 
-  testWidgets('creation requires a quadrant and sends all labels', (
+  testWidgets('creation requires a quadrant and sends one classification', (
     tester,
   ) async {
     final repository = LabelRecordingRepository();
@@ -225,31 +242,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('task-create-label-button')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('task-create-label-input')),
-      '工作',
-    );
-    await tester.tap(find.byKey(const Key('task-create-label-add')));
-    await tester.enterText(
-      find.byKey(const Key('task-create-label-input')),
-      '婚礼',
-    );
-    await tester.tap(find.byKey(const Key('task-create-label-add')));
+    await tester.tap(find.byKey(const Key('task-create-label-option-工作')));
     await tester.tap(find.byKey(const Key('task-create-label-done')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('create-task-button')));
     await tester.pumpAndSettle();
 
     expect(repository.createdQuadrant, 'Q2');
-    expect(repository.createdLabels, ['工作', '婚礼']);
+    expect(repository.createdLabels, ['工作']);
   });
 
-  testWidgets('detail deduplicates labels and submits the complete remainder', (
-    tester,
-  ) async {
+  testWidgets('detail edits exactly one classification', (tester) async {
     final repository = LabelRecordingRepository(
       tasks: [
-        sampleTask(labels: const ['工作', '工作', '婚礼']),
+        sampleTask(labels: const ['工作']),
       ],
     );
     final sync = WorkspaceSyncController(repository);
@@ -257,7 +263,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: TaskDetailScreen(
-          task: sampleTask(labels: const ['工作', '工作', '婚礼']),
+          task: sampleTask(labels: const ['工作']),
           sync: sync,
         ),
       ),
@@ -266,17 +272,13 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('task-label-chip-工作')), findsOneWidget);
-    expect(find.byKey(const Key('task-label-chip-婚礼')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('task-label-remove-工作')));
-    await tester.enterText(
-      find.byKey(const Key('task-detail-label-input')),
-      '党员',
+    await tester.tap(
+      find.byKey(const Key('task-detail-classification-option-婚礼')),
     );
-    await tester.tap(find.byKey(const Key('task-detail-label-add')));
     await tester.tap(find.byKey(const Key('task-save-button')));
     await tester.pumpAndSettle();
 
-    expect(repository.updatedFields?['labels'], ['婚礼', '党员']);
+    expect(repository.updatedFields?['labels'], ['婚礼']);
   });
 
   testWidgets('pending quadrant edit keeps the current task visible', (

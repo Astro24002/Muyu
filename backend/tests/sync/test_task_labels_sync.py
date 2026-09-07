@@ -9,6 +9,7 @@ from app.db.enums import MembershipStatus
 from app.db.models import User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.sync.service import SyncService
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace(session: Session) -> tuple[User, User, Workspace]:
@@ -25,6 +26,7 @@ def _workspace(session: Session) -> tuple[User, User, Workspace]:
         ]
     )
     session.flush()
+    seed_approved_classification(session, workspace.id, owner.id)
     return owner, partner, workspace
 
 
@@ -38,27 +40,39 @@ def test_snapshot_and_cursor_changes_round_trip_quadrant_and_labels(db_engine) -
             uuid4(),
             "同步任务",
             quadrant="Q2",
-            labels=["工作", "婚礼"],
+            labels=["工作"],
         )
         snapshot = SyncService(session).snapshot(workspace.id, owner.id)
         assert snapshot["tasks"][0]["quadrant"] == "Q2"
-        assert snapshot["tasks"][0]["labels"] == ["工作", "婚礼"]
+        assert snapshot["tasks"][0]["labels"] == ["工作"]
 
         changes = SyncService(session).changes(workspace.id, 0)
         resource = changes["changes"][0]["resource"]
         assert resource["quadrant"] == "Q2"
-        assert resource["labels"] == ["工作", "婚礼"]
+        assert resource["labels"] == ["工作"]
 
         updated = service.patch(
             workspace.id,
             owner.id,
             task.id,
             uuid4(),
-            {"labels": ["党员"]},
+            {"labels": ["工作"]},
             {"labels": task.field_versions["labels"]},
         )
-        assert updated.labels == ["党员"]
+        assert updated.labels == ["工作"]
         assert updated.quadrant.value == "Q2"
         updated_snapshot = SyncService(session).snapshot(workspace.id, owner.id)
-        assert updated_snapshot["tasks"][0]["labels"] == ["党员"]
+        assert updated_snapshot["tasks"][0]["labels"] == ["工作"]
         assert updated_snapshot["tasks"][0]["quadrant"] == "Q2"
+
+
+def test_snapshot_members_expose_profile_name_or_phone_as_default_username(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, partner, workspace = _workspace(session)
+        partner.display_name = "小雨"
+
+        snapshot = SyncService(session).snapshot(workspace.id, owner.id)
+
+        members = {member["user_id"]: member for member in snapshot["members"]}
+        assert members[str(owner.id)]["display_name"] == owner.phone.removeprefix("+86")
+        assert members[str(partner.id)]["display_name"] == "小雨"

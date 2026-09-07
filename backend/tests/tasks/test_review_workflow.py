@@ -13,6 +13,7 @@ from app.tasks.approvals import TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.schemas import TransitionRequest
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
@@ -35,12 +36,13 @@ def _workspace_with_two_users(session: Session, phone_seed: int = 3671) -> tuple
     )
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, users[0].id)
     return users[0], users[1], workspace
 
 
 def _review_task(session: Session, owner: User, workspace: Workspace) -> tuple[Task, TaskService]:
     service = TaskService(session, now=lambda: NOW)
-    task = service.create(workspace.id, owner.id, uuid4(), "交付结果", quadrant="Q1")
+    task = service.create(workspace.id, owner.id, uuid4(), "交付结果", quadrant="Q1", labels=["工作"])
     task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
     task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
     return task, service
@@ -140,7 +142,7 @@ def test_proposed_handler_conflict_is_rejected_during_review_without_mutation(db
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3683)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "冲突验收", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "冲突验收", quadrant="Q1", labels=["工作"])
         conflict = _handler_conflict(service, workspace, task, owner, reviewer)
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
@@ -169,7 +171,7 @@ def test_current_handler_conflict_can_be_kept_during_review(db_engine) -> None:
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3685)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "保留当前负责人", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "保留当前负责人", quadrant="Q1", labels=["工作"])
         conflict = _handler_conflict(service, workspace, task, owner, reviewer)
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
@@ -197,7 +199,7 @@ def test_proposed_handler_conflict_still_applies_before_review(db_engine) -> Non
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3687)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "非验收阶段转交", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "非验收阶段转交", quadrant="Q1", labels=["工作"])
         conflict = _handler_conflict(service, workspace, task, owner, reviewer)
 
         resolved = service.resolve_conflict(
@@ -220,7 +222,7 @@ def test_proposed_status_conflict_applies_blocked_transition_once(db_engine) -> 
     with Session(db_engine) as session:
         owner, _reviewer, workspace = _workspace_with_two_users(session, phone_seed=3715)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "冲突阻塞", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "冲突阻塞", quadrant="Q1", labels=["工作"])
         current = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         request_id = uuid4()
 
@@ -270,7 +272,7 @@ def test_proposed_status_conflict_applies_review_return_metadata(db_engine) -> N
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3716)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "冲突退回", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "冲突退回", quadrant="Q1", labels=["工作"])
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
         request_id = uuid4()
@@ -347,7 +349,7 @@ def test_lifecycle_complete_submits_review(db_engine) -> None:
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3684)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "生命周期交付", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "生命周期交付", quadrant="Q1", labels=["工作"])
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
 
         submitted = service.lifecycle(
@@ -491,6 +493,7 @@ def test_approval_validation_uses_six_states_and_blocked_review_rules(db_engine)
             uuid4(),
             "待协作任务",
             quadrant="Q4",
+            labels=["工作"],
         )
         service = TaskApprovalService(session, now=lambda: NOW)
 

@@ -86,6 +86,7 @@ class TaskApprovalRequestType(StrEnum):
     TASK_RESTORE = "TASK_RESTORE"
     COMMENT_DELETE = "COMMENT_DELETE"
     HANDLER_TRANSFER = "HANDLER_TRANSFER"
+    CLASSIFICATION_CREATE = "CLASSIFICATION_CREATE"
 
 
 class TaskApprovalRequestStatus(StrEnum):

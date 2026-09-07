@@ -10,6 +10,7 @@ from app.db.models import AndroidDevice, TaskConflict, User, Workspace, Workspac
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
 from app.sync.service import SyncService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace(session: Session) -> tuple[User, object]:
@@ -30,6 +31,7 @@ def _workspace(session: Session) -> tuple[User, object]:
     )
     session.add(__import__("app.db.models", fromlist=["WorkspaceCursor"]).WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, user.id)
     return user, workspace
 
 
@@ -51,6 +53,7 @@ def _workspace_with_two_users(session: Session) -> tuple[User, User, Workspace]:
     )
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, users[0].id)
     return users[0], users[1], workspace
 
 
@@ -59,7 +62,7 @@ def test_task_mutations_are_idempotent_and_record_conflicts(db_engine) -> None:
         user, workspace = _workspace(session)
         service = TaskService(session)
         request_id = uuid4()
-        task = service.create(workspace.id, user.id, request_id, "Plan", "", quadrant="Q1")
+        task = service.create(workspace.id, user.id, request_id, "Plan", "", quadrant="Q1", labels=["工作"])
         first_cursor = service.last_cursor
         session.commit()
 
@@ -78,7 +81,7 @@ def test_task_mutations_are_idempotent_and_record_conflicts(db_engine) -> None:
         assert conflict is not None
         assert conflict.status == ConflictStatus.OPEN
 
-        replay = TaskService(session).create(workspace.id, user.id, request_id, "Plan", "", quadrant="Q1")
+        replay = TaskService(session).create(workspace.id, user.id, request_id, "Plan", "", quadrant="Q1", labels=["工作"])
         assert replay.id == task.id
         assert TaskService(session).last_cursor is None
         assert first_cursor == 1
@@ -88,7 +91,7 @@ def test_snapshot_and_changes_are_workspace_scoped(db_engine) -> None:
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
         service = TaskService(session)
-        service.create(workspace.id, user.id, uuid4(), "Visible", "", quadrant="Q1")
+        service.create(workspace.id, user.id, uuid4(), "Visible", "", quadrant="Q1", labels=["工作"])
         session.commit()
         snapshot = SyncService(session).snapshot(workspace.id)
         assert snapshot["cursor"] == 1
@@ -115,6 +118,7 @@ def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
             planned_start_at=datetime(2026, 8, 28, 9, tzinfo=timezone.utc),
             estimated_minutes=90,
             quadrant="Q1",
+            labels=["工作"],
         )
         first_cursor = service.last_cursor
         snapshot = service.snapshot(task)
@@ -137,6 +141,7 @@ def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
             planned_start_at=datetime(2026, 8, 28, 9, tzinfo=timezone.utc),
             estimated_minutes=90,
             quadrant="Q1",
+            labels=["工作"],
         )
         assert replay.id == task.id
         assert replay_service.last_cursor == first_cursor
@@ -145,7 +150,7 @@ def test_create_preserves_explicit_fields_and_replay_cursor(db_engine) -> None:
 def test_patch_allows_independent_fields_and_rejects_stale_field(db_engine) -> None:
     with Session(db_engine) as session:
         user_a, workspace = _workspace(session)
-        task = TaskService(session).create(workspace.id, user_a.id, uuid4(), "Initial", quadrant="Q1")
+        task = TaskService(session).create(workspace.id, user_a.id, uuid4(), "Initial", quadrant="Q1", labels=["工作"])
         initial_version = task.version
         first = TaskService(session)
         edited = first.patch(

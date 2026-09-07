@@ -18,6 +18,7 @@ from app.tasks.approval_schemas import (
 from app.tasks.approvals import TaskApprovalError, TaskApprovalResult, TaskApprovalService
 from app.tasks.routes import Actor, _queue_hint, _require_workspace, require_actor, require_write_actor
 from app.tasks.service import TaskService
+from app.workspaces.classifications import ClassificationService
 
 
 router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/approval-requests", tags=["task-approvals"])
@@ -31,6 +32,9 @@ def _approval_error(error: TaskApprovalError) -> ApiError:
         "approval_conflicted": 409,
         "approval_already_resolved": 409,
         "approval_request_reused": 409,
+        "classification_not_found": 422,
+        "classification_exists": 409,
+        "approval_already_pending": 409,
     }.get(error.code, 409)
     return ApiError(status_code, error.code, str(error))
 
@@ -44,6 +48,8 @@ def _result_json_with_service(result: TaskApprovalResult, service: TaskApprovalS
         payload["task"] = TaskService(service.session).snapshot(result.task)
     if result.comment is not None:
         payload["comment"] = comment_json(result.comment)
+    if result.classification is not None:
+        payload["classification"] = ClassificationService.json(result.classification)
     return payload
 
 

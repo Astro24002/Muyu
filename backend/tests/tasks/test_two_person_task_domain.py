@@ -12,6 +12,7 @@ from app.db.models import TaskComment, TaskHandlerHistory, User, Workspace, Work
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.numbering import TaskNumberAllocator
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace_with_two_users(session: Session) -> tuple[User, User, Workspace]:
@@ -31,6 +32,7 @@ def _workspace_with_two_users(session: Session) -> tuple[User, User, Workspace]:
     )
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, users[0].id)
     return users[0], users[1], workspace
 
 
@@ -46,20 +48,20 @@ def test_task_create_assigns_numbers_and_rejects_nested_subtasks(db_engine) -> N
     with Session(db_engine) as session:
         user_a, user_b, workspace = _workspace_with_two_users(session)
         service = TaskService(session, now=lambda: datetime(2026, 8, 28, tzinfo=timezone.utc))
-        parent = service.create(workspace.id, user_a.id, uuid4(), "Parent", quadrant="Q1")
-        child = service.create(workspace.id, user_a.id, uuid4(), "Child", parent_task_id=parent.id, quadrant="Q1")
+        parent = service.create(workspace.id, user_a.id, uuid4(), "Parent", quadrant="Q1", labels=["工作"])
+        child = service.create(workspace.id, user_a.id, uuid4(), "Child", parent_task_id=parent.id, quadrant="Q1", labels=["工作"])
         assert parent.task_number == "26080001"
         assert child.task_number == "26080002"
         assert child.parent_task_id == parent.id
         with pytest.raises(TaskConflictError, match="subtasks cannot have subtasks"):
-            service.create(workspace.id, user_a.id, uuid4(), "Nested", parent_task_id=child.id, quadrant="Q1")
+            service.create(workspace.id, user_a.id, uuid4(), "Nested", parent_task_id=child.id, quadrant="Q1", labels=["工作"])
 
 
 def test_patch_validates_quadrant_progress_and_owner(db_engine) -> None:
     with Session(db_engine) as session:
         user_a, user_b, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
-        task = service.create(workspace.id, user_a.id, uuid4(), "Task", quadrant="Q1")
+        task = service.create(workspace.id, user_a.id, uuid4(), "Task", quadrant="Q1", labels=["工作"])
         assert task.current_handler_id == user_a.id
         assert "assignee_ids" not in service.snapshot(task)
         versions = task.field_versions
@@ -112,7 +114,7 @@ def test_progress_is_derived_for_todo_and_done_and_defaults_when_started(db_engi
     with Session(db_engine) as session:
         user, reviewer, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
-        task = service.create(workspace.id, user.id, uuid4(), "Task", quadrant="Q1")
+        task = service.create(workspace.id, user.id, uuid4(), "Task", quadrant="Q1", labels=["工作"])
         assert service.snapshot(task)["progress"] == 0
         task = service.transition(workspace.id, user.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         assert task.progress == 20
@@ -126,7 +128,7 @@ def test_comment_author_can_soft_delete_comment_and_tombstone_is_retained(db_eng
     with Session(db_engine) as session:
         user, _, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
-        task = service.create(workspace.id, user.id, uuid4(), "Task", quadrant="Q1")
+        task = service.create(workspace.id, user.id, uuid4(), "Task", quadrant="Q1", labels=["工作"])
         comment = service.add_comment(workspace.id, user.id, task.id, "Keep audit")
         deleted = service.delete_comment(workspace.id, user.id, comment.id, uuid4(), comment.version)
         assert deleted.deleted_at is not None
@@ -142,7 +144,7 @@ def test_blocked_recovery_uses_stored_handler_and_records_history_once(db_engine
     with Session(db_engine) as session:
         owner, resume_handler, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
-        task = service.create(workspace.id, owner.id, uuid4(), "Task", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "Task", quadrant="Q1", labels=["工作"])
         waiting = service.transition(
             workspace.id,
             owner.id,
@@ -198,7 +200,7 @@ def test_blocked_recovery_honors_explicit_handler_override(db_engine) -> None:
     with Session(db_engine) as session:
         owner, stored_resume_handler, workspace = _workspace_with_two_users(session)
         service = TaskService(session)
-        task = service.create(workspace.id, owner.id, uuid4(), "Task", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "Task", quadrant="Q1", labels=["工作"])
         waiting = service.transition(
             workspace.id,
             owner.id,

@@ -26,9 +26,11 @@ export function ApprovalRequestRow({
   const reasonId = useId();
   const [rejectionReason, setRejectionReason] = useState('');
   const isPending = request.status === 'PENDING';
-  const taskLabel = incoming
-    ? task?.title || request.task_id
-    : task?.task_number ? `任务 ${task.task_number}` : `任务 ${request.task_id}`;
+  const taskLabel = request.request_type === 'CLASSIFICATION_CREATE'
+    ? `新建分类：${typeof request.proposed_changes.name === 'string' ? request.proposed_changes.name : '未命名分类'}`
+    : incoming
+      ? task?.title || request.task_id || '协作请求'
+      : task?.task_number ? `任务 ${task.task_number}` : `任务 ${request.task_id || '协作请求'}`;
 
   return (
     <article className="approval-request-row" data-approval-id={request.id}>
@@ -152,6 +154,7 @@ function requestTypeLabel(type: TaskApprovalRequest['request_type']): string {
     TASK_RESTORE: '恢复任务',
     COMMENT_DELETE: '删除评论',
     HANDLER_TRANSFER: '负责人转移',
+    CLASSIFICATION_CREATE: '新建分类',
   };
   return labels[type];
 }

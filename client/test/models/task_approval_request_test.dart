@@ -121,4 +121,24 @@ void main() {
       expect(restored.comments.single.deletedAt, DateTime.utc(2026, 8, 28, 2));
     },
   );
+
+  test('a current snapshot rejects a task classification absent from approved classifications', () {
+    final raw = <String, dynamic>{
+      'workspace_id': 'workspace-1',
+      'cursor': 9,
+      'tasks': [
+        {
+          ...taskJson(),
+          'workspace_id': 'workspace-1',
+          'labels': ['未批准'],
+        },
+      ],
+      'classifications': const [],
+    };
+
+    expect(
+      () => WorkspaceSnapshot.fromJson(raw),
+      throwsA(isA<FormatException>()),
+    );
+  });
 }

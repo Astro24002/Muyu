@@ -14,6 +14,7 @@ import type {
   WebSessionRevokeAllResult,
   WebSessionSummary,
   WorkspaceChanges,
+  WorkspaceClassification,
   WorkspaceSnapshot,
 } from './types';
 export type AppliedTaskWriteResult = TaskItem & { cursor: number };
@@ -73,6 +74,7 @@ export class ApiClient {
   revokeAllWebSessions(): Promise<WebSessionRevokeAllResult> { return this.request('/api/v1/web-sessions/revoke-all', { method: 'POST' }); }
   getHome(): Promise<HomeResponse> { return this.request('/api/v1/home'); }
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> { return this.request('/api/v1/workspaces/current/snapshot'); }
+  getWorkspaceClassifications(): Promise<WorkspaceClassification[]> { return this.request('/api/v1/workspaces/current/classifications'); }
   getWorkspaceChanges(afterCursor: number): Promise<WorkspaceChanges> { return this.request(`/api/v1/workspaces/current/changes?after_cursor=${encodeURIComponent(afterCursor)}`); }
   createTask(input: { requestId: string; title: string; description: string; quadrant: 'Q1' | 'Q2' | 'Q3' | 'Q4'; labels?: string[] }): Promise<AppliedTaskWriteResult> { return this.request('/api/v1/tasks', { method: 'POST', body: { request_id: input.requestId, title: input.title, description: input.description, quadrant: input.quadrant, labels: input.labels ?? [] } }); }
   patchTask(id: string, input: { requestId: string; changes: Record<string, unknown>; baseFieldVersions: Record<string, number> }): Promise<TaskWriteResult> { return this.request(`/api/v1/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: { request_id: input.requestId, changes: input.changes, base_field_versions: input.baseFieldVersions } }); }
@@ -87,7 +89,7 @@ export class ApiClient {
   createApprovalRequest(input: {
     workspaceId?: string;
     requestId: string;
-    taskId: string;
+    taskId?: string | null;
     commentId?: string | null;
     requestType: TaskApprovalRequestType;
     proposedChanges: Record<string, unknown>;
@@ -97,12 +99,19 @@ export class ApiClient {
       method: 'POST',
       body: {
         request_id: input.requestId,
-        task_id: input.taskId,
+        task_id: input.taskId ?? null,
         comment_id: input.commentId ?? null,
         request_type: input.requestType,
         proposed_changes: input.proposedChanges,
         base_field_versions: input.baseFieldVersions,
       },
+    });
+  }
+
+  createWorkspaceClassification(input: { requestId: string; name: string }): Promise<PendingApproval> {
+    return this.request('/api/v1/workspaces/current/classifications', {
+      method: 'POST',
+      body: { request_id: input.requestId, name: input.name },
     });
   }
 

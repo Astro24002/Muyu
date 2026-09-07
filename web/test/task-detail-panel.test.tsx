@@ -316,9 +316,10 @@ describe('TaskDetailPanel', () => {
     const actions = { ...makeActions(), canWrite: false };
     render(<TaskDetailPanel task={task} members={state.snapshot!.members} syncState={state} actions={actions} onClose={vi.fn()} />);
 
-    for (const label of ['标题', '描述', '状态', '负责人', '截止时间', '四象限', '标签', '评论输入', '新截止时间', '延期原因', '延期说明']) {
+    for (const label of ['标题', '描述', '状态', '负责人', '截止时间', '四象限', '评论输入', '新截止时间', '延期原因', '延期说明']) {
       expect(screen.getByLabelText(label)).toBeDisabled();
     }
+    expect(screen.getByRole('radio', { name: '工作' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '更新状态' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '添加评论' })).toBeDisabled();

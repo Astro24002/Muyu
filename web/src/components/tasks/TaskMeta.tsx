@@ -12,7 +12,7 @@ const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 export function TaskMeta({ task, now = new Date(), className }: TaskMetaProps): JSX.Element {
   const dueState = getDueState(task, now);
-  const labels = task.labels.length > 0 ? `标签：${task.labels.join('、')}` : null;
+  const labels = task.labels.length > 0 ? `分类：${task.labels.join('、')}` : null;
   const progress = normalizedTaskStatus(task.status) === 'IN_PROGRESS' && task.progress !== null && task.progress !== undefined
     ? `进度 ${task.progress}%`
     : null;

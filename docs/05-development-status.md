@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除已完成代码与文档收口，线上 API/Web 已部署到 `0008_default_task_due_at`，后续只剩真实 Android 设备验收与线上运行巡检。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API/Web 当前仍在 `0008_default_task_due_at`，分类迁移 `0009/0010` 待下一次独立部署验收。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -23,6 +23,29 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-04 - Workspace 分类与单分类任务契约施工完成
+
+- 类型：跨端任务模型 / 双人审批 / 数据迁移 / 测试。
+- 变更：新增 `workspace_classifications` 已批准分类表和 `CLASSIFICATION_CREATE`
+  双人审批类型；分类名去空格、大小写归一化并限制为最多 5 个字符，且归一化后的
+  持久化比较值也受相同长度限制，重复已批准分类或重复待审批请求会被拒绝。任务创建、
+  负责人直接修改和非负责人审批应用均只允许一个已批准分类。
+- 兼容边界：API 和数据库字段继续使用 `labels` 数组，旧快照可读取空数组；
+  Alembic `0009_workspace_classifications` 创建分类及审批所需结构，
+  `0010_single_task_classification` 将历史多值数组收敛为首项并增加单值检查。所有
+  新建、显式分类修改和审批中的分类变更拒绝空分类或多个不同分类；历史空分类
+  任务仍可读取和编辑无关字段，但不能借此写入空分类。
+- 客户端：Android 和 Web 均改为单选分类控件，分类创建入口只产生待审批请求；
+  Web 直接同步调用和通用审批调用也在发送前执行单分类和已批准分类校验。快照、首页
+  投影与增量同步在声明分类资源后校验任务分类归属；不一致增量会回拉权威快照，旧缓存
+  缺少该资源时只保留一次读取兼容。界面文案统一使用“分类”，不再提供多标签编辑器。
+- 验证：后端 PostgreSQL 全量 `237 passed, 3 skipped, 1 warning`；Web Vitest 全量
+  `262 passed`，TypeScript typecheck 和 Vite build 通过；Flutter 全量 `179 passed`，
+  `flutter analyze` 与 Dart format 通过；`git diff --check`、Python compileall 通过。
+  迁移专项已覆盖从干净 schema 建立 `0009/0010` 的结构与单值约束。公共测试数据库
+  仍保留旧版 `0003_delay_blocking` 版本号，不能用它做当前 head 的直接 `alembic check`。
+  线上迁移与新 APK 不属于本轮验收。
 
 ### 2026-09-03 - 默认截止时间与清单日期分组交付
 
@@ -144,6 +167,8 @@
 
 ### 2026-08-31 - Android 任务导航与多标签施工完成
 
+- 历史说明：本条记录的多标签规则已由 2026-09-04 单分类任务契约替代；当前任务
+  只能选择一个已批准分类，详见[单分类任务模型设计](./superpowers/specs/2026-09-04-single-task-classification-design.md)。
 - 类型：工程实施 / 全量验证。
 - 变更：任务数据新增必选四象限 `Q1`-`Q4` 与任务内多标签；服务端 PostgreSQL
   迁移 `0004_task_labels_quadrant` 设置 `tasks.quadrant NOT NULL`、`labels JSONB`

@@ -36,6 +36,7 @@ _NEW_APPROVAL_REQUEST_TYPES = [
     "TASK_RESTORE",
     "COMMENT_DELETE",
     "HANDLER_TRANSFER",
+    "CLASSIFICATION_CREATE",
 ]
 _OLD_APPROVAL_REQUEST_TYPES = [*_NEW_APPROVAL_REQUEST_TYPES[:6], "ASSIGNEE_UPDATE", "HANDLER_TRANSFER"]
 
@@ -116,7 +117,7 @@ def _seed_legacy_schema(engine: Engine) -> dict[str, object]:
             task_number=f"2609{uuid4().int % 10000:04d}",
             title="Migration task",
             quadrant=TaskQuadrant.Q1,
-            labels=[],
+            labels=["工作", "婚礼"],
             current_handler_id=owner.id,
             created_by=owner.id,
             field_versions={"title": 1, "assignee_ids": 7},
@@ -297,6 +298,10 @@ def test_upgrade_from_0004_preserves_owner_history_and_non_assignee_approvals(
             {"task_id": data["task_id"]},
         ) == data["owner_id"]
         assert connection.scalar(
+            text("SELECT labels FROM tasks WHERE id = :task_id"),
+            {"task_id": data["task_id"]},
+        ) == ["工作"]
+        assert connection.scalar(
             text(
                 "SELECT count(*) FROM task_approval_requests "
                 "WHERE request_id = :request_id"
@@ -349,7 +354,12 @@ def test_upgrade_rejects_null_owner_before_destructive_steps(
         _upgrade_to_head(at_0004, database_url)
 
     assert "task_assignees" in inspect(at_0004).get_table_names()
-    assert _enum_labels(at_0004, "task_approval_request_type") == _OLD_APPROVAL_REQUEST_TYPES
+    # PostgreSQL may retain the 0009 enum value even though the earlier
+    # destructive migration is aborted and its schema changes are rolled back.
+    assert _enum_labels(at_0004, "task_approval_request_type") == [
+        *_OLD_APPROVAL_REQUEST_TYPES,
+        "CLASSIFICATION_CREATE",
+    ]
     with at_0004.connect() as connection:
         assert connection.scalar(
             text(

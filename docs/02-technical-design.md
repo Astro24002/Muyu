@@ -83,6 +83,7 @@ title
 description
 status
 current_handler_id   nullable
+labels               JSONB array; exactly one approved classification on new writes
 blocked_reason       nullable
 blocked_since        nullable
 resume_handler_id    nullable
@@ -103,6 +104,37 @@ deleted_at           nullable
 created_at
 updated_at
 ```
+
+### 任务分类
+
+任务的传输和存储字段仍叫 `labels`，以兼容既有快照、增量变更和字段版本；
+当前业务语义已经收口为单值：新建或修改任务时必须提供一个已批准的
+Workspace 分类，实际保存形如 `labels: ["工作"]`。服务端在创建、负责人直接
+修改、非负责人审批应用三个入口统一校验分类归属，并使用 Workspace 记录中的
+规范展示名称。
+
+分类本身存储在 `workspace_classifications`：
+
+```text
+id
+workspace_id
+name                 VARCHAR(5)
+normalized_name      VARCHAR(5), case-insensitive uniqueness per Workspace
+created_by
+created_at
+```
+
+新增分类不是直接写入，而是创建 `CLASSIFICATION_CREATE` 审批请求；另一位
+Workspace 成员批准后才产生分类记录和同步事件。客户端使用单选控件，分类名最多
+五个 Unicode 字符，且 `casefold()` 后的持久化比较值也不得超过五个字符，避免
+Unicode 归一化扩展触发数据库长度错误。数据库迁移会把历史多值数组收敛为首项，并
+允许读取遗留空数组；所有新的创建、修改和审批请求拒绝空数组或多于一个分类。
+
+当前协议快照带有 `classifications` 时，Android 与 Web 必须验证每个非空任务
+`labels` 恰好命中一个已批准分类；首页投影、写入响应和 cursor 增量任务资源适用
+同一规则。增量不一致时不写缓存，而是重新获取权威快照。没有
+`classifications` 字段的旧本地快照仅允许作为一次读取恢复兼容，不能绕过新写入的
+分类校验。
 
 状态：
 

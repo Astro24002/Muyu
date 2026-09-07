@@ -27,15 +27,24 @@ from app.db.models import (
     TaskComment,
     TaskOperation,
     User,
+    Workspace,
+    WorkspaceClassification,
     WorkspaceChangeLog,
     WorkspaceMembership,
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import MUTABLE_FIELDS, TRANSITIONS, TaskService, normalize_task_labels
+from app.workspaces.classifications import (
+    ClassificationError,
+    ClassificationService,
+    normalize_classification_name,
+    validate_active_classifications,
+)
 
 
 TASK_UPDATE_FIELDS = MUTABLE_FIELDS - {"quadrant", "current_handler_id"}
+CLASSIFICATION_CREATE_FIELDS = {"name"}
 STATUS_CHANGE_FIELDS = {
     "target_status",
     "blocked_reason",
@@ -57,6 +66,7 @@ class TaskApprovalResult:
     request: TaskApprovalRequest
     task: Task | None = None
     comment: TaskComment | None = None
+    classification: WorkspaceClassification | None = None
     cursor: int | None = None
 
     @property
@@ -103,7 +113,7 @@ class TaskApprovalService:
         workspace_id: UUID,
         requester_id: UUID,
         request_id: UUID,
-        task_id: UUID,
+        task_id: UUID | None,
         request_type: TaskApprovalRequestType,
         proposed_changes: dict[str, Any],
         base_field_versions: dict[str, int],
@@ -112,7 +122,7 @@ class TaskApprovalService:
         workspace_id = self._uuid(workspace_id, "workspace_id")
         requester_id = self._uuid(requester_id, "requester_id")
         request_id = self._uuid(request_id, "request_id")
-        task_id = self._uuid(task_id, "task_id")
+        task_id = self._uuid(task_id, "task_id") if task_id is not None else None
         comment_id = self._uuid(comment_id, "comment_id") if comment_id is not None else None
         request_type = self._request_type(request_type)
         changes = self._normalize_changes(proposed_changes)
@@ -150,19 +160,36 @@ class TaskApprovalService:
         if requester_id not in member_ids or requester is None or requester.status != UserStatus.ACTIVE:
             raise TaskApprovalError("approval_not_allowed", "requester must be an active workspace member")
 
-        task = self.session.scalar(
-            select(Task)
-            .where(Task.id == task_id, Task.workspace_id == workspace_id)
-            .with_for_update()
-        )
-        if task is None:
-            raise TaskApprovalError("approval_not_allowed", "task does not belong to the workspace")
-        if request_type == TaskApprovalRequestType.HANDLER_TRANSFER and task.status == TaskStatus.REVIEW:
+        task: Task | None = None
+        if request_type != TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            task = self.session.scalar(
+                select(Task)
+                .where(Task.id == task_id, Task.workspace_id == workspace_id)
+                .with_for_update()
+            )
+            if task is None:
+                raise TaskApprovalError("approval_not_allowed", "task does not belong to the workspace")
+        else:
+            self._validate_classification_request(workspace_id, requester_id, changes)
+        if (
+            request_type == TaskApprovalRequestType.TASK_UPDATE
+            and "labels" in changes
+        ):
+            try:
+                changes["labels"] = validate_active_classifications(
+                    self.session,
+                    workspace_id,
+                    changes["labels"],
+                    require_one=True,
+                )
+            except ClassificationError as error:
+                raise TaskApprovalError(error.code, str(error)) from error
+        if request_type == TaskApprovalRequestType.HANDLER_TRANSFER and task is not None and task.status == TaskStatus.REVIEW:
             raise TaskApprovalError(
                 "approval_not_allowed",
                 "handler transfer is not allowed while task is in review",
             )
-        if request_type == TaskApprovalRequestType.STATUS_UPDATE:
+        if request_type == TaskApprovalRequestType.STATUS_UPDATE and task is not None:
             changes = self._validate_status_proposal(task, changes, member_ids)
 
         comment: TaskComment | None = None
@@ -179,7 +206,11 @@ class TaskApprovalService:
             if comment is None:
                 raise TaskApprovalError("approval_not_allowed", "comment does not belong to the task workspace")
 
-        if request_type == TaskApprovalRequestType.COMMENT_DELETE:
+        if request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            if comment_id is not None:
+                raise TaskApprovalError("approval_not_allowed", "classification approval cannot target a comment")
+            approver_id = next(item.user_id for item in members if item.user_id != requester_id)
+        elif request_type == TaskApprovalRequestType.COMMENT_DELETE:
             if comment is None or comment.deleted_at is not None:
                 raise TaskApprovalError("approval_not_allowed", "comment is not available for deletion")
             if comment.author_user_id == requester_id:
@@ -190,7 +221,7 @@ class TaskApprovalService:
         else:
             if comment_id is not None:
                 raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
-            if task.current_handler_id is None or task.current_handler_id not in member_ids:
+            if task is None or task.current_handler_id is None or task.current_handler_id not in member_ids:
                 raise TaskApprovalError("approval_not_allowed", "task owner must be an active workspace member")
             if task.current_handler_id == requester_id:
                 raise TaskApprovalError("approval_not_allowed", "task owner writes do not require approval")
@@ -202,7 +233,7 @@ class TaskApprovalService:
 
         request = TaskApprovalRequest(
             workspace_id=workspace_id,
-            task_id=task.id,
+            task_id=task.id if task is not None else None,
             comment_id=comment.id if comment is not None else None,
             requester_id=requester_id,
             approver_id=approver_id,
@@ -223,6 +254,25 @@ class TaskApprovalService:
             change_action=ChangeAction.CREATED,
         )
         return request
+
+    def create_classification(
+        self,
+        workspace_id: UUID,
+        requester_id: UUID,
+        request_id: UUID,
+        name: str,
+    ) -> TaskApprovalRequest:
+        """Create a two-person approval for a new workspace classification."""
+
+        return self.create(
+            workspace_id,
+            requester_id,
+            request_id,
+            None,
+            TaskApprovalRequestType.CLASSIFICATION_CREATE,
+            {"name": name},
+            {},
+        )
 
     def list(
         self,
@@ -294,11 +344,17 @@ class TaskApprovalService:
                 changes,
                 {member.user_id for member in self._active_members(request.workspace_id)},
             )
-        target_actor = comment.author_user_id if request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment else task.current_handler_id
+        target_actor = (
+            request.approver_id
+            if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE
+            else comment.author_user_id
+            if request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment
+            else task.current_handler_id
+        )
         if target_actor is None or target_actor != request.approver_id:
             self._cancel_for_stale_owner(request, task, comment, action_request_id, "task owner changed")
         try:
-            target_task, target_comment = self._apply(request, task, comment, target_actor)
+            target_task, target_comment, target_classification = self._apply(request, task, comment, target_actor)
         except TaskConflictError as error:
             self._mark_conflicted(request, task, comment, action_request_id, str(error))
             raise TaskApprovalError("approval_conflicted", str(error)) from error
@@ -322,9 +378,21 @@ class TaskApprovalService:
             event_type="APPROVAL_APPROVED",
             change_action=ChangeAction.UPDATED,
         )
+        if target_classification is not None:
+            cursor = self._emit_classification_event(
+                target_classification,
+                actor_user_id=approver_id,
+                action_request_id=action_request_id,
+            )
         request.resolved_cursor = cursor
         self.session.flush()
-        return TaskApprovalResult(request=request, task=target_task, comment=target_comment, cursor=cursor)
+        return TaskApprovalResult(
+            request=request,
+            task=target_task,
+            comment=target_comment,
+            classification=target_classification,
+            cursor=cursor,
+        )
 
     def reject(
         self,
@@ -460,22 +528,32 @@ class TaskApprovalService:
     def _apply(
         self,
         request: TaskApprovalRequest,
-        task: Task,
+        task: Task | None,
         comment: TaskComment | None,
         target_actor: UUID | None,
-    ) -> tuple[Task | None, TaskComment | None]:
-        if target_actor is None:
-            raise TaskApprovalError("approval_conflicted", "approved target has no owner")
+    ) -> tuple[Task | None, TaskComment | None, WorkspaceClassification | None]:
         service = TaskService(self.session, now=self.now)
         request_type = request.request_type
         changes = self._decoded_changes(request.proposed_changes)
         versions = {key: int(value) for key, value in (request.base_field_versions or {}).items()}
+        if request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            try:
+                classification = ClassificationService(self.session).create_approved(
+                    request.workspace_id,
+                    request.requester_id,
+                    changes["name"],
+                )
+            except ClassificationError as error:
+                raise TaskApprovalError(error.code, str(error)) from error
+            return None, None, classification
+        if target_actor is None or task is None:
+            raise TaskApprovalError("approval_conflicted", "approved target has no owner")
         if request_type == TaskApprovalRequestType.TASK_UPDATE:
-            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
+            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.QUADRANT_UPDATE:
-            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
+            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
-            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None
+            return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.STATUS_UPDATE:
             status_version = self._base_version(request, "status_version", "status")
             if status_version is None:
@@ -494,33 +572,51 @@ class TaskApprovalService:
                     review_rejection_reason=changes.get("review_rejection_reason"),
                 ),
                 None,
+                None,
             )
         if request_type == TaskApprovalRequestType.TASK_DELETE:
             lifecycle_version = self._base_version(request, "lifecycle_version", "lifecycle")
             if lifecycle_version is None:
                 raise TaskApprovalError("approval_conflicted", "lifecycle version is required")
-            return service.lifecycle(task.workspace_id, target_actor, task.id, request.id, "delete", lifecycle_version), None
+            return service.lifecycle(task.workspace_id, target_actor, task.id, request.id, "delete", lifecycle_version), None, None
         if request_type == TaskApprovalRequestType.TASK_RESTORE:
             lifecycle_version = self._base_version(request, "lifecycle_version", "lifecycle")
             if lifecycle_version is None:
                 raise TaskApprovalError("approval_conflicted", "lifecycle version is required")
-            return service.restore(task.workspace_id, target_actor, task.id, request.id, lifecycle_version), None
+            return service.restore(task.workspace_id, target_actor, task.id, request.id, lifecycle_version), None, None
         if request_type == TaskApprovalRequestType.COMMENT_DELETE:
             if comment is None:
                 raise TaskApprovalError("approval_conflicted", "comment not found")
             version = self._base_version(request, "version", "comment_version")
             if version is None:
                 raise TaskApprovalError("approval_conflicted", "comment version is required")
-            return None, service.delete_comment(task.workspace_id, target_actor, comment.id, request.id, version)
+            return None, service.delete_comment(task.workspace_id, target_actor, comment.id, request.id, version), None
         raise TaskApprovalError("approval_not_allowed", "unsupported approval request type")
 
     def _check_freshness(
         self,
         request: TaskApprovalRequest,
-        task: Task,
+        task: Task | None,
         comment: TaskComment | None,
         action_request_id: UUID,
     ) -> None:
+        if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            try:
+                if ClassificationService(self.session).find(
+                    request.workspace_id,
+                    request.proposed_changes.get("name"),
+                ) is not None:
+                    self._mark_conflicted(
+                        request,
+                        task,
+                        comment,
+                        action_request_id,
+                        "classification already exists",
+                    )
+            except ClassificationError as error:
+                self._mark_conflicted(request, task, comment, action_request_id, str(error))
+            return
+
         if request.request_type == TaskApprovalRequestType.COMMENT_DELETE:
             if comment is None or comment.deleted_at is not None or task.deleted_at is not None:
                 self._cancel_for_stale_owner(request, task, comment, action_request_id, "comment or task lifecycle changed")
@@ -560,7 +656,7 @@ class TaskApprovalService:
     def _mark_conflicted(
         self,
         request: TaskApprovalRequest,
-        task: Task,
+        task: Task | None,
         comment: TaskComment | None,
         action_request_id: UUID,
         reason: str,
@@ -584,7 +680,7 @@ class TaskApprovalService:
     def _cancel_for_stale_owner(
         self,
         request: TaskApprovalRequest,
-        task: Task,
+        task: Task | None,
         comment: TaskComment | None,
         action_request_id: UUID,
         reason: str,
@@ -643,7 +739,9 @@ class TaskApprovalService:
             raise TaskApprovalError("approval_not_found", "approval request not found")
         return request
 
-    def _lock_target(self, request: TaskApprovalRequest) -> tuple[Task, TaskComment | None]:
+    def _lock_target(self, request: TaskApprovalRequest) -> tuple[Task | None, TaskComment | None]:
+        if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            return None, None
         task = self.session.scalar(
             select(Task)
             .where(Task.id == request.task_id, Task.workspace_id == request.workspace_id)
@@ -696,19 +794,30 @@ class TaskApprovalService:
         return operation
 
     def _result_from_request(self, request: TaskApprovalRequest, cursor: int | None) -> TaskApprovalResult:
-        task = self.session.get(Task, request.task_id)
+        task = self.session.get(Task, request.task_id) if request.task_id is not None else None
         comment = self.session.get(TaskComment, request.comment_id) if request.comment_id is not None else None
+        classification = None
+        if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            name = (request.proposed_changes or {}).get("name")
+            if isinstance(name, str):
+                classification = self.session.scalar(
+                    select(WorkspaceClassification).where(
+                        WorkspaceClassification.workspace_id == request.workspace_id,
+                        WorkspaceClassification.normalized_name == name.strip().casefold(),
+                    )
+                )
         return TaskApprovalResult(
             request=request,
             task=task,
             comment=comment,
+            classification=classification,
             cursor=request.resolved_cursor if request.resolved_cursor is not None else cursor,
         )
 
     def _emit_request_event(
         self,
         request: TaskApprovalRequest,
-        task: Task,
+        task: Task | None,
         *,
         actor_user_id: UUID,
         action_request_id: UUID,
@@ -730,7 +839,7 @@ class TaskApprovalService:
         self.session.add(
             ActivityEvent(
                 workspace_id=request.workspace_id,
-                task_id=task.id,
+                task_id=task.id if task is not None else None,
                 actor_user_id=actor_user_id,
                 event_type=event_type,
                 payload={"approval_request": payload, "reason": request.rejection_reason},
@@ -747,15 +856,37 @@ class TaskApprovalService:
         self.session.add(
             TaskOperation(
                 workspace_id=request.workspace_id,
-                task_id=task.id,
+                task_id=task.id if task is not None else None,
                 actor_user_id=actor_user_id,
                 request_id=action_request_id,
                 operation_type=OperationType.UPDATED,
                 before_state={"approval_request_id": str(request.id)},
                 after_state={"approval_request": payload},
                 base_versions={"approval_action": action_name, "approval_id": str(request.id)},
-                resulting_versions=task.field_versions,
+                resulting_versions=task.field_versions if task is not None else None,
                 cursor=cursor,
+            )
+        )
+        self.session.flush()
+        self.last_cursor = cursor
+        return cursor
+
+    def _emit_classification_event(
+        self,
+        classification: WorkspaceClassification,
+        *,
+        actor_user_id: UUID,
+        action_request_id: UUID,
+    ) -> int:
+        cursor = Repository(self.session).allocate_workspace_cursor(classification.workspace_id)
+        self.session.add(
+            WorkspaceChangeLog(
+                workspace_id=classification.workspace_id,
+                cursor=cursor,
+                resource_type="classification",
+                resource_id=classification.id,
+                action=ChangeAction.CREATED,
+                operation_id=action_request_id,
             )
         )
         self.session.flush()
@@ -766,7 +897,7 @@ class TaskApprovalService:
         return {
             "id": str(request.id),
             "workspace_id": str(request.workspace_id),
-            "task_id": str(request.task_id),
+            "task_id": str(request.task_id) if request.task_id is not None else None,
             "comment_id": str(request.comment_id) if request.comment_id is not None else None,
             "requester_id": str(request.requester_id),
             "approver_id": str(request.approver_id),
@@ -789,7 +920,14 @@ class TaskApprovalService:
         versions: dict[str, int],
         comment_id: UUID | None,
     ) -> None:
-        if request_type == TaskApprovalRequestType.TASK_UPDATE:
+        if request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            if set(changes) != CLASSIFICATION_CREATE_FIELDS or versions or comment_id is not None:
+                raise TaskApprovalError("approval_not_allowed", "classification approval requires only a name")
+            try:
+                normalize_classification_name(changes["name"])
+            except ClassificationError as error:
+                raise TaskApprovalError(error.code, str(error)) from error
+        elif request_type == TaskApprovalRequestType.TASK_UPDATE:
             if not changes or set(changes) - TASK_UPDATE_FIELDS or set(changes) != set(versions):
                 raise TaskApprovalError("approval_not_allowed", "task update fields and versions are invalid")
             if "due_at" in changes and (
@@ -828,6 +966,42 @@ class TaskApprovalService:
             self._uuid(changes["current_handler_id"], "current_handler_id")
         if request_type != TaskApprovalRequestType.COMMENT_DELETE and comment_id is not None:
             raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
+
+    def _validate_classification_request(
+        self,
+        workspace_id: UUID,
+        requester_id: UUID,
+        changes: dict[str, Any],
+    ) -> None:
+        # Serialize requests per workspace so concurrent clients cannot both
+        # pass the duplicate-name check before either request is persisted.
+        self.session.scalar(
+            select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+        )
+        self._validate_request_shape(
+            TaskApprovalRequestType.CLASSIFICATION_CREATE,
+            changes,
+            {},
+            None,
+        )
+        display_name, normalized = normalize_classification_name(changes["name"])
+        changes["name"] = display_name
+        if ClassificationService(self.session).find(workspace_id, changes["name"]) is not None:
+            raise TaskApprovalError("classification_exists", "classification already exists")
+        pending = self.session.scalars(
+            select(TaskApprovalRequest).where(
+                TaskApprovalRequest.workspace_id == workspace_id,
+                TaskApprovalRequest.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE,
+                TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+            )
+        ).all()
+        if any(
+            isinstance(item.proposed_changes, dict)
+            and isinstance(item.proposed_changes.get("name"), str)
+            and item.proposed_changes["name"].strip().casefold() == normalized
+            for item in pending
+        ):
+            raise TaskApprovalError("approval_already_pending", "classification approval is already pending")
 
     def _validate_status_proposal(
         self,
@@ -922,7 +1096,7 @@ class TaskApprovalService:
         self,
         request: TaskApprovalRequest,
         requester_id: UUID,
-        task_id: UUID,
+        task_id: UUID | None,
         comment_id: UUID | None,
         request_type: TaskApprovalRequestType,
         changes: dict[str, Any],

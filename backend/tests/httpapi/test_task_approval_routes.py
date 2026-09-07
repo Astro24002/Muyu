@@ -52,7 +52,7 @@ def test_non_owner_patch_creates_pending_approval_and_owner_can_apply(db_engine)
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Original", "quadrant": "Q2"},
+        json={"request_id": str(uuid4()), "title": "Original", "quadrant": "Q2", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -97,7 +97,7 @@ def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Review conflict", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Review conflict", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -185,7 +185,7 @@ def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> Non
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Review 409", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Review 409", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
     started = client.post(
         f"/api/v1/tasks/{created['id']}/transition",
@@ -265,7 +265,7 @@ def test_stale_patch_request_replays_the_original_409_across_http_sessions(db_en
     created = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "HTTP replay", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "HTTP replay", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -313,7 +313,7 @@ def test_stale_status_request_replays_the_original_409_across_http_sessions(db_e
     created = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "HTTP status replay", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "HTTP status replay", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
     started = client.post(
         f"/api/v1/tasks/{created['id']}/transition",
@@ -363,7 +363,7 @@ def test_conflict_replay_stays_409_after_proposed_handler_transfer_changes_owner
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Handler replay", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Handler replay", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
     transferred = client.patch(
         f"/api/v1/tasks/{created['id']}",
@@ -408,7 +408,7 @@ def test_stale_blocked_status_409_uses_full_conflict_projection(db_engine) -> No
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Blocked 409", "quadrant": "Q2"},
+        json={"request_id": str(uuid4()), "title": "Blocked 409", "quadrant": "Q2", "labels": ["工作"]},
     ).json()
     started = client.post(
         f"/api/v1/tasks/{created['id']}/transition",
@@ -469,7 +469,7 @@ def test_owner_comment_delete_is_pending_and_comment_author_approves(db_engine) 
     created = client.post(
         "/api/v1/tasks",
         headers=owner_headers,
-        json={"request_id": str(uuid4()), "title": "Comment task", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Comment task", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
     comment = client.post(
         f"/api/v1/tasks/{created['id']}/comments",
@@ -505,7 +505,7 @@ def test_approval_workspace_path_must_match_authenticated_workspace(db_engine) -
     task = client.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "Scoped", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Scoped", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
     foreign_workspace = uuid4()
     response = client.post(

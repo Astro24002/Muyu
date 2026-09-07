@@ -27,6 +27,7 @@ from app.tasks.approval_routes import router as task_approval_router
 from app.sync.routes import router as sync_router
 from app.web_login.routes import router as web_login_router, sessions_router as web_sessions_router
 from app.workspaces.routes import router as workspaces_router
+from app.workspaces.classification_routes import router as classifications_router
 
 
 @asynccontextmanager
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(mobile_router)
     app.include_router(workspaces_router)
+    app.include_router(classifications_router)
     app.include_router(devices_router)
     app.include_router(device_authorization_router)
     app.include_router(recovery_router)

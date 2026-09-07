@@ -10,6 +10,7 @@ from app.auth.providers.fake import FakeSmsProvider
 from app.db.enums import DeviceStatus
 from app.db.models import AndroidDevice
 from app.main import create_app
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _client(db_engine) -> TestClient:
@@ -40,7 +41,11 @@ def _headers(session: dict[str, object]) -> dict[str, str]:
     return {"Authorization": f"Bearer {session['access_token']}"}
 
 
-def _ready_workspace(client: TestClient) -> tuple[dict[str, object], dict[str, object]]:
+def _ready_workspace(
+    client: TestClient,
+    *,
+    seed_classification: bool = True,
+) -> tuple[dict[str, object], dict[str, object]]:
     owner = _login(client, "+8613800138000", "AQID")
     bound = client.post(
         "/api/v1/workspaces/bind-partner",
@@ -55,17 +60,25 @@ def _ready_workspace(client: TestClient) -> tuple[dict[str, object], dict[str, o
         json={"device_id": partner["device_id"], "request_id": str(uuid4())},
     )
     assert accepted.status_code == 200, accepted.text
+    if seed_classification:
+        with Session(client.app.state.engine) as session:
+            seed_approved_classification(
+                session,
+                UUID(str(bound.json()["workspace"]["id"])),
+                UUID(str(owner["user"]["id"])),
+            )
+            session.commit()
     return owner, partner
 
 
-def test_pending_device_can_refresh_and_read_workspace(db_engine) -> None:
+def test_sms_device_can_refresh_and_read_workspace(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
-    pending = _login(client, "+8615028180169", "BwgJ")
+    trusted = _login(client, "+8615028180169", "BwgJ")
 
     refreshed = client.post(
         "/api/v1/auth/mobile/refresh",
-        json={"refresh_token": pending["refresh_token"]},
+        json={"refresh_token": trusted["refresh_token"]},
     )
     assert refreshed.status_code == 200, refreshed.text
 
@@ -73,7 +86,7 @@ def test_pending_device_can_refresh_and_read_workspace(db_engine) -> None:
     bootstrap = client.get("/api/v1/workspaces/bootstrap", headers=headers)
     assert bootstrap.status_code == 200, bootstrap.text
     assert bootstrap.json()["state"] == "READY"
-    assert bootstrap.json()["device"] == {"status": "UNVERIFIED", "can_write": False}
+    assert bootstrap.json()["device"] == {"status": "VERIFIED", "can_write": True}
 
     snapshot = client.get("/api/v1/workspaces/current/snapshot", headers=headers)
     assert snapshot.status_code == 200, snapshot.text
@@ -81,62 +94,23 @@ def test_pending_device_can_refresh_and_read_workspace(db_engine) -> None:
     assert tasks.status_code == 200, tasks.text
 
 
-def test_pending_device_is_rejected_by_every_task_write_with_device_not_verified(db_engine) -> None:
+def test_sms_device_can_write_tasks_without_partner_approval(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
     created = client.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "Read-only task", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Read-only task", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()
-    pending = _login(client, "+8615028180169", "BwgJ")
-    headers = _headers(pending)
-
-    cases = [
-        (
-            "post",
-            "/api/v1/tasks",
-            {"request_id": str(uuid4()), "title": "Denied", "quadrant": "Q1"},
-        ),
-        (
-            "patch",
-            f"/api/v1/tasks/{task['id']}",
-            {
-                "request_id": str(uuid4()),
-                "changes": {"title": "Denied"},
-                "base_field_versions": {"title": task["field_versions"]["title"]},
-            },
-        ),
-        (
-            "post",
-            f"/api/v1/tasks/{task['id']}/transition",
-            {
-                "request_id": str(uuid4()),
-                "target_status": "IN_PROGRESS",
-                "base_status_version": task["status_version"],
-            },
-        ),
-        (
-            "post",
-            f"/api/v1/tasks/{task['id']}/comments",
-            {"request_id": str(uuid4()), "body": "Denied"},
-        ),
-        (
-            "post",
-            f"/api/v1/tasks/{task['id']}/delays",
-            {
-                "request_id": str(uuid4()),
-                "new_due_at": "2030-01-01T00:00:00+00:00",
-                "reason": "OTHER",
-            },
-        ),
-    ]
-    for method, path, body in cases:
-        response = getattr(client, method)(path, headers=headers, json=body)
-        assert response.status_code == 403, (method, path, response.text)
-        assert response.json()["code"] == "device_not_verified"
+    trusted = _login(client, "+8615028180169", "BwgJ")
+    response = client.post(
+        "/api/v1/tasks",
+        headers=_headers(trusted),
+        json={"request_id": str(uuid4()), "title": "Trusted device task", "quadrant": "Q1", "labels": ["工作"]},
+    )
+    assert response.status_code == 201, response.text
 
 
 def test_active_device_can_write_and_revoked_device_cannot_refresh(db_engine) -> None:
@@ -145,7 +119,7 @@ def test_active_device_can_write_and_revoked_device_cannot_refresh(db_engine) ->
     created = client.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "Writable task", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Writable task", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
 

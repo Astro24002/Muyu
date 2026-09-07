@@ -18,6 +18,7 @@ class WorkspaceGate extends StatefulWidget {
     required this.signingKey,
     required this.repository,
     this.session,
+    this.sessionStore,
     this.workspaceCache,
   });
 
@@ -25,6 +26,7 @@ class WorkspaceGate extends StatefulWidget {
   final DeviceSigningKey signingKey;
   final WorkspaceBootstrapRepository repository;
   final MobileSession? session;
+  final MobileSessionStore? sessionStore;
   final WorkspaceCache? workspaceCache;
 
   @override
@@ -59,6 +61,7 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             api: widget.api,
             signingKey: widget.signingKey,
             session: widget.session,
+            sessionStore: widget.sessionStore,
             canWrite: _controller.state.canWrite,
             workspaceBootstrapRepository: widget.repository,
             workspaceCache: widget.workspaceCache,
@@ -70,6 +73,7 @@ class _WorkspaceGateState extends State<WorkspaceGate> {
             api: widget.api,
             signingKey: widget.signingKey,
             session: widget.session,
+            sessionStore: widget.sessionStore,
             canWrite: _controller.state.canWrite,
             waitingForPartner: true,
             workspaceBootstrapRepository: widget.repository,

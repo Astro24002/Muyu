@@ -2,11 +2,29 @@
 
 ## 当前路线：云端协调架构（2026-08-24）
 
-后续实现以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为架构依据，并以 [移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md) 作为当前任务模型、读取范围、写入审批、Android 概览、迁移和缓存规则的权威：PostgreSQL 保存明文协作事实，FastAPI 以 REST 增量同步和通知型 WebSocket 协调 Android 与 Web。首版交付 Android APK/AAB 与 Web 静态构建；iOS 仅保留协议扩展空间，不进入当前构建、发布或验收。
+后续实现以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为架构依据，并以 [移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md) 作为当前任务模型、读取范围、写入审批、Android 概览、迁移和缓存规则的权威；Android“我的”页、设备和资料边界以 [我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md) 为准：PostgreSQL 保存明文协作事实，FastAPI 以 REST 增量同步和通知型 WebSocket 协调 Android 与 Web。首版交付 Android APK/AAB 与 Web 静态构建；iOS 仅保留协议扩展空间，不进入当前构建、发布或验收。
 
-新系统从空 Workspace 与新 PostgreSQL 模型开始，不迁移旧数据，也不保留 P2P、固定密码后端或旧 API 兼容路径。旧 P2P 运行时和旧后端代码将在后续经审阅的实施计划中受控删除。详细实施顺序尚未创建，必须在规格复核后另行编写。
+新系统从空 Workspace 与新 PostgreSQL 模型开始，不迁移旧业务数据，也不保留 P2P、固定密码后端或旧 API 兼容路径；本轮唯一的历史数据兼容步骤是将未撤销的旧 `PENDING` Android 设备迁移为 `ACTIVE` 并使遗留设备授权请求过期。旧 P2P 运行时和旧后端代码将在后续经审阅的实施计划中受控删除。详细实施顺序尚未创建，必须在规格复核后另行编写。
+
+## 当前补充：Android“我的”、设备与匹配
+
+当前路线的 Android 账户边界如下：
+
+- 当前任务分类规则：每项任务必须且只能选择一个当前 Workspace 已批准的分类；
+  分类名称最多 5 个字符，新分类通过 `CLASSIFICATION_CREATE` 双人审批后才可使用。
+  协议字段暂保留 `labels: [分类名]`，仅用于兼容快照和增量同步。
+
+- 任务审批只有“我的”页 AppBar 的审批中心入口；清单、四象限和日程的“更多”菜单不包含任务审批；扫码登录 Web 与审批中心并列放在该 AppBar。
+- 每次短信验证码校验成功都会创建或恢复一个 `ACTIVE` Android 设备，并立即授予可读写能力；首版不创建设备审批请求。设备管理只能撤销同一账号下的其他设备，撤销前必须二次确认，当前设备不可撤销。
+- 个人资料只支持编辑 `display_name`；首尾空格清理、空值和最大长度由服务端统一处理。手机号和头像不可编辑，客户端继续使用默认 `CircleAvatar`。
+- Workspace bootstrap 返回 ACTIVE 成员的 `match_status`、数量、名称、脱敏手机号和 `is_current`：零或一名成员为 `waiting_partner`，两名成员为 `matched`。未匹配时客户端显示默认头像和“匹配中”，不显示虚假的对方身份；匹配后才显示另一位 ACTIVE 成员。
+- 设备签名挑战和任务化设备审批保留为未来安全增强，不属于当前运行路径，详见[延期的设备验证审批设计说明](./superpowers/superseded/2026-09-02-device-approval-task-design-note.md)。
+
+当前补充的验收重点：首次和后续短信登录设备均可写；遗留未撤销设备迁移后可写；清单菜单无审批；“我的”页能进入审批中心、Web 扫码和设备管理；名称编辑与匹配占位状态在 API 和客户端 fixture 中保持稳定。
 
 ## 历史路线（仅作记录）
+
+以下 Phase 0-9 记录旧的分阶段路线，仅用于追溯，不覆盖上面的当前账户、设备和匹配边界。
 
 ## 发布分层
 
@@ -42,20 +60,19 @@
 
 ## Phase 1：双人系统
 
-- 初始化两名固定用户；
-- 手机号和统一密码登录；
+- 手机号用户注册与登录；
+- Android 短信验证码登录；
 - Access/Refresh Token；
-- 昵称修改；
-- 角色修改；
-- 固定头像；
+- `display_name` 修改；
+- 默认头像；
 - 获取双方用户信息；
 - 基础会话撤销。
 
 验收：
 
-- 两台设备可以分别以两个固定用户登录；
+- 两台 Android 设备可以分别以两个手机号用户登录；
 - 双方看到统一数据；
-- 昵称和角色修改后双方可刷新看到；
+- 名称修改后双方可刷新看到；
 - 头像不可修改。
 
 ## Phase 2：Task 和子任务

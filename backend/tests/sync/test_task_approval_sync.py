@@ -10,6 +10,7 @@ from app.db.models import User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.sync.service import SyncService
 from app.tasks.approvals import TaskApprovalService
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace(session: Session) -> tuple[User, User, Workspace]:
@@ -26,13 +27,14 @@ def _workspace(session: Session) -> tuple[User, User, Workspace]:
         ]
     )
     session.flush()
+    seed_approved_classification(session, workspace.id, owner.id)
     return owner, partner, workspace
 
 
 def test_snapshot_contains_viewer_approvals_and_comments(db_engine) -> None:
     with Session(db_engine) as session:
         owner, partner, workspace = _workspace(session)
-        task = TaskService(session).create(workspace.id, owner.id, uuid4(), "Shared", quadrant="Q1")
+        task = TaskService(session).create(workspace.id, owner.id, uuid4(), "Shared", quadrant="Q1", labels=["工作"])
         comment = TaskService(session).add_comment(workspace.id, partner.id, task.id, "Keep")
         approval = TaskApprovalService(session).create(
             workspace.id,
@@ -54,7 +56,7 @@ def test_approval_and_comment_tombstone_are_typed_changes(db_engine) -> None:
     with Session(db_engine) as session:
         owner, partner, workspace = _workspace(session)
         task_service = TaskService(session)
-        task = task_service.create(workspace.id, owner.id, uuid4(), "Shared", quadrant="Q1")
+        task = task_service.create(workspace.id, owner.id, uuid4(), "Shared", quadrant="Q1", labels=["工作"])
         baseline = task_service.last_cursor or 0
         approval = TaskApprovalService(session).create(
             workspace.id,

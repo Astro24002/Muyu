@@ -10,11 +10,19 @@ const task: TaskItem = {
   waiting_for_user_id: null, planned_start_at: null, due_at: null, estimated_minutes: null, completed_at: null,
   created_by: 'user-1', version: 3, status_version: 1, created_at: '2026-08-25T00:00:00.000Z', updated_at: '2026-08-25T00:00:00.000Z',
   delay_count: 0, total_delay_minutes: 0, field_versions: { title: 3, description: 1 },
-  lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: [],
+  lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: ['工作'],
 };
 
 function snapshot(cursor = 5) {
-  return { workspace_id: 'workspace-1', workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' }, members: [], tasks: [task], conflicts: [], cursor };
+  return {
+    workspace_id: 'workspace-1',
+    workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' },
+    members: [],
+    tasks: [task],
+    conflicts: [],
+    cursor,
+    classifications: [{ id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'user-1', created_at: null }],
+  };
 }
 
 function apiStub() {
@@ -70,6 +78,47 @@ describe('WorkspaceSyncController', () => {
 
     expect(controller.state.snapshot).toBeNull();
     expect(controller.state.error).toBe('无法加载工作区，请检查网络后重试。');
+  });
+
+  it('rejects a snapshot containing a task with an unapproved classification', async () => {
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValue({
+      ...snapshot(),
+      tasks: [{ ...task, labels: ['婚礼'] }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+
+    expect(controller.state.snapshot).toBeNull();
+    expect(controller.state.error).toBe('无法加载工作区，请检查网络后重试。');
+  });
+
+  it('reloads instead of caching an incremental task with an unapproved classification', async () => {
+    const api = apiStub();
+    api.getWorkspaceSnapshot
+      .mockResolvedValueOnce(snapshot(5))
+      .mockResolvedValueOnce(snapshot(6));
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'task',
+        resource_id: task.id,
+        action: 'UPDATED',
+        operation_id: 'op-1',
+        resource: { ...task, labels: ['婚礼'] },
+      }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(api.getWorkspaceSnapshot).toHaveBeenCalledTimes(2);
+    expect(controller.state.snapshot?.tasks[0]?.labels).toEqual(['工作']);
+    expect(controller.state.cursor).toBe(6);
   });
 
   it('accepts a snapshot with an unnamed workspace', async () => {
@@ -152,7 +201,7 @@ describe('WorkspaceSyncController', () => {
     const controller = new WorkspaceSyncController(api as never);
 
     await controller.loadSnapshot();
-    await controller.createTask('Server task', '', 'Q2');
+    await controller.createTask('Server task', '', 'Q2', ['工作']);
 
     expect(api.getHome).toHaveBeenCalledTimes(2);
     expect(controller.state.home).toEqual(updatedHome);
@@ -202,6 +251,42 @@ describe('WorkspaceSyncController', () => {
 
     expect(controller.state.snapshot?.approval_requests).toEqual([]);
     expect(controller.state).toMatchObject({ stale: true, error: '无法提交审批请求，请检查网络后重试。' });
+  });
+
+  it('rejects invalid classifications before a generic approval request is sent', async () => {
+    const api = {
+      ...apiStub(),
+      createApprovalRequest: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    await controller.createApprovalRequest(task.id, {
+      requestType: 'TASK_UPDATE',
+      proposedChanges: { labels: ['工作', '婚礼'] },
+      baseFieldVersions: { labels: 1 },
+    });
+
+    expect(api.createApprovalRequest).not.toHaveBeenCalled();
+    expect(controller.state.error).toBe('一个任务只能选择一个分类。');
+  });
+
+  it('rejects an unapproved classification before a generic approval request is sent', async () => {
+    const api = {
+      ...apiStub(),
+      createApprovalRequest: vi.fn(),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+    await controller.loadSnapshot();
+
+    await controller.createApprovalRequest(task.id, {
+      requestType: 'TASK_UPDATE',
+      proposedChanges: { labels: ['婚礼'] },
+      baseFieldVersions: { labels: 1 },
+    });
+
+    expect(api.createApprovalRequest).not.toHaveBeenCalled();
+    expect(controller.state.error).toBe('任务只能选择已批准分类。');
   });
 
   it('does not merge a comment acknowledgement for another task', async () => {
@@ -276,7 +361,7 @@ describe('WorkspaceSyncController', () => {
     const controller = new WorkspaceSyncController(api as never);
     await controller.loadSnapshot();
 
-    await controller.createTask('Offline', '', 'Q1');
+    await controller.createTask('Offline', '', 'Q1', ['工作']);
 
     expect(controller.state).toMatchObject({ stale: true, loading: false });
     expect(controller.state.snapshot?.tasks).toHaveLength(1);
@@ -570,7 +655,7 @@ describe('WorkspaceSyncController', () => {
       const controller = new WorkspaceSyncController(api as never);
       await controller.loadSnapshot();
 
-      const write = controller.createTask('Created', '', 'Q2');
+      const write = controller.createTask('Created', '', 'Q2', ['工作']);
       await flushMicrotasks();
       expect(api.getWorkspaceChanges).toHaveBeenCalledOnce();
       let settled = false;
@@ -681,7 +766,7 @@ describe('WorkspaceSyncController', () => {
     const controller = new WorkspaceSyncController(api as never);
     await controller.loadSnapshot();
 
-    const write = controller.createTask('Created', '', 'Q2');
+    const write = controller.createTask('Created', '', 'Q2', ['工作']);
     await vi.waitFor(() => {
       expect(api.getWorkspaceChanges).toHaveBeenCalledTimes(2);
     });

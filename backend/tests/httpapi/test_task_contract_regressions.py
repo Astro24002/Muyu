@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +9,7 @@ from app.db.enums import MembershipStatus
 from app.db.models import User, Workspace, WorkspaceCursor, WorkspaceMembership
 from app.main import create_app
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 from .test_lightweight_routes import FakeSmsProvider
 
@@ -36,6 +37,13 @@ def _authenticated(client: TestClient) -> str:
         json={"name": "Contract"},
     )
     assert workspace.status_code == 201, workspace.text
+    with Session(client.app.state.engine) as session:
+        seed_approved_classification(
+            session,
+            UUID(str(workspace.json()["id"])),
+            UUID(str(response.json()["user"]["id"])),
+        )
+        session.commit()
     return response.json()["access_token"]
 
 
@@ -122,7 +130,7 @@ def test_create_requires_quadrant_over_http(db_engine, payload: dict[str, object
     assert client.get("/api/v1/tasks", headers=headers).json() == []
 
 
-def test_create_normalizes_multiple_labels_over_http(db_engine) -> None:
+def test_create_rejects_multiple_classifications_over_http(db_engine) -> None:
     client = _client(db_engine)
     headers = {"Authorization": f"Bearer {_authenticated(client)}"}
     response = client.post(
@@ -136,17 +144,17 @@ def test_create_normalizes_multiple_labels_over_http(db_engine) -> None:
         },
     )
 
-    assert response.status_code == 201, response.text
-    assert response.json()["quadrant"] == "Q2"
-    assert response.json()["labels"] == ["工作", "婚礼", "党员"]
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "invalid_request"
+    assert client.get("/api/v1/tasks", headers=headers).json() == []
 
 
 @pytest.mark.parametrize(
     ("case", "labels"),
     [
         ("empty label", [""]),
-        ("too many labels", [f"label-{index}" for index in range(11)]),
-        ("label too long", ["a" * 33]),
+        ("multiple classifications", ["工作", "婚礼"]),
+        ("label too long", ["a" * 6]),
     ],
 )
 def test_create_rejects_invalid_labels_before_commit_over_http(db_engine, case: str, labels: list[str]) -> None:
@@ -187,7 +195,8 @@ def test_get_task_is_scoped_to_authenticated_workspace(db_engine) -> None:
         )
         session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
         session.flush()
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "Private task", quadrant="Q1")
+        seed_approved_classification(session, workspace.id, user.id)
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "Private task", quadrant="Q1", labels=["工作"])
         session.commit()
         task_id = task.id
 

@@ -62,11 +62,11 @@ describe('AllTasksPage', () => {
     expect(document.querySelectorAll('[data-task-row]')).toHaveLength(1);
 
     fireEvent.change(screen.getByLabelText('四象限'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '工作' } });
+    fireEvent.change(screen.getByLabelText('分类'), { target: { value: '工作' } });
     expect(screen.getByRole('heading', { name: '写工作计划' })).toBeInTheDocument();
     expect(document.querySelectorAll('[data-task-row]')).toHaveLength(1);
 
-    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('分类'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('checkbox', { name: '只看我的任务' }));
     expect(document.querySelectorAll('[data-task-row]')).toHaveLength(2);
     expect(screen.queryByRole('heading', { name: '准备晚餐' })).toBeNull();
@@ -90,7 +90,7 @@ describe('AllTasksPage', () => {
     const getFilterControls = (): HTMLElement[] => [
       screen.getByLabelText('状态'),
       screen.getByLabelText('四象限'),
-      screen.getByLabelText('标签'),
+      screen.getByLabelText('分类'),
       screen.getByRole('checkbox', { name: '只看我的任务' }),
     ];
 

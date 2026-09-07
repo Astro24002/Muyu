@@ -1,4 +1,5 @@
 import 'task.dart';
+import 'classification.dart';
 
 class TaskApprovalRequest {
   const TaskApprovalRequest({
@@ -22,7 +23,7 @@ class TaskApprovalRequest {
 
   final String id;
   final String workspaceId;
-  final String taskId;
+  final String? taskId;
   final String? commentId;
   final String requesterId;
   final String approverId;
@@ -50,7 +51,7 @@ class TaskApprovalRequest {
     return TaskApprovalRequest(
       id: json['id'] as String,
       workspaceId: json['workspace_id'] as String,
-      taskId: json['task_id'] as String,
+      taskId: json['task_id'] as String?,
       commentId: json['comment_id'] as String?,
       requesterId: json['requester_id'] as String,
       approverId: json['approver_id'] as String,
@@ -159,12 +160,14 @@ class ApprovalActionResult {
     required this.approvalRequest,
     this.task,
     this.comment,
+    this.classification,
     this.cursor,
   });
 
   final TaskApprovalRequest approvalRequest;
   final TaskItem? task;
   final TaskComment? comment;
+  final WorkspaceClassification? classification;
   final int? cursor;
 
   TaskApprovalRequest get request => approvalRequest;
@@ -180,6 +183,7 @@ class ApprovalActionResult {
     }
     final rawTask = json['task'];
     final rawComment = json['comment'];
+    final rawClassification = json['classification'];
     return ApprovalActionResult(
       approvalRequest: TaskApprovalRequest.fromJson(
         rawRequest.cast<String, dynamic>(),
@@ -189,6 +193,11 @@ class ApprovalActionResult {
           : null,
       comment: rawComment is Map
           ? TaskComment.fromJson(rawComment.cast<String, dynamic>())
+          : null,
+      classification: rawClassification is Map
+          ? WorkspaceClassification.fromJson(
+              rawClassification.cast<String, dynamic>(),
+            )
           : null,
       cursor: (json['cursor'] as num?)?.toInt(),
     );

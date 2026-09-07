@@ -63,6 +63,20 @@ abstract interface class MobileSessionStore {
 
   Future<void> write(MobileSession session);
 
+  Future<void> replaceUser(User user) async {
+    final current = await read();
+    if (current == null) return;
+    await write(
+      MobileSession(
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+        deviceId: current.deviceId,
+        user: user,
+        expiresAt: current.expiresAt,
+      ),
+    );
+  }
+
   Future<void> clear();
 }
 
@@ -123,6 +137,21 @@ class SecureMobileSessionStore implements MobileSessionStore {
   @override
   Future<void> write(MobileSession session) =>
       _storage.write(key: _key, value: jsonEncode(session.toJson()));
+
+  @override
+  Future<void> replaceUser(User user) async {
+    final current = await read();
+    if (current == null) return;
+    await write(
+      MobileSession(
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+        deviceId: current.deviceId,
+        user: user,
+        expiresAt: current.expiresAt,
+      ),
+    );
+  }
 
   @override
   Future<void> clear() => _storage.delete(key: _key);

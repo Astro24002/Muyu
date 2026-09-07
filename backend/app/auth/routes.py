@@ -11,11 +11,15 @@ from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
 from app.auth.dependencies import MobilePrincipal, get_sms_auth_service, require_active_mobile_principal, require_mobile_principal
 from app.auth.service import SmsAuthError, SmsAuthService
+from app.auth.profile import ProfileService, public_display_name
+from app.db.enums import MembershipStatus
+from app.workspaces.models import WorkspaceMembership
 from app.workspaces.bootstrap_schemas import public_device_status
 from app.auth.schemas import (
     MobileAuthResponse,
     MobileRefreshRequest,
     MobileUserResponse,
+    ProfileUpdateRequest,
     SmsSendRequest,
     SmsVerifyRequest,
 )
@@ -30,7 +34,7 @@ def _mobile_response(result) -> MobileAuthResponse:
         user=MobileUserResponse(
             id=result.user.id,
             phone=result.user.phone,
-            display_name=result.user.display_name,
+            display_name=public_display_name(result.user),
             workspace_id=result.workspace_id,
             device_id=result.device_id,
             device_status=public_device_status(result.device_status),
@@ -101,9 +105,7 @@ def get_mobile_me(
     principal: MobilePrincipal = Depends(require_mobile_principal),
     session: Session = Depends(get_db),
 ) -> MobileUserResponse:
-    from app.db.enums import MembershipStatus
     from app.db.models import User as CloudUser
-    from app.workspaces.models import WorkspaceMembership
 
     user = session.get(CloudUser, principal.user_id)
     if user is None:
@@ -117,7 +119,40 @@ def get_mobile_me(
     return MobileUserResponse(
         id=user.id,
         phone=user.phone,
-        display_name=user.display_name,
+        display_name=public_display_name(user),
+        workspace_id=membership.workspace_id if membership else None,
+        device_id=principal.device_id,
+        device_status=public_device_status(principal.device_status),
+        can_write=principal.can_write,
+    )
+
+
+@mobile_router.patch("/me", response_model=MobileUserResponse)
+def update_mobile_me(
+    payload: ProfileUpdateRequest,
+    principal: MobilePrincipal = Depends(require_active_mobile_principal),
+    session: Session = Depends(get_db),
+) -> MobileUserResponse:
+    try:
+        user = ProfileService(session).update_display_name(
+            principal.user_id,
+            payload.display_name,
+        )
+        session.commit()
+    except LookupError as error:
+        session.rollback()
+        raise ApiError(401, "authentication_required", "authentication required") from error
+
+    membership = session.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    return MobileUserResponse(
+        id=user.id,
+        phone=user.phone,
+        display_name=public_display_name(user),
         workspace_id=membership.workspace_id if membership else None,
         device_id=principal.device_id,
         device_status=public_device_status(principal.device_status),

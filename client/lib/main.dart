@@ -39,6 +39,7 @@ Future<void> main() async {
       deviceSigningKey: signingKey,
       mobileLoginController: loginController,
       workspaceBootstrapRepository: workspaceBootstrapRepository,
+      sessionStore: sessionStore,
       workspaceCache: workspaceCache,
     ),
   );

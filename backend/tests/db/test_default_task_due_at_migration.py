@@ -70,7 +70,7 @@ def test_upgrade_backfills_only_missing_task_deadlines(
             task_number="26090001",
             title="Missing deadline",
             quadrant="Q1",
-            labels=[],
+            labels=["工作"],
             current_handler_id=user.id,
             created_by=user.id,
         )
@@ -79,7 +79,7 @@ def test_upgrade_backfills_only_missing_task_deadlines(
             task_number="26090002",
             title="Explicit deadline",
             quadrant="Q2",
-            labels=[],
+            labels=["工作"],
             current_handler_id=user.id,
             created_by=user.id,
             due_at=explicit_due_at,

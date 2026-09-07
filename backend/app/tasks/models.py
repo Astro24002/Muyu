@@ -10,6 +10,7 @@ from app.db.models import (
     TaskOperation,
     TaskStatusHistory,
     TaskUserPosition,
+    WorkspaceClassification,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "TaskOperation",
     "TaskStatusHistory",
     "TaskUserPosition",
+    "WorkspaceClassification",
 ]

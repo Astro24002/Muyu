@@ -35,6 +35,12 @@ class MobileRefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=512)
 
 
+class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(max_length=120)
+
+
 class MobileUserResponse(BaseModel):
     id: UUID
     phone: str

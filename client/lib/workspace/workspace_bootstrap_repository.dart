@@ -7,6 +7,8 @@ enum WorkspaceDeviceStatus { unverified, verified, revoked }
 
 enum WorkspaceMatchStatus { waitingPartner, matched, error }
 
+const workspacePartnerPlaceholderLabel = '匹配中';
+
 WorkspaceBootstrapPhase _phaseFromJson(Object? value) => switch (value) {
   'NEEDS_PARTNER' => WorkspaceBootstrapPhase.needsPartner,
   'WAITING_FOR_PARTNER' => WorkspaceBootstrapPhase.waitingForPartner,
@@ -53,6 +55,35 @@ class WorkspaceSummary {
   final int memberCount;
   final WorkspaceMatchStatus matchStatus;
   final List<WorkspaceMemberSummary> members;
+
+  List<WorkspaceMemberSummary> get activeMembers => members
+      .where((member) => member.membershipStatus.toUpperCase() == 'ACTIVE')
+      .toList(growable: false);
+
+  /// A partner is available only for the complete, server-confirmed match.
+  bool get isMatched =>
+      matchStatus == WorkspaceMatchStatus.matched &&
+      memberCount == 2 &&
+      members.length == 2 &&
+      activeMembers.length == 2;
+
+  WorkspaceMemberSummary? partnerFor(String currentUserId) {
+    if (!isMatched ||
+        !activeMembers.any((member) => member.userId == currentUserId)) {
+      return null;
+    }
+    for (final member in activeMembers) {
+      if (member.userId != currentUserId) return member;
+    }
+    return null;
+  }
+
+  String partnerLabelFor(String currentUserId) {
+    final partner = partnerFor(currentUserId);
+    if (partner == null) return workspacePartnerPlaceholderLabel;
+    final displayName = partner.displayName?.trim();
+    return displayName == null || displayName.isEmpty ? '对方' : displayName;
+  }
 
   factory WorkspaceSummary.fromJson(Map<String, dynamic> json) {
     final members = json['members'];

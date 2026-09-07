@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:muyu_client/auth/mobile_session_store.dart';
 import 'package:muyu_client/core/api_client.dart';
+import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_overview.dart';
 import 'package:muyu_client/models/user.dart';
@@ -71,6 +72,26 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     tasks: List.of(tasks),
     members: const [
       {'user_id': 'user-1'},
+    ],
+    classifications: const [
+      WorkspaceClassification(
+        id: 'classification-work',
+        workspaceId: 'w1',
+        name: '工作',
+        createdBy: 'user-1',
+      ),
+      WorkspaceClassification(
+        id: 'classification-general',
+        workspaceId: 'w1',
+        name: '常规事项',
+        createdBy: 'user-1',
+      ),
+      WorkspaceClassification(
+        id: 'classification-wedding',
+        workspaceId: 'w1',
+        name: '婚礼',
+        createdBy: 'user-1',
+      ),
     ],
   );
 
@@ -390,12 +411,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Q2 重要不紧急').last);
     await tester.pump();
+    await tester.tap(find.byKey(const Key('task-create-label-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('task-create-label-option-工作')));
+    await tester.tap(find.byKey(const Key('task-create-label-done')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('create-task-button')));
     await tester.pumpAndSettle();
 
     expect(repo.lastTitle, 'Buy milk');
     expect(repo.lastQuadrant, 'Q2');
-    expect(repo.lastLabels, isEmpty);
+    expect(repo.lastLabels, ['工作']);
     expect(find.text('Buy milk'), findsOneWidget);
   });
 
@@ -446,7 +472,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('task-create-label-button')));
     await tester.pumpAndSettle();
-    expect(find.text('选择标签'), findsOneWidget);
+    expect(find.text('选择分类（必选一个）'), findsOneWidget);
     expect(find.text('工作'), findsOneWidget);
     await tester.tap(find.text('工作').last);
     await tester.tap(find.byKey(const Key('task-create-label-done')));
@@ -539,6 +565,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Q1 重要且紧急').last);
       await tester.pump();
+      await tester.tap(find.byKey(const Key('task-create-label-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('task-create-label-option-工作')));
+      await tester.tap(find.byKey(const Key('task-create-label-done')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('create-task-button')));
       await tester.pump();
       expect(find.byKey(const Key('create-task-button')), findsOneWidget);

@@ -31,7 +31,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
             "request_id": str(uuid4()),
             "title": "Shared task",
             "quadrant": "Q2",
-            "labels": ["工作", "婚礼"],
+            "labels": ["工作"],
         },
     )
     assert created_response.status_code == 201, created_response.text
@@ -40,7 +40,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     workspace_id = task["workspace_id"]
     assert task["task_number"].isdigit()
     assert task["quadrant"] == "Q2"
-    assert task["labels"] == ["工作", "婚礼"]
+    assert task["labels"] == ["工作"]
     assert task["current_handler_id"] == owner["user"]["id"]
     assert "assignee_ids" not in task
 
@@ -82,7 +82,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert partner_snapshot.json()["viewer_user_id"] == partner["user"]["id"]
     assert partner_snapshot.json()["tasks"][0]["title"] == "Partner proposal"
     assert partner_snapshot.json()["tasks"][0]["quadrant"] == "Q2"
-    assert partner_snapshot.json()["tasks"][0]["labels"] == ["工作", "婚礼"]
+    assert partner_snapshot.json()["tasks"][0]["labels"] == ["工作"]
     assert "assignee_ids" not in partner_snapshot.json()["tasks"][0]
 
     comment = client.post(
@@ -174,7 +174,7 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
     assert owner_final.json()["cursor"] == partner_final.json()["cursor"]
     assert owner_final.json()["tasks"] == partner_final.json()["tasks"]
     assert owner_final.json()["tasks"][0]["quadrant"] == "Q2"
-    assert owner_final.json()["tasks"][0]["labels"] == ["工作", "婚礼"]
+    assert owner_final.json()["tasks"][0]["labels"] == ["工作"]
     assert "assignee_ids" not in owner_final.json()["tasks"][0]
     assert any(item["id"] == comment_id and item["deleted_at"] for item in owner_final.json()["comments"])
     print(

@@ -22,7 +22,8 @@ export type TaskApprovalRequestType =
   | 'TASK_DELETE'
   | 'TASK_RESTORE'
   | 'COMMENT_DELETE'
-  | 'HANDLER_TRANSFER';
+  | 'HANDLER_TRANSFER'
+  | 'CLASSIFICATION_CREATE';
 export type TaskApprovalRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONFLICTED' | 'CANCELLED';
 export type ApprovalRequestType = TaskApprovalRequestType;
 export type ApprovalRequestStatus = TaskApprovalRequestStatus;
@@ -58,7 +59,7 @@ export interface HomeResponse {
 export interface TaskComment {
   id: string;
   workspace_id: string;
-  task_id: string;
+  task_id: string | null;
   author_user_id: string;
   body: string;
   version: number;
@@ -86,7 +87,7 @@ export interface ActivityEvent {
 export interface TaskApprovalRequest {
   id: string;
   workspace_id: string;
-  task_id: string;
+  task_id: string | null;
   comment_id: string | null;
   requester_id: string;
   approver_id: string;
@@ -112,7 +113,16 @@ export interface ApprovalActionResult {
   approval_request: TaskApprovalRequest;
   task?: TaskItem;
   comment?: TaskComment;
+  classification?: WorkspaceClassification;
   cursor?: number | null;
+}
+
+export interface WorkspaceClassification {
+  id: string;
+  workspace_id: string;
+  name: string;
+  created_by: string;
+  created_at: string | null;
 }
 
 export interface WorkspaceSnapshot {
@@ -122,14 +132,15 @@ export interface WorkspaceSnapshot {
   viewer_user_id?: string | null;
   comments?: TaskComment[];
   approval_requests?: TaskApprovalRequest[];
+  classifications?: WorkspaceClassification[];
 }
 
 export interface WorkspaceChange {
   cursor: number;
-  resource_type: 'task' | 'task_conflict' | 'approval_request' | 'comment' | string;
+  resource_type: 'task' | 'task_conflict' | 'approval_request' | 'comment' | 'classification' | string;
   resource_id: string;
   action: string;
   operation_id: string | null;
-  resource: TaskItem | TaskApprovalRequest | TaskComment | Record<string, unknown> | null;
+  resource: TaskItem | TaskApprovalRequest | TaskComment | WorkspaceClassification | Record<string, unknown> | null;
 }
 export interface WorkspaceChanges { workspace_id: string; cursor: number; changes: WorkspaceChange[] }

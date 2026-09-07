@@ -131,7 +131,7 @@ function ApprovalBox({
             <ApprovalRequestRow
               key={request.id}
               request={request}
-              task={tasksById.get(request.task_id)}
+              task={request.task_id ? tasksById.get(request.task_id) : undefined}
               incoming={incoming}
               busy={busy}
               onApprove={onApprove}

@@ -1,0 +1,31 @@
+services:
+  api:
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}@1Panel-postgresql-lJTO:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    depends_on: !override []
+    networks: !override
+      - edge
+      - 1panel-network
+  web-session-cleanup:
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}@1Panel-postgresql-lJTO:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    depends_on: !override []
+    networks: !override
+      - edge
+      - 1panel-network
+  caddy:
+    ports: !override
+      - "127.0.0.1:8081:80"
+    volumes: !override
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./Caddyfile.server:/etc/caddy/Caddyfile:ro
+  db:
+    profiles: ["local-db"]
+  backup:
+    profiles: ["local-db"]
+networks:
+  1panel-network:
+    external: true

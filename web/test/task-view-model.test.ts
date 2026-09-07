@@ -25,8 +25,8 @@ describe('task projections', () => {
   });
 
   it('parses string labels and rejects missing or null quadrants from the wire', () => {
-    const raw = { ...task('wire', 'TODO', null), labels: [' 工作 ', '工作', '婚礼'], quadrant: 'Q1' };
-    expect(parseTaskItem(raw)).toMatchObject({ quadrant: 'Q1', labels: ['工作', '婚礼'] });
+    const raw = { ...task('wire', 'TODO', null), labels: [' 工作 '], quadrant: 'Q1' };
+    expect(parseTaskItem(raw)).toMatchObject({ quadrant: 'Q1', labels: ['工作'] });
     expect(parseTaskItem({ ...raw, labels: undefined })).toMatchObject({ labels: [] });
     expect(() => parseTaskItem({ ...raw, quadrant: undefined })).toThrow();
     expect(() => parseTaskItem({ ...raw, quadrant: null })).toThrow();
@@ -41,10 +41,9 @@ describe('task projections', () => {
 
   it('enforces the task label count, length, and aggregate limits', () => {
     expect(() => parseTaskLabels([''])).toThrow();
-    expect(() => parseTaskLabels(['a'.repeat(33)])).toThrow();
-    expect(parseTaskLabels(['😀'.repeat(32)])).toHaveLength(1);
-    expect(() => parseTaskLabels(['😀'.repeat(33)])).toThrow();
-    expect(() => parseTaskLabels(Array.from({ length: 11 }, (_, index) => `l${index}`))).toThrow();
-    expect(() => parseTaskLabels(['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32), 'e'.repeat(32), 'f'.repeat(32), 'g'.repeat(32), 'h'.repeat(32), 'i'.repeat(32), 'j'.repeat(32), 'k'])).toThrow();
+    expect(() => parseTaskLabels(['a'.repeat(6)])).toThrow();
+    expect(parseTaskLabels(['😀'.repeat(5)])).toHaveLength(1);
+    expect(() => parseTaskLabels(['😀'.repeat(6)])).toThrow();
+    expect(() => parseTaskLabels(['工作', '婚礼'])).toThrow();
   });
 });

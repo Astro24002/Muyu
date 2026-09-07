@@ -102,7 +102,7 @@ def _task_json(service: TaskService, task: Task) -> dict[str, object]:
 
 
 def _task_error(error: TaskConflictError, session: Session | None = None) -> ApiError:
-    status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code in {"invalid_request", "nested_task_not_allowed"} else 404 if error.code == "not_found" else 409
+    status_code = 409 if error.code in {"field_conflict", "lifecycle_conflict", "idempotency_key_reused"} else 422 if error.code in {"invalid_request", "nested_task_not_allowed", "classification_not_found"} else 404 if error.code == "not_found" else 409
     details = {}
     if error.conflict_details is not None:
         details["conflicts"] = error.conflict_details
@@ -182,6 +182,9 @@ def _approval_error(error: TaskApprovalError) -> ApiError:
         "approval_conflicted": 409,
         "approval_already_resolved": 409,
         "approval_request_reused": 409,
+        "classification_not_found": 422,
+        "classification_exists": 409,
+        "approval_already_pending": 409,
     }.get(error.code, 409)
     return ApiError(status_code, error.code, str(error))
 

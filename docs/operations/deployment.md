@@ -52,6 +52,30 @@ volume to this project.
      exec api alembic upgrade head
    ```
 
+## External PostgreSQL deployment
+
+When PostgreSQL is provided by the host's 1Panel network, use the external
+override instead of the local `db` service. The override connects API and the
+cleanup worker to `1Panel-postgresql-lJTO` and passes the password through
+`PGPASSWORD`; the URI intentionally contains no password, so passwords with
+`@` remain valid.
+
+```sh
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.external-db.yml config --quiet
+
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.external-db.yml \
+  run --rm --no-deps api alembic upgrade head
+
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.external-db.yml \
+  up -d --no-build api web-session-cleanup caddy
+```
+
 Never put SMS tokens, database passwords, backup keys, or Android signing
 material in the repository, Web bundle, APK build arguments, or logs.
 

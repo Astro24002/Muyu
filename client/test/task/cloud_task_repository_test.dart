@@ -81,7 +81,7 @@ void main() {
       final result = await repository.create(
         title: ' New title ',
         quadrant: 'Q2',
-        labels: const ['工作', '重要'],
+        labels: const ['工作'],
         description: 'details',
         dueAt: '2026-08-25T00:00:00Z',
         plannedStartAt: '2026-08-24T00:00:00Z',
@@ -98,7 +98,7 @@ void main() {
       expect(body['request_id'], request.headers['x-request-id']);
       expect(body['title'], ' New title ');
       expect(body['quadrant'], 'Q2');
-      expect(body['labels'], ['工作', '重要']);
+      expect(body['labels'], ['工作']);
       expect(body['planned_start_at'], '2026-08-24T00:00:00Z');
       expect(body['estimated_minutes'], 30);
       expect(body, isNot(contains('assignee_ids')));

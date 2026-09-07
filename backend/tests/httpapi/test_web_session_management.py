@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.providers.fake import FakeSmsProvider
 from app.db.enums import DeviceStatus, WebSessionStatus
-from app.db.models import AndroidDevice, WebSession, WorkspaceMembership
+from app.db.models import AndroidDevice, MobileSession, WebSession, WorkspaceMembership
 from app.main import create_app
 from app.web_login.service import _digest
 
@@ -70,6 +71,31 @@ def _session(session: Session, user_id: UUID, workspace_id: UUID, device_id: UUI
     return row
 
 
+def _legacy_pending_session(db_engine, source: dict[str, object]) -> dict[str, object]:
+    token = f"legacy-{uuid4()}"
+    now = datetime.now(timezone.utc)
+    key = b"legacy-pending-web-session"
+    with Session(db_engine) as session:
+        device = AndroidDevice(
+            user_id=UUID(str(source["user"]["id"])),
+            public_key_der=key,
+            fingerprint=hashlib.sha256(key).hexdigest(),
+            status=DeviceStatus.PENDING,
+        )
+        session.add(device)
+        session.flush()
+        session.add(
+            MobileSession(
+                user_id=device.user_id,
+                device_id=device.id,
+                refresh_token_digest=hashlib.sha256(token.encode()).hexdigest(),
+                expires_at=now + timedelta(hours=1),
+            )
+        )
+        session.commit()
+        return {"access_token": token}
+
+
 def test_active_android_lists_and_revokes_workspace_web_sessions(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
@@ -103,7 +129,7 @@ def test_active_android_lists_and_revokes_workspace_web_sessions(db_engine) -> N
 def test_pending_android_and_web_session_cannot_revoke(db_engine) -> None:
     client = _client(db_engine)
     owner, _partner = _ready_workspace(client)
-    pending = _login(client, "+8613800138000", "AQIH")
+    pending = _legacy_pending_session(db_engine, owner)
     with Session(db_engine) as session:
         workspace_id = session.scalar(select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == UUID(str(owner["user"]["id"]))))
         assert workspace_id is not None

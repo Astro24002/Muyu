@@ -134,6 +134,74 @@ void main() {
     expect(payload.workspace!.members[0].isCurrent, isTrue);
   });
 
+  test(
+    'matching helper keeps a placeholder until two active members exist',
+    () {
+      final workspace = WorkspaceSummary.fromJson({
+        'id': 'workspace-1',
+        'name': '共同空间',
+        'member_count': 1,
+        'match_status': 'waiting_partner',
+        'members': [
+          {
+            'user_id': 'user-a',
+            'display_name': '我',
+            'phone_masked': '+86******8726',
+            'member_slot': 1,
+            'membership_status': 'ACTIVE',
+            'is_current': true,
+          },
+          {
+            'user_id': 'user-b',
+            'display_name': '不应显示',
+            'phone_masked': '+86******0169',
+            'member_slot': 2,
+            'membership_status': 'PENDING',
+            'is_current': false,
+          },
+        ],
+      });
+
+      expect(workspace.isMatched, isFalse);
+      expect(workspace.partnerFor('user-a'), isNull);
+      expect(workspace.partnerLabelFor('user-a'), '匹配中');
+    },
+  );
+
+  test(
+    'matching helper returns the other active member for an exact match',
+    () {
+      final workspace = WorkspaceSummary.fromJson({
+        'id': 'workspace-1',
+        'name': '共同空间',
+        'member_count': 2,
+        'match_status': 'matched',
+        'members': [
+          {
+            'user_id': 'user-a',
+            'display_name': '我',
+            'phone_masked': '+86******8726',
+            'member_slot': 1,
+            'membership_status': 'ACTIVE',
+            'is_current': true,
+          },
+          {
+            'user_id': 'user-b',
+            'display_name': '对方',
+            'phone_masked': '+86******0169',
+            'member_slot': 2,
+            'membership_status': 'ACTIVE',
+            'is_current': false,
+          },
+        ],
+      });
+
+      expect(workspace.isMatched, isTrue);
+      expect(workspace.partnerFor('user-a')!.userId, 'user-b');
+      expect(workspace.partnerLabelFor('user-a'), '对方');
+    },
+  );
+
   test('current workspace returns null for a new authenticated user', () async {
     late http.Request request;
     final repository = HttpWorkspaceBootstrapRepository(

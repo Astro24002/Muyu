@@ -29,6 +29,21 @@ def test_tasks_require_quadrant_and_store_labels_as_jsonb_arrays(db_engine) -> N
     assert "jsonb_typeof" in check_sql
     assert "labels" in check_sql
     assert "array" in check_sql
+    assert "ck_tasks_single_classification" in {
+        item["name"] for item in check_constraints
+    }
+
+    classification_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("workspace_classifications")
+    }
+    assert {"workspace_id", "name", "normalized_name", "created_by"} <= classification_columns.keys()
+    assert classification_columns["name"]["nullable"] is False
+    assert classification_columns["name"]["type"].length == 5
+    assert classification_columns["normalized_name"]["type"].length == 5
+    assert "uq_workspace_classifications_normalized_name" in {
+        item["name"] for item in inspector.get_unique_constraints("workspace_classifications")
+    }
 
     with db_engine.connect() as connection:
         quadrant_values = connection.execute(

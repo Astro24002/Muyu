@@ -1,3 +1,4 @@
+import 'classification.dart';
 import 'task.dart';
 import 'task_approval_request.dart';
 
@@ -11,6 +12,8 @@ class WorkspaceSnapshot {
     this.conflicts = const [],
     this.comments = const [],
     this.approvalRequests = const [],
+    this.classifications = const [],
+    this.hasClassificationContract = false,
     this.fetchedAt,
   });
 
@@ -22,6 +25,14 @@ class WorkspaceSnapshot {
   final List<Map<String, dynamic>> conflicts;
   final List<TaskComment> comments;
   final List<TaskApprovalRequest> approvalRequests;
+  final List<WorkspaceClassification> classifications;
+
+  /// Whether the source explicitly provided the classifications resource.
+  ///
+  /// Older cached snapshots predate classifications altogether. They remain
+  /// readable until the next authoritative refresh, while every current API
+  /// snapshot must prove non-empty task classifications are approved.
+  final bool hasClassificationContract;
   final DateTime? fetchedAt;
 
   factory WorkspaceSnapshot.fromJson(Map<String, dynamic> json) {
@@ -46,6 +57,13 @@ class WorkspaceSnapshot {
                     TaskApprovalRequest.fromJson(item as Map<String, dynamic>),
               )
               .toList(),
+      classifications: (json['classifications'] as List<dynamic>? ?? const [])
+          .map(
+            (item) =>
+                WorkspaceClassification.fromJson(item as Map<String, dynamic>),
+          )
+          .toList(),
+      hasClassificationContract: json.containsKey('classifications'),
       fetchedAt: json['fetched_at'] == null
           ? null
           : DateTime.parse(json['fetched_at'] as String),
@@ -85,9 +103,26 @@ class WorkspaceSnapshot {
     })) {
       return false;
     }
-    return approvalRequests.every(
-      (request) => request.workspaceId == workspaceId,
-    );
+    if (!approvalRequests.every(
+          (request) => request.workspaceId == workspaceId,
+        ) ||
+        !classifications.every(
+          (classification) => classification.workspaceId == workspaceId,
+        )) {
+      return false;
+    }
+    if (!hasClassificationContract) return true;
+
+    final approvedNames = <String>{};
+    for (final classification in classifications) {
+      final normalized = classification.name.trim().toLowerCase();
+      if (!approvedNames.add(normalized)) return false;
+    }
+    return tasks.every((task) {
+      if (task.labels.isEmpty) return true;
+      return task.labels.length == 1 &&
+          approvedNames.contains(task.labels.single.trim().toLowerCase());
+    });
   }
 
   Map<String, Object?> toJson() => {
@@ -101,6 +136,10 @@ class WorkspaceSnapshot {
     'approval_requests': approvalRequests
         .map((request) => request.toJson())
         .toList(),
+    if (hasClassificationContract)
+      'classifications': classifications
+          .map((classification) => classification.toJson())
+          .toList(),
     'fetched_at': fetchedAt?.toUtc().toIso8601String(),
   };
 

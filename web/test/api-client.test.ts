@@ -93,21 +93,21 @@ describe('ApiClient', () => {
 
     await expect(new ApiClient().patchTask('task-1', {
       requestId: 'request-1',
-      changes: { labels: ['工作', '婚礼'] },
+      changes: { labels: ['工作'] },
       baseFieldVersions: { labels: 1 },
     })).resolves.toEqual(pending);
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks/task-1', expect.objectContaining({
-      body: JSON.stringify({ request_id: 'request-1', changes: { labels: ['工作', '婚礼'] }, base_field_versions: { labels: 1 } }),
+      body: JSON.stringify({ request_id: 'request-1', changes: { labels: ['工作'] }, base_field_versions: { labels: 1 } }),
     }));
   });
 
-  it('sends the required quadrant and complete label array when creating a task', async () => {
+  it('sends the required quadrant and single classification when creating a task', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'task-1', cursor: 2 }), { status: 201 }),
     );
-    await new ApiClient().createTask({ requestId: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作', '婚礼'] });
+    await new ApiClient().createTask({ requestId: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'] });
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks', expect.objectContaining({
-      body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作', '婚礼'] }),
+      body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'] }),
     }));
   });
 

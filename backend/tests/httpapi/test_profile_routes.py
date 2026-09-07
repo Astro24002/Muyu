@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from uuid import UUID
 
 from app.auth.providers.fake import FakeSmsProvider
+from app.db.enums import DeviceStatus
+from app.db.models import AndroidDevice
 from app.main import create_app
 
 
@@ -31,6 +35,15 @@ def _login(client: TestClient) -> dict[str, object]:
 
 def _headers(session: dict[str, object]) -> dict[str, str]:
     return {"Authorization": f"Bearer {session['access_token']}"}
+
+
+def test_patch_me_requires_authentication(db_engine) -> None:
+    client = _client(db_engine)
+
+    response = client.patch("/api/v1/me", json={"display_name": "Muyu"})
+
+    assert response.status_code == 401, response.text
+    assert response.json()["code"] == "authentication_required"
 
 
 def test_patch_me_trims_display_name_and_returns_updated_mobile_user(db_engine) -> None:
@@ -90,3 +103,44 @@ def test_patch_me_rejects_display_name_over_the_server_limit(db_engine) -> None:
     assert any(
         item["loc"] == ["body", "display_name"] for item in payload["details"]
     )
+
+
+def test_patch_me_can_clear_display_name(db_engine) -> None:
+    client = _client(db_engine)
+    session = _login(client)
+    assert client.patch(
+        "/api/v1/me",
+        headers=_headers(session),
+        json={"display_name": "Muyu"},
+    ).status_code == 200
+
+    response = client.patch(
+        "/api/v1/me",
+        headers=_headers(session),
+        json={"display_name": "   "},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["display_name"] == "13800138000"
+    persisted = client.get("/api/v1/me", headers=_headers(session))
+    assert persisted.status_code == 200, persisted.text
+    assert persisted.json()["display_name"] == "13800138000"
+
+
+def test_patch_me_requires_an_active_device(db_engine) -> None:
+    client = _client(db_engine)
+    session = _login(client)
+    with Session(db_engine) as database:
+        device = database.get(AndroidDevice, UUID(str(session["device_id"])))
+        assert device is not None
+        device.status = DeviceStatus.REVOKED
+        database.commit()
+
+    response = client.patch(
+        "/api/v1/me",
+        headers=_headers(session),
+        json={"display_name": "Muyu"},
+    )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["code"] == "device_not_active"

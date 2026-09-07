@@ -3,6 +3,7 @@ import 'dart:math';
 import '../core/api_client.dart';
 import '../models/workspace_change.dart';
 import '../models/workspace_snapshot.dart';
+import '../models/classification.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
 import '../models/home.dart';
@@ -11,6 +12,17 @@ abstract class WorkspaceSyncRepository {
   Future<WorkspaceSnapshot> snapshot();
 
   Future<WorkspaceChanges> changes({required int afterCursor});
+
+  Future<List<WorkspaceClassification>> listClassifications() {
+    throw UnimplementedError();
+  }
+
+  Future<TaskApprovalRequest> createClassification({
+    required String name,
+    required String requestId,
+  }) {
+    throw UnimplementedError();
+  }
 
   /// The bounded action-first projection is optional for older API versions.
   Future<HomeResponse?> home() async => null;
@@ -225,6 +237,49 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
           authenticated: true,
         ) as Map<String, dynamic>,
       );
+
+  @override
+  Future<List<WorkspaceClassification>> listClassifications() async {
+    final value = await _api.request(
+      'GET',
+      '/api/v1/workspaces/current/classifications',
+      authenticated: true,
+    );
+    if (value is! List) {
+      throw const FormatException(
+        'server returned an invalid classification list',
+      );
+    }
+    return value
+        .whereType<Map>()
+        .map(
+          (item) =>
+              WorkspaceClassification.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList();
+  }
+
+  @override
+  Future<TaskApprovalRequest> createClassification({
+    required String name,
+    required String requestId,
+  }) async {
+    final value = await _api.request(
+      'POST',
+      '/api/v1/workspaces/current/classifications',
+      body: {'request_id': requestId, 'name': name},
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const FormatException(
+        'server returned an invalid classification approval request',
+      );
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
+  }
 
   @override
   Future<HomeResponse?> home() async {

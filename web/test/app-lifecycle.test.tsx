@@ -16,6 +16,7 @@ const snapshot: WorkspaceSnapshot = {
   tasks: [],
   conflicts: [],
   cursor: 5,
+  classifications: [{ id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'user-1', created_at: null }],
 };
 
 class FakeSocket implements SocketLike {
@@ -219,10 +220,9 @@ describe('React app lifecycle', () => {
     await settle();
     fireEvent.click(getByRole('button', { name: '记下一件事' }));
     const title = getByLabelText('任务标题') as HTMLInputElement;
-    const labels = getByLabelText('标签') as HTMLInputElement;
     const quadrant = getByLabelText('四象限') as HTMLSelectElement;
     fireEvent.change(title, { target: { value: 'late task' } });
-    fireEvent.change(labels, { target: { value: 'late' } });
+    fireEvent.click(getByRole('radio', { name: '工作' }));
     fireEvent.change(quadrant, { target: { value: 'Q1' } });
     (getByRole('button', { name: '创建任务' }).closest('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(createTask).toHaveBeenCalledOnce();
@@ -296,6 +296,11 @@ describe('React app lifecycle', () => {
       ...snapshot,
       workspace_id: 'workspace-new',
       workspace: { id: 'workspace-new', name: 'New workspace', status: 'ACTIVE' },
+      classifications: [{
+        ...snapshot.classifications![0],
+        id: 'classification-new-work',
+        workspace_id: 'workspace-new',
+      }],
       tasks: [{ ...minimalTask('new-session-task'), workspace_id: 'workspace-new' }],
       cursor: 8,
     };

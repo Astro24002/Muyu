@@ -53,8 +53,10 @@ export const TASK_STATUS_TRANSITIONS: Readonly<Record<CanonicalTaskStatus, reado
   DONE: ['TODO', 'IN_PROGRESS', 'CANCELLED'],
   CANCELLED: ['TODO', 'IN_PROGRESS'],
 };
-const MAX_TASK_LABELS = 10;
-const MAX_TASK_LABEL_LENGTH = 32;
+// `labels` is retained as an array for API compatibility. A task has one
+// classification at most; creation/editing flows require exactly one.
+const MAX_TASK_LABELS = 1;
+const MAX_TASK_LABEL_LENGTH = 5;
 const MAX_TASK_LABEL_CHARS = 320;
 
 /**
@@ -106,6 +108,7 @@ export function isTaskTransitionAllowed(
 
 export function parseTaskLabels(value: unknown): string[] {
   if (!Array.isArray(value)) throw new Error('任务标签必须是字符串数组。');
+  if (value.length > MAX_TASK_LABELS) throw new Error('一个任务只能选择一个分类。');
   const labels: string[] = [];
   const seen = new Set<string>();
   let totalChars = 0;
@@ -114,9 +117,9 @@ export function parseTaskLabels(value: unknown): string[] {
     const label = item.trim();
     const key = label.toLocaleLowerCase();
     if (!label) throw new Error('任务标签不能为空。');
-    if (unicodeLength(label) > MAX_TASK_LABEL_LENGTH) throw new Error(`单个任务标签不能超过 ${MAX_TASK_LABEL_LENGTH} 个字符。`);
+    if (unicodeLength(label) > MAX_TASK_LABEL_LENGTH) throw new Error(`单个分类不能超过 ${MAX_TASK_LABEL_LENGTH} 个字符。`);
     if (seen.has(key)) continue;
-    if (labels.length >= MAX_TASK_LABELS) throw new Error(`任务最多添加 ${MAX_TASK_LABELS} 个标签。`);
+    if (labels.length >= MAX_TASK_LABELS) throw new Error('一个任务只能选择一个分类。');
     totalChars += unicodeLength(label);
     if (totalChars > MAX_TASK_LABEL_CHARS) throw new Error(`任务标签总长度不能超过 ${MAX_TASK_LABEL_CHARS} 个字符。`);
     seen.add(key);

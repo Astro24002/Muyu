@@ -96,7 +96,10 @@ class TaskView {
     );
   }
 
-  static List<TaskListCategory> listCategories(Iterable<TaskItem> tasks) {
+  static List<TaskListCategory> listCategories(
+    Iterable<TaskItem> tasks, {
+    Iterable<String>? approvedClassifications,
+  }) {
     final topLevel = _visibleTopLevel(tasks);
     final counts = <String, int>{};
     final names = <String, String>{};
@@ -112,6 +115,23 @@ class TaskView {
         names.putIfAbsent(normalized, () => trimmed);
         if (_isUnfinished(task.status)) {
           counts[normalized] = (counts[normalized] ?? 0) + 1;
+        }
+      }
+    }
+    if (approvedClassifications != null) {
+      names.clear();
+      counts.clear();
+      for (final classification in approvedClassifications) {
+        final trimmed = classification.trim();
+        if (trimmed.isNotEmpty) names[trimmed.toLowerCase()] = trimmed;
+      }
+      for (final task in topLevel) {
+        if (!_isUnfinished(task.status)) continue;
+        for (final label in task.labels) {
+          final normalized = label.trim().toLowerCase();
+          if (names.containsKey(normalized)) {
+            counts[normalized] = (counts[normalized] ?? 0) + 1;
+          }
         }
       }
     }

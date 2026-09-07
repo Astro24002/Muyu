@@ -18,7 +18,7 @@ def _client(db_engine) -> TestClient:
     return TestClient(app)
 
 
-def test_non_owner_label_patch_is_pending_then_applied_as_one_array(db_engine) -> None:
+def test_non_owner_label_patch_is_pending_then_applied_as_one_label_array(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
     owner_headers = _headers(owner)
@@ -30,7 +30,7 @@ def test_non_owner_label_patch_is_pending_then_applied_as_one_array(db_engine) -
             "request_id": str(uuid4()),
             "title": "Label approval",
             "quadrant": "Q2",
-            "labels": ["工作", "婚礼"],
+            "labels": ["工作"],
         },
     )
     assert created.status_code == 201, created.text
@@ -41,15 +41,15 @@ def test_non_owner_label_patch_is_pending_then_applied_as_one_array(db_engine) -
         headers=partner_headers,
         json={
             "request_id": str(uuid4()),
-            "changes": {"labels": [" 工作 ", "婚礼", "党员"]},
+            "changes": {"labels": [" 工作 "]},
             "base_field_versions": {"labels": task["field_versions"]["labels"]},
         },
     )
     assert pending.status_code == 202, pending.text
     approval = pending.json()["approval_request"]
     assert approval["request_type"] == "TASK_UPDATE"
-    assert approval["proposed_changes"]["labels"] == ["工作", "婚礼", "党员"]
-    assert client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers).json()["labels"] == ["工作", "婚礼"]
+    assert approval["proposed_changes"]["labels"] == ["工作"]
+    assert client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers).json()["labels"] == ["工作"]
 
     approved = client.post(
         f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
@@ -58,7 +58,7 @@ def test_non_owner_label_patch_is_pending_then_applied_as_one_array(db_engine) -
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["task"]["quadrant"] == "Q2"
-    assert approved.json()["task"]["labels"] == ["工作", "婚礼", "党员"]
+    assert approved.json()["task"]["labels"] == ["工作"]
 
 
 def test_deadline_cannot_be_cleared_by_owner_or_partner_over_http(db_engine) -> None:
@@ -71,6 +71,7 @@ def test_deadline_cannot_be_cleared_by_owner_or_partner_over_http(db_engine) -> 
             "request_id": str(uuid4()),
             "title": "Deadline is required",
             "quadrant": "Q1",
+            "labels": ["工作"],
         },
     )
     assert created.status_code == 201, created.text
@@ -124,7 +125,7 @@ def test_stale_label_approval_is_conflicted_without_partial_application(db_engin
         headers=partner_headers,
         json={
             "request_id": str(uuid4()),
-            "changes": {"labels": ["婚礼"]},
+            "changes": {"labels": ["工作"]},
             "base_field_versions": {"labels": task["field_versions"]["labels"]},
         },
     )
@@ -134,12 +135,12 @@ def test_stale_label_approval_is_conflicted_without_partial_application(db_engin
         headers=owner_headers,
         json={
             "request_id": str(uuid4()),
-            "changes": {"labels": ["党员"]},
+            "changes": {"labels": ["工作"]},
             "base_field_versions": {"labels": task["field_versions"]["labels"]},
         },
     )
     assert owner_edit.status_code == 200, owner_edit.text
-    assert owner_edit.json()["labels"] == ["党员"]
+    assert owner_edit.json()["labels"] == ["工作"]
 
     conflicted = client.post(
         f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
@@ -148,4 +149,4 @@ def test_stale_label_approval_is_conflicted_without_partial_application(db_engin
     )
     assert conflicted.status_code == 409, conflicted.text
     assert conflicted.json()["code"] == "approval_conflicted"
-    assert client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers).json()["labels"] == ["党员"]
+    assert client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers).json()["labels"] == ["工作"]

@@ -1,8 +1,10 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.main import create_app
+from tests.classification_fixtures import seed_approved_classification
 
 
 class FakeSmsProvider:
@@ -45,6 +47,13 @@ def _authenticated(client: TestClient) -> str:
         json={"name": "Contract"},
     )
     assert workspace.status_code == 201, workspace.text
+    with Session(client.app.state.engine) as session:
+        seed_approved_classification(
+            session,
+            UUID(str(workspace.json()["id"])),
+            UUID(str(verified.json()["user"]["id"])),
+        )
+        session.commit()
     return token
 
 
@@ -63,7 +72,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
     parent = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Parent", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Parent", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert parent.status_code == 201, parent.text
     parent_body = parent.json()
@@ -76,6 +85,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
             "request_id": str(uuid4()),
             "title": "Child",
             "quadrant": "Q1",
+            "labels": ["工作"],
             "parent_task_id": parent_body["id"],
         },
     )
@@ -114,6 +124,7 @@ def test_create_transition_and_nested_task_contract(db_engine) -> None:
             "request_id": str(uuid4()),
             "title": "Nested",
             "quadrant": "Q1",
+            "labels": ["工作"],
             "parent_task_id": child.json()["id"],
         },
     )
@@ -129,7 +140,7 @@ def test_removed_assignee_fields_are_rejected_with_validation_envelope(db_engine
     created = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Owner task", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Owner task", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -171,7 +182,7 @@ def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_en
     created = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Original", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Original", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()
@@ -227,7 +238,7 @@ def test_conflict_resolution_is_idempotent_and_proposed_value_is_versioned(db_en
     second = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Second", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Second", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
     current = client.patch(
         f"/api/v1/tasks/{second['id']}",
@@ -273,7 +284,7 @@ def test_conflict_creation_http_replay_preserves_the_original_409_projection(db_
     created = client.post(
         "/api/v1/tasks",
         headers=headers,
-        json={"request_id": str(uuid4()), "title": "Replay", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "Replay", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task = created.json()

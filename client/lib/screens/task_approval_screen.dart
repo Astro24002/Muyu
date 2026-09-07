@@ -130,7 +130,9 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
         .where((item) => item.id == request.taskId)
         .firstOrNull;
     final taskLabel = task == null
-        ? request.taskId
+        ? request.requestType == 'CLASSIFICATION_CREATE'
+              ? '新建分类：${request.proposedChanges['name'] ?? ''}'
+              : (request.taskId ?? '协作请求')
         : '${task.taskNumber.isEmpty ? task.id : task.taskNumber} ${task.title}';
     final pending = request.status == 'PENDING';
     return Card(
@@ -212,6 +214,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     'TASK_RESTORE' => '恢复任务',
     'COMMENT_DELETE' => '删除评论',
     'HANDLER_TRANSFER' => '负责人转移',
+    'CLASSIFICATION_CREATE' => '新建分类',
     _ => type,
   };
 }

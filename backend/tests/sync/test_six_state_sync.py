@@ -12,6 +12,7 @@ from app.db.models import ActivityEvent, TaskConflict, TaskOperation, TaskStatus
 from app.sync.service import SyncService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
@@ -56,6 +57,7 @@ def _workspace(session: Session) -> tuple[User, User, Workspace]:
         ]
     )
     session.flush()
+    seed_approved_classification(session, workspace.id, owner.id)
     return owner, reviewer, workspace
 
 
@@ -152,7 +154,7 @@ def test_snapshot_and_cursor_changes_preserve_blocked_projection_and_versions(db
     with Session(db_engine) as session:
         owner, _reviewer, workspace = _workspace(session)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "等待文件", quadrant="Q2")
+        task = service.create(workspace.id, owner.id, uuid4(), "等待文件", quadrant="Q2", labels=["工作"])
         blocked = service.transition(
             workspace.id,
             owner.id,
@@ -209,7 +211,7 @@ def test_snapshot_and_cursor_changes_preserve_review_projection_and_versions(db_
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace(session)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "交付结果", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "交付结果", quadrant="Q1", labels=["工作"])
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         review = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
 
@@ -277,7 +279,7 @@ def test_six_state_activities_are_single_append_only_events_and_replays_are_idem
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace(session)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "单条活动记录", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "单条活动记录", quadrant="Q1", labels=["工作"])
 
         blocked_request_id = uuid4()
         blocked_base_version = task.status_version
@@ -468,7 +470,7 @@ def test_stale_review_conflict_preserves_the_complete_transition_payload(db_engi
     with Session(db_engine) as session:
         owner, reviewer, workspace = _workspace(session)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "需要补充材料", quadrant="Q1")
+        task = service.create(workspace.id, owner.id, uuid4(), "需要补充材料", quadrant="Q1", labels=["工作"])
         task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
         review = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
         review_cursor = service.last_cursor
@@ -520,7 +522,7 @@ def test_stale_blocked_conflict_preserves_blocked_metadata(db_engine) -> None:
     with Session(db_engine) as session:
         owner, _reviewer, workspace = _workspace(session)
         service = TaskService(session, now=lambda: NOW)
-        task = service.create(workspace.id, owner.id, uuid4(), "阻塞载荷", quadrant="Q2")
+        task = service.create(workspace.id, owner.id, uuid4(), "阻塞载荷", quadrant="Q2", labels=["工作"])
         changed = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
 
         with pytest.raises(TaskConflictError) as error:
@@ -556,6 +558,7 @@ def test_conflict_lifecycle_is_cursor_visible_across_sessions_and_idempotent(db_
             uuid4(),
             "冲突游标任务",
             quadrant="Q1",
+            labels=["工作"],
         )
         session.commit()
         workspace_id = workspace.id

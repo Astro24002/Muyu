@@ -5,13 +5,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.auth.providers.fake import FakeSmsProvider
+from tests.classification_fixtures import seed_approved_classification
 from app.main import create_app
 
 
@@ -78,53 +80,34 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["state"] == "READY"
+    with Session(mobile.app.state.engine) as session:
+        seed_approved_classification(
+            session,
+            UUID(str(binding.json()["workspace"]["id"])),
+            UUID(str(owner["user"]["id"])),
+        )
+        session.commit()
 
     created = mobile.post(
         "/api/v1/tasks",
         headers=_headers(owner),
-        json={"request_id": str(uuid4()), "title": "A creates a task", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "A creates a task", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert created.status_code == 201, created.text
     task_id = created.json()["id"]
 
-    private_b2, public_b2 = _keypair()
-    pending = _login(mobile, "+8615028180169", public_b2)
-    pending_headers = _headers(pending)
-    bootstrap = mobile.get("/api/v1/workspaces/bootstrap", headers=pending_headers)
+    _private_b2, public_b2 = _keypair()
+    trusted = _login(mobile, "+8615028180169", public_b2)
+    trusted_headers = _headers(trusted)
+    bootstrap = mobile.get("/api/v1/workspaces/bootstrap", headers=trusted_headers)
     assert bootstrap.status_code == 200, bootstrap.text
-    assert bootstrap.json()["device"] == {"status": "UNVERIFIED", "can_write": False}
-    assert any(item["id"] == task_id for item in mobile.get("/api/v1/tasks", headers=pending_headers).json())
-    denied = mobile.post(
-        "/api/v1/tasks",
-        headers=pending_headers,
-        json={"request_id": str(uuid4()), "title": "read only", "quadrant": "Q1"},
-    )
-    assert denied.status_code == 403
-    assert denied.json()["code"] == "device_not_verified"
-
-    authorization = mobile.post(
-        "/api/v1/devices/authorization-requests",
-        headers=pending_headers,
-        json={"public_key": public_b2, "label": "second phone"},
-    )
-    assert authorization.status_code == 201, authorization.text
-    request_id = authorization.json()["id"]
-    begin = mobile.post(
-        f"/api/v1/device-authorization-requests/{request_id}/begin-approval",
-        headers=_headers(owner),
-    )
-    assert begin.status_code == 200, begin.text
-    approval = mobile.post(
-        f"/api/v1/device-authorization-requests/{request_id}/approve",
-        headers=_headers(owner),
-        json={"signature": _sign(private_a, begin.json()["signature_payload"])},
-    )
-    assert approval.status_code == 200, approval.text
+    assert bootstrap.json()["device"] == {"status": "VERIFIED", "can_write": True}
+    assert any(item["id"] == task_id for item in mobile.get("/api/v1/tasks", headers=trusted_headers).json())
 
     writable = mobile.post(
         "/api/v1/tasks",
-        headers=pending_headers,
-        json={"request_id": str(uuid4()), "title": "approved device task", "quadrant": "Q1"},
+        headers=trusted_headers,
+        json={"request_id": str(uuid4()), "title": "trusted device task", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert writable.status_code == 201, writable.text
 
@@ -165,7 +148,7 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
     assert any(item["id"] == task_id for item in browser_snapshot.json()["tasks"])
     browser_created = browser.post(
         "/api/v1/tasks",
-        json={"request_id": str(uuid4()), "title": "web task", "quadrant": "Q1"},
+        json={"request_id": str(uuid4()), "title": "web task", "quadrant": "Q1", "labels": ["工作"]},
     )
     assert browser_created.status_code == 201, browser_created.text
     assert any(
@@ -186,6 +169,6 @@ def test_two_person_device_and_web_session_lifecycle(db_engine) -> None:
 
     # The approved second device remains a durable Android device after the
     # browser session is revoked.
-    device_list = mobile.get("/api/v1/devices", headers=pending_headers)
+    device_list = mobile.get("/api/v1/devices", headers=trusted_headers)
     assert device_list.status_code == 200, device_list.text
-    assert any(item["id"] == pending["device_id"] and item["status"] == "VERIFIED" for item in device_list.json())
+    assert any(item["id"] == trusted["device_id"] and item["status"] == "VERIFIED" for item in device_list.json())

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
 from app.auth.profile import public_display_name
-from app.db.models import Task, TaskApprovalRequest, TaskComment, TaskConflict, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
+from app.db.models import Task, TaskApprovalRequest, TaskComment, TaskConflict, User, Workspace, WorkspaceChangeLog, WorkspaceClassification, WorkspaceCursor, WorkspaceMembership
 from app.tasks.approval_schemas import approval_request_json, comment_json
 from app.tasks.operations import task_conflict_json
 from app.tasks.service import TaskService
@@ -72,6 +72,11 @@ class SyncService:
             .where(TaskApprovalRequest.workspace_id == workspace_id)
             .order_by(TaskApprovalRequest.created_at.asc(), TaskApprovalRequest.id.asc())
         ).all()
+        classifications = self.session.scalars(
+            select(WorkspaceClassification)
+            .where(WorkspaceClassification.workspace_id == workspace_id)
+            .order_by(WorkspaceClassification.normalized_name.asc(), WorkspaceClassification.id.asc())
+        ).all()
         return {
             "workspace_id": str(workspace_id),
             "viewer_user_id": str(viewer_user_id) if viewer_user_id else None,
@@ -88,6 +93,16 @@ class SyncService:
             "conflicts": conflict_projections,
             "comments": [comment_json(item) for item in comments],
             "approval_requests": [approval_request_json(item) for item in approvals],
+            "classifications": [
+                {
+                    "id": str(item.id),
+                    "workspace_id": str(item.workspace_id),
+                    "name": item.name,
+                    "created_by": str(item.created_by),
+                    "created_at": item.created_at.isoformat() if item.created_at else None,
+                }
+                for item in classifications
+            ],
             "cursor": head,
         }
 
@@ -126,6 +141,21 @@ class SyncService:
                 )
                 if approval is not None:
                     resource = approval_request_json(approval)
+            elif item.resource_type == "classification":
+                classification = self.session.scalar(
+                    select(WorkspaceClassification).where(
+                        WorkspaceClassification.id == item.resource_id,
+                        WorkspaceClassification.workspace_id == workspace_id,
+                    )
+                )
+                if classification is not None:
+                    resource = {
+                        "id": str(classification.id),
+                        "workspace_id": str(classification.workspace_id),
+                        "name": classification.name,
+                        "created_by": str(classification.created_by),
+                        "created_at": classification.created_at.isoformat() if classification.created_at else None,
+                    }
             elif item.resource_type == "task_conflict":
                 conflict = self.session.scalar(
                     select(TaskConflict).where(

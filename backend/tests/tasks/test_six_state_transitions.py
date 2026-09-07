@@ -24,6 +24,7 @@ from app.tasks.approvals import TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.schemas import TransitionRequest
 from app.tasks.service import TRANSITIONS, TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
@@ -46,6 +47,7 @@ def _workspace_with_two_users(session: Session, phone_seed: int = 2671) -> tuple
     )
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, users[0].id)
     return users[0], users[1], workspace
 
 
@@ -87,7 +89,7 @@ def test_only_current_handler_directly_transitions_normal_tasks_and_blocking_is_
     with Session(db_engine) as session:
         owner, partner, workspace = _workspace_with_two_users(session)
         service = _service(session)
-        task = service.create(workspace.id, owner.id, uuid4(), "等待资料", quadrant="Q2")
+        task = service.create(workspace.id, owner.id, uuid4(), "等待资料", quadrant="Q2", labels=["工作"])
 
         with pytest.raises(TaskConflictError) as non_handler:
             service.transition(workspace.id, partner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
@@ -208,6 +210,7 @@ def test_status_approval_keeps_non_handler_workflow_and_validates_canonical_stat
             uuid4(),
             "协作任务",
             quadrant="Q3",
+            labels=["工作"],
         )
         service = TaskApprovalService(session, now=lambda: NOW)
         request = service.create(

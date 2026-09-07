@@ -11,6 +11,7 @@ from app.tasks.comments import add_comment
 from app.tasks.delays import add_delay, list_delays
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
+from tests.classification_fixtures import seed_approved_classification
 
 
 def _workspace(session):
@@ -21,13 +22,14 @@ def _workspace(session):
     session.add(WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, member_slot=1, status=MembershipStatus.ACTIVE, joined_at=datetime.now(timezone.utc)))
     session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
     session.flush()
+    seed_approved_classification(session, workspace.id, user.id)
     return user, workspace
 
 
 def test_three_delays_are_append_only_and_match_snapshot(db_engine):
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=datetime(2026, 8, 27, tzinfo=timezone.utc), quadrant="Q1")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=datetime(2026, 8, 27, tzinfo=timezone.utc), quadrant="Q1", labels=["工作"])
         for minute in (60, 120, 180):
             add_delay(session, workspace.id, user.id, task.id, task.due_at + timedelta(minutes=minute), "NO_TIME", request_id=uuid4())
             session.commit()
@@ -42,7 +44,7 @@ def test_delay_requires_minute_and_other_note_and_replay_is_immutable(db_engine)
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
         due = datetime(2026, 8, 27, tzinfo=timezone.utc)
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=due, quadrant="Q1")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=due, quadrant="Q1", labels=["工作"])
         with pytest.raises(TaskConflictError) as early:
             add_delay(session, workspace.id, user.id, task.id, due + timedelta(seconds=30), "NO_TIME", request_id=uuid4())
         assert early.value.code == "invalid_request"
@@ -65,7 +67,7 @@ def test_comment_and_delay_append_activity_and_cursor_records(db_engine):
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
         due = datetime(2026, 8, 27, tzinfo=timezone.utc)
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=due, quadrant="Q1")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", due_at=due, quadrant="Q1", labels=["工作"])
         comment_request = uuid4()
         add_comment(session, workspace.id, user.id, task.id, "已确认", comment_request)
         delay_request = uuid4()
@@ -83,7 +85,7 @@ def test_comment_and_delay_append_activity_and_cursor_records(db_engine):
 def test_deleted_task_rejects_timeline_writes(db_engine):
     with Session(db_engine) as session:
         user, workspace = _workspace(session)
-        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", quadrant="Q1")
+        task = TaskService(session).create(workspace.id, user.id, uuid4(), "追踪", quadrant="Q1", labels=["工作"])
         task.deleted_at = datetime.now(timezone.utc)
         session.commit()
         with pytest.raises(TaskConflictError) as comment_error:

@@ -1,3 +1,4 @@
+import 'classification.dart';
 import 'task.dart';
 import 'task_approval_request.dart';
 
@@ -11,6 +12,7 @@ class WorkspaceChange {
     this.conflict,
     this.approvalRequest,
     this.comment,
+    this.classification,
     this.operationId,
   });
 
@@ -22,6 +24,7 @@ class WorkspaceChange {
   final Map<String, dynamic>? conflict;
   final TaskApprovalRequest? approvalRequest;
   final TaskComment? comment;
+  final WorkspaceClassification? classification;
   final String? operationId;
 
   factory WorkspaceChange.taskUpdated({
@@ -69,6 +72,18 @@ class WorkspaceChange {
     resourceId: comment.id,
     action: action,
     comment: comment,
+  );
+
+  factory WorkspaceChange.classificationUpdated({
+    required int cursor,
+    required WorkspaceClassification classification,
+    String action = 'created',
+  }) => WorkspaceChange(
+    cursor: cursor,
+    resourceType: 'classification',
+    resourceId: classification.id,
+    action: action,
+    classification: classification,
   );
 
   factory WorkspaceChange.fromJson(Map<String, dynamic> json) {
@@ -131,6 +146,13 @@ class WorkspaceChange {
               (resourceMap['workspace_id'] as String).isEmpty)) {
         throw const FormatException('comment change workspace_id is required');
       }
+      if (resourceType == 'classification' &&
+          (resourceMap['workspace_id'] is! String ||
+              (resourceMap['workspace_id'] as String).isEmpty)) {
+        throw const FormatException(
+          'classification change workspace_id is required',
+        );
+      }
     }
     try {
       return WorkspaceChange(
@@ -150,6 +172,9 @@ class WorkspaceChange {
             : null,
         comment: resourceType == 'comment' && resourceMap != null
             ? TaskComment.fromJson(resourceMap)
+            : null,
+        classification: resourceType == 'classification' && resourceMap != null
+            ? WorkspaceClassification.fromJson(resourceMap)
             : null,
         operationId: operationId as String?,
       );
@@ -280,6 +305,11 @@ class WorkspaceChanges {
           change.comment!.id == change.resourceId &&
           change.comment!.workspaceId == workspaceId;
     }
+    if (change.resourceType == 'classification') {
+      return change.classification != null &&
+          change.classification!.id == change.resourceId &&
+          change.classification!.workspaceId == workspaceId;
+    }
     return true;
   }
 
@@ -288,6 +318,7 @@ class WorkspaceChanges {
     'task_conflict',
     'approval_request',
     'comment',
+    'classification',
   };
   static const _conflictStatuses = {'OPEN', 'RESOLVED', 'REJECTED'};
   static const _actions = {'CREATED', 'UPDATED', 'DELETED', 'RESTORED'};

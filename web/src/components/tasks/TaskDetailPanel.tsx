@@ -123,12 +123,19 @@ export function TaskDetailPanel({ task, members, syncState, actions, onClose, ac
 
       <div className="task-detail-panel__scroll">
         <div className="task-detail-panel__metadata">
-          <span>负责人：{task.current_handler_id}</span>
+          <span>负责人：{memberDisplayName(members, task.current_handler_id)}</span>
           <span>{isOwner(task, actions) ? '当前用户是任务负责人' : '协作成员，修改将提交审批'}</span>
           {syncState.stale ? <span className="task-detail-panel__stale">内容可能不是最新</span> : null}
         </div>
 
-        <TaskEditForm task={task} members={members} actions={actions} canWrite={canWrite} />
+        <TaskEditForm
+          task={task}
+          members={members}
+          actions={actions}
+          currentUserId={actions.currentUserId}
+          canWrite={canWrite}
+          classifications={syncState.snapshot?.classifications ?? []}
+        />
 
         {approvals.length > 0 ? (
           <section className="task-detail-section task-detail-approvals" aria-labelledby="task-detail-approvals-heading">
@@ -240,6 +247,11 @@ function getTaskApprovals(taskId: string, syncState: WorkspaceSyncState): TaskAp
 
 function isOwner(task: TaskItem, actions: TaskDetailActions): boolean {
   return !actions.currentUserId || actions.currentUserId === task.current_handler_id;
+}
+
+function memberDisplayName(members: TaskMember[], userId: string): string {
+  const name = members.find((member) => member.user_id === userId)?.display_name?.trim();
+  return name || userId;
 }
 
 function canDeleteComment(comment: TaskComment, task: TaskItem, actions: TaskDetailActions): boolean {

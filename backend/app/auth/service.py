@@ -174,7 +174,7 @@ class SmsAuthService:
                 fingerprint=fingerprint,
                 label=device.get("label") if isinstance(device.get("label"), str) else None,
                 status=device_status,
-                enrolled_at=now if device_status == DeviceStatus.ACTIVE else None,
+                enrolled_at=now,
             )
             self.session.add(android_device)
             self.session.flush()

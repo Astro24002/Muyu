@@ -233,6 +233,28 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             : const [],
       );
     }
+    if (_selectedDestination == 2) {
+      return TaskSystemAppBar(
+        title: _destinationTitles[_selectedDestination],
+        leading: IconButton(
+          key: const Key('task-list-menu-button'),
+          tooltip: '菜单',
+          onPressed: _openTaskListDrawer,
+          icon: const Icon(Icons.menu),
+        ),
+        titleContent: _TaskCategorySelector(
+          categories: TaskView.listCategories(
+            state.snapshot?.tasks ?? const <TaskItem>[],
+            approvedClassifications: state.classifications.map(
+              (classification) => classification.name,
+            ),
+          ),
+          selectedLabel: _selectedTaskLabel,
+          onSelected: (label) => setState(() => _selectedTaskLabel = label),
+        ),
+        actions: const [],
+      );
+    }
     return TaskSystemAppBar(
       title: _destinationTitles[_selectedDestination],
       actions: const [],
@@ -410,6 +432,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           sync: _sync,
           state: state,
           canWrite: widget.canWrite,
+          selectedLabel: _selectedTaskLabel,
           onTaskTap: _openTask,
         ),
         if (widget.session != null)

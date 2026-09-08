@@ -1027,4 +1027,25 @@ void main() {
     expect(find.byKey(const Key('task-section-header-terminal')), findsNothing);
     expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
   });
+
+  testWidgets('日程 uses the shared category menu and has no create action', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('task-schedule-destination')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('task-system-app-bar')), findsOneWidget);
+    expect(find.byKey(const Key('task-list-menu-button')), findsOneWidget);
+    expect(find.byKey(const Key('task-category-selector')), findsOneWidget);
+    expect(find.text('全部任务'), findsOneWidget);
+    expect(find.byKey(const Key('task-schedule-label-filter')), findsNothing);
+    expect(find.byKey(const Key('create-task-fab')), findsNothing);
+  });
 }

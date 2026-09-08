@@ -138,4 +138,40 @@ void main() {
     expect(find.text('Work task'), findsOneWidget);
     expect(find.text('Wedding task'), findsNothing);
   });
+
+  testWidgets('can be removed by a tab host while expansion is running', (
+    tester,
+  ) async {
+    final tasks = [
+      for (var index = 1; index <= 5; index++)
+        quadrantTask('dispose-$index', 'Disposable task $index'),
+    ];
+    var showQuadrant = true;
+    late StateSetter updateHost;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: muyuLightTheme(),
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            updateHost = setState;
+            return Scaffold(
+              body: showQuadrant
+                  ? TaskQuadrantView(
+                      sync: WorkspaceSyncController.unavailable(),
+                      state: quadrantState(tasks),
+                      canWrite: true,
+                      onTaskTap: (_) {},
+                    )
+                  : const SizedBox.shrink(),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('task-quadrant-more-Q1')));
+    await tester.pump(const Duration(milliseconds: 80));
+    updateHost(() => showQuadrant = false);
+    await tester.pumpAndSettle();
+  });
 }

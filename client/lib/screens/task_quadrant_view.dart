@@ -58,18 +58,11 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
                 key: const Key('task-quadrant-error'),
               ),
             ),
-          AnimatedSwitcher(
+          AnimatedSize(
             key: const Key('task-quadrant-content'),
             duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) => ClipRect(
-              child: SizeTransition(
-                sizeFactor: animation,
-                alignment: Alignment.topCenter,
-                child: child,
-              ),
-            ),
+            curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
             child: expandedQuadrant == null
                 ? _QuadrantGrid(
                     key: const ValueKey('task-quadrant-grid'),

@@ -767,6 +767,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('task-quadrant-destination')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-category-selector')), findsOneWidget);
+    expect(find.text('全部任务'), findsOneWidget);
+    expect(find.byKey(const Key('task-quadrant-label-filter')), findsNothing);
     expect(find.byKey(const Key('task-quadrant-title-Q1')), findsOneWidget);
     expect(find.byKey(const Key('task-quadrant-title-Q2')), findsOneWidget);
     expect(find.byKey(const Key('task-quadrant-title-Q3')), findsOneWidget);

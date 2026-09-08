@@ -209,9 +209,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   );
 
   PreferredSizeWidget _buildTaskSystemAppBar(WorkspaceSyncState state) {
-    if (_selectedDestination == 0) {
+    if (_selectedDestination == 0 || _selectedDestination == 1) {
       return TaskSystemAppBar(
-        title: '清单',
+        title: _destinationTitles[_selectedDestination],
         leading: IconButton(
           key: const Key('task-list-menu-button'),
           tooltip: '菜单',
@@ -228,7 +228,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           selectedLabel: _selectedTaskLabel,
           onSelected: (label) => setState(() => _selectedTaskLabel = label),
         ),
-        actions: [_buildTaskListMoreMenu()],
+        actions: _selectedDestination == 0
+            ? [_buildTaskListMoreMenu()]
+            : const [],
       );
     }
     return TaskSystemAppBar(
@@ -400,6 +402,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           sync: _sync,
           state: state,
           canWrite: widget.canWrite,
+          selectedLabel: _selectedTaskLabel,
           onTaskTap: _openTask,
         ),
         TaskScheduleView(

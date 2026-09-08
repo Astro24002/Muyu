@@ -1,0 +1,988 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Muyu Android - 四象限展示方案</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+      :root {
+        --page: #f8faf9;
+        --surface: #ffffff;
+        --text: #1d2d29;
+        --body: #25312e;
+        --muted: #7c8783;
+        --outline: #dce3e0;
+        --brand: #225f50;
+        --focus: #e7f0ed;
+        --q1: #b04a3a;
+        --q2: #c47a20;
+        --q3: #2e7663;
+        --q4: #5f6f8a;
+        --done: #2e7663;
+        --review: #c47a20;
+        --blocked: #b04a3a;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: #edf2ef;
+        color: var(--text);
+        font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      button { font: inherit; }
+
+      .review-header {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 32px 24px 24px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      .intro {
+        max-width: 720px;
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+
+      .color-effects {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 12px;
+        max-width: 760px;
+        margin-top: 22px;
+      }
+
+      .effect-sample {
+        overflow: hidden;
+        border: 1px solid var(--outline);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .effect-label {
+        display: flex;
+        min-height: 42px;
+        padding: 8px 10px;
+        align-items: center;
+        border-bottom: 1px solid var(--outline);
+        color: var(--body);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .effect-content { padding: 10px; }
+      .effect-quadrant { overflow: hidden; border: 1px solid var(--outline); border-radius: 6px; }
+      .effect-quadrant-title { display: flex; min-height: 28px; padding: 6px 8px; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; }
+      .effect-task { min-height: 28px; padding: 6px 8px; border-top: 1px solid #edf1ef; color: var(--body); font-size: 11px; }
+      .effect-band .effect-quadrant-title { background: #fbf2e5; color: var(--q2); }
+      .effect-cell .effect-quadrant { background: #fffaf3; }
+      .effect-cell .effect-quadrant-title { color: var(--q2); }
+      .effect-rail .effect-quadrant { border-left: 5px solid var(--q2); }
+      .effect-rail .effect-quadrant-title { color: var(--q2); }
+
+      @media (max-width: 720px) {
+        .color-effects { grid-template-columns: 1fr; max-width: 390px; }
+      }
+
+      .review-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 390px);
+        gap: 24px;
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 24px 40px;
+        align-items: start;
+        justify-content: center;
+      }
+
+      .option:not(:first-child) { display: none; }
+
+      .option {
+        min-width: 0;
+      }
+
+      .option-heading {
+        min-height: 104px;
+        padding: 0 2px 16px;
+      }
+
+      .option-kicker {
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .option h2 {
+        margin: 6px 0 4px;
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      .option p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .recommended {
+        display: inline-flex;
+        margin-left: 6px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: var(--focus);
+        color: var(--brand);
+        font-size: 11px;
+        font-weight: 700;
+        vertical-align: 2px;
+      }
+
+      .phone {
+        overflow: hidden;
+        width: min(100%, 390px);
+        height: 844px;
+        margin: 0 auto;
+        border: 1px solid #bdc8c2;
+        border-radius: 28px;
+        background: var(--page);
+        box-shadow: 0 14px 32px rgba(29, 45, 41, 0.13);
+      }
+
+      .phone-status {
+        display: flex;
+        height: 28px;
+        padding: 8px 18px 0;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .phone-status span:last-child { letter-spacing: 1px; }
+
+      .appbar {
+        display: grid;
+        grid-template-columns: 44px 1fr 44px;
+        height: 56px;
+        align-items: center;
+        border-bottom: 1px solid var(--outline);
+        background: var(--surface);
+      }
+
+      .icon-button {
+        display: grid;
+        width: 44px;
+        height: 44px;
+        place-items: center;
+        border: 0;
+        background: transparent;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 21px;
+        line-height: 1;
+      }
+
+      .app-title {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        color: var(--text);
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .category-select {
+        max-width: 190px;
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        outline: 0;
+        text-align: center;
+      }
+
+      .chevron { color: var(--muted); font-size: 13px; }
+
+      .filter-line {
+        display: flex;
+        height: 42px;
+        padding: 0 16px;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--outline);
+        background: var(--surface);
+      }
+
+      .filter-select {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--body);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .filter-copy {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .viewport {
+        height: calc(100% - 28px - 56px - 78px);
+        overflow: auto;
+        background: var(--page);
+      }
+
+      .viewport::-webkit-scrollbar { width: 0; height: 0; }
+
+      .scroll-content {
+        min-height: 100%;
+        padding: 16px;
+      }
+
+      .nav {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        height: 78px;
+        border-top: 1px solid var(--outline);
+        background: var(--surface);
+      }
+
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .nav-icon { font-size: 19px; line-height: 1; }
+      .nav-item.active { color: var(--brand); }
+
+      .matrix {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--outline);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .matrix-cell {
+        min-height: 194px;
+        padding: 12px;
+        border-bottom: 1px solid var(--outline);
+      }
+
+      .matrix-cell:nth-child(odd) { border-right: 1px solid var(--outline); }
+      .matrix-cell:nth-last-child(-n + 2) { border-bottom: 0; }
+
+      .quadrant-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        min-height: 34px;
+        margin: -12px -12px 10px;
+        padding: 6px 12px;
+      }
+
+      .matrix-cell:nth-child(1) .quadrant-header { background: #fae9e5; color: var(--q1); }
+      .matrix-cell:nth-child(2) .quadrant-header { background: #fbf2e5; color: var(--q2); }
+      .matrix-cell:nth-child(3) .quadrant-header { background: #e7f0ed; color: var(--q3); }
+      .matrix-cell:nth-child(4) .quadrant-header { background: #edf0f5; color: var(--q4); }
+
+      .quadrant-name {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .color-bar {
+        width: 4px;
+        height: 18px;
+        flex: 0 0 auto;
+        border-radius: 2px;
+      }
+
+      .count {
+        min-width: 21px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: var(--focus);
+        color: var(--brand);
+        font-size: 11px;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .tiny-task {
+        display: block;
+        width: 100%;
+        padding: 7px 0;
+        border: 0;
+        border-top: 1px solid #edf1ef;
+        background: transparent;
+        color: var(--body);
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1.35;
+        text-align: left;
+      }
+
+      .tiny-task strong {
+        display: block;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-weight: 600;
+      }
+
+      .tiny-task small { color: var(--muted); font-size: 10px; }
+      .more-link { color: var(--brand); font-weight: 700; }
+
+      .matrix[hidden],
+      .expanded-quadrant[hidden] { display: none; }
+
+      .expanded-quadrant {
+        overflow: hidden;
+        padding: 12px;
+        border: 1px solid var(--outline);
+        border-radius: 8px;
+        background: var(--surface);
+        transform-origin: var(--expand-origin, 0% 0%);
+      }
+
+      .expanded-quadrant.is-expanding {
+        animation: expand-quadrant 300ms cubic-bezier(.2, .8, .2, 1) both;
+      }
+
+      .expanded-header {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        min-height: 28px;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 10px;
+      }
+
+      .expand-back {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--brand);
+        cursor: pointer;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .expanded-header .quadrant-name { font-size: 14px; }
+
+      @keyframes expand-quadrant {
+        from { opacity: .72; transform: scale(.48); }
+        to { opacity: 1; transform: scale(1); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .expanded-quadrant.is-expanding { animation: none; }
+      }
+
+      .summary-map {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        overflow: hidden;
+        border: 1px solid var(--outline);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .summary-cell {
+        display: flex;
+        min-height: 59px;
+        padding: 10px 12px;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--outline);
+      }
+
+      .summary-cell:nth-child(odd) { border-right: 1px solid var(--outline); }
+      .summary-cell:nth-last-child(-n + 2) { border-bottom: 0; }
+
+      .summary-copy { display: grid; gap: 2px; }
+      .summary-code { font-size: 12px; font-weight: 700; }
+      .summary-label { color: var(--muted); font-size: 10px; }
+      .summary-number { font-size: 18px; font-weight: 700; }
+
+      .section {
+        margin-top: 18px;
+      }
+
+      .section-heading {
+        display: flex;
+        min-height: 30px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .section-caption { color: var(--muted); font-size: 11px; }
+
+      .task-row {
+        display: grid;
+        grid-template-columns: 4px minmax(0, 1fr) auto;
+        min-height: 48px;
+        align-items: center;
+        column-gap: 8px;
+        border-bottom: 1px solid var(--outline);
+      }
+
+      .task-row:first-of-type { border-top: 1px solid var(--outline); }
+      .task-accent { align-self: stretch; border-radius: 2px; }
+
+      .task-copy {
+        min-width: 0;
+        padding: 8px 0;
+      }
+
+      .task-title {
+        overflow: hidden;
+        color: var(--body);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 18px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .task-meta {
+        overflow: hidden;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 14px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status {
+        margin-right: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .status.q1 { color: var(--blocked); }
+      .status.q2 { color: var(--review); }
+      .status.q3 { color: var(--done); }
+      .status.q4 { color: var(--q4); }
+
+      .quadrant-switcher {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+      }
+
+      .switch-item {
+        min-height: 52px;
+        padding: 6px 3px;
+        border: 1px solid var(--outline);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--muted);
+        cursor: pointer;
+        text-align: center;
+      }
+
+      .switch-item strong { display: block; font-size: 12px; }
+      .switch-item span { display: block; margin-top: 2px; font-size: 10px; }
+      .switch-item.active { border-color: var(--q2); background: #fbf2e5; color: var(--q2); }
+
+      .focus-header {
+        display: flex;
+        min-height: 94px;
+        margin-top: 16px;
+        padding: 16px;
+        flex-direction: column;
+        justify-content: space-between;
+        border-radius: 8px;
+        background: var(--q2);
+        color: #fff;
+      }
+
+      .focus-header-top { display: flex; align-items: center; justify-content: space-between; }
+      .focus-header h3 { margin: 0; font-size: 18px; }
+      .focus-header p { margin: 4px 0 0; color: rgba(255, 255, 255, 0.82); font-size: 12px; }
+      .focus-count { font-size: 24px; font-weight: 700; }
+
+      .focus-list { margin-top: 12px; border-top: 1px solid var(--outline); }
+
+      .empty-note {
+        margin-top: 16px;
+        padding: 12px 0;
+        border-top: 1px solid var(--outline);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .option-notes {
+        display: grid;
+        gap: 8px;
+        margin: 16px auto 0;
+        width: min(100%, 390px);
+        padding: 0 2px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .option-notes strong { color: var(--body); }
+
+      @media (max-width: 1120px) {
+        .review-grid { grid-template-columns: repeat(2, minmax(320px, 1fr)); }
+      }
+
+      @media (max-width: 720px) {
+        .review-header { padding: 24px 16px 20px; }
+        h1 { font-size: 22px; }
+        .review-grid { grid-template-columns: 1fr; padding: 0 16px 32px; }
+        .option-heading { min-height: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="review-header">
+      <p class="eyebrow">ANDROID DESIGN REVIEW · 四象限 TAB</p>
+      <h1>四宫格展示式四象限布局</h1>
+      <p class="intro">
+        当前确认方案共用主题令牌、顶栏分类下拉和任务详情跳转；不提供新增、编辑或 FAB。顶栏默认显示“全部任务”，切换分类后显示对应名称。每格最多预览 4 项，超出后可展开当前象限的完整列表。
+      </p>
+      <div class="legend" aria-label="象限颜色说明">
+        <span class="legend-item"><i class="legend-dot" style="background:#b04a3a"></i>Q1 重要且紧急</span>
+        <span class="legend-item"><i class="legend-dot" style="background:#c47a20"></i>Q2 重要不紧急</span>
+        <span class="legend-item"><i class="legend-dot" style="background:#2e7663"></i>Q3 紧急不重要</span>
+        <span class="legend-item"><i class="legend-dot" style="background:#5f6f8a"></i>Q4 不重要不紧急</span>
+      </div>
+      <div class="color-effects" aria-label="颜色标识效果对比">
+        <div class="effect-sample effect-band">
+          <div class="effect-label">效果 A · 标题整条浅色背景</div>
+          <div class="effect-content"><div class="effect-quadrant"><div class="effect-quadrant-title"><span>Q2 重要不紧急</span><span>7</span></div><div class="effect-task">整理婚礼预算</div><div class="effect-task">预约餐厅</div></div></div>
+        </div>
+        <div class="effect-sample effect-cell">
+          <div class="effect-label">效果 B · 整个象限浅色背景</div>
+          <div class="effect-content"><div class="effect-quadrant"><div class="effect-quadrant-title"><span>Q2 重要不紧急</span><span>7</span></div><div class="effect-task">整理婚礼预算</div><div class="effect-task">预约餐厅</div></div></div>
+        </div>
+        <div class="effect-sample effect-rail">
+          <div class="effect-label">效果 C · 整格左侧彩色轨道</div>
+          <div class="effect-content"><div class="effect-quadrant"><div class="effect-quadrant-title"><span>Q2 重要不紧急</span><span>7</span></div><div class="effect-task">整理婚礼预算</div><div class="effect-task">预约餐厅</div></div></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="review-grid">
+      <section class="option" aria-labelledby="option-one-title">
+        <div class="option-heading">
+          <span class="option-kicker">已确认方案</span>
+          <h2 id="option-one-title">四宫格象限总览</h2>
+          <p>四个象限同时显示任务预览，先看整体分布，再进入单项详情。</p>
+        </div>
+        <div class="phone" id="quadrant-option-one-phone">
+          <div class="phone-status"><span>14:49</span><span>◌ 5G ▂ 66%</span></div>
+          <div class="appbar">
+            <button class="icon-button" aria-label="菜单">☰</button>
+            <label class="app-title" aria-label="选择任务分类">
+              <select class="category-select">
+                <option selected>全部任务</option>
+                <option>工作</option>
+                <option>婚礼</option>
+                <option>党员事项</option>
+              </select>
+              <span class="chevron">⌄</span>
+            </label>
+            <button class="icon-button" aria-label="更多">⋮</button>
+          </div>
+          <div class="viewport">
+            <div class="scroll-content">
+              <div class="matrix" id="quadrant-option-one-matrix">
+                <div class="matrix-cell">
+                  <div class="quadrant-header">
+                    <span class="quadrant-name"><i class="color-bar" style="background:var(--q1)"></i>Q1 重要紧急</span>
+                    <span class="count">6</span>
+                  </div>
+                  <button class="tiny-task"><strong>完成发布检查</strong><small>进行中 · 逾期 14h20m</small></button>
+                  <button class="tiny-task"><strong>确认入住材料</strong><small>待进行 · 今天 18:00</small></button>
+                  <button class="tiny-task"><strong>补齐上线回滚记录</strong><small>待验收 · 今天</small></button>
+                  <button class="tiny-task"><strong>整理发布凭证</strong><small>待进行 · 明天</small></button>
+                  <button class="tiny-task more-link" data-open-quadrant="Q1">更多任务</button>
+                </div>
+                <div class="matrix-cell">
+                  <div class="quadrant-header">
+                    <span class="quadrant-name"><i class="color-bar" style="background:var(--q2)"></i>Q2 重要不急</span>
+                    <span class="count">7</span>
+                  </div>
+                  <button class="tiny-task"><strong>整理婚礼预算</strong><small>进行中 · 09月03日</small></button>
+                  <button class="tiny-task"><strong>预约餐厅</strong><small>待进行 · 09月05日</small></button>
+                  <button class="tiny-task"><strong>确认摄影方案</strong><small>待验收 · 明天</small></button>
+                  <button class="tiny-task"><strong>核对宾客名单</strong><small>待进行 · 09月07日</small></button>
+                  <button class="tiny-task more-link" data-open-quadrant="Q2">更多任务</button>
+                </div>
+                <div class="matrix-cell">
+                  <div class="quadrant-header">
+                    <span class="quadrant-name"><i class="color-bar" style="background:var(--q3)"></i>Q3 紧急不重</span>
+                    <span class="count">1</span>
+                  </div>
+                  <button class="tiny-task"><strong>回应外部确认消息</strong><small>阻塞中 · 已阻塞 2d04h</small></button>
+                </div>
+                <div class="matrix-cell">
+                  <div class="quadrant-header">
+                    <span class="quadrant-name"><i class="color-bar" style="background:var(--q4)"></i>Q4 不重不急</span>
+                    <span class="count">3</span>
+                  </div>
+                  <button class="tiny-task"><strong>整理旧照片</strong><small>待进行 · 09月12日</small></button>
+                  <button class="tiny-task"><strong>更新旅行灵感</strong><small>待验收 · 明天</small></button>
+                </div>
+              </div>
+              <div class="expanded-quadrant" id="quadrant-option-one-detail" hidden>
+                <div class="expanded-header">
+                  <button class="expand-back" data-close-quadrant aria-label="返回四象限" title="返回四象限">‹</button>
+                  <span class="quadrant-name" data-expanded-title></span>
+                  <span class="count" data-expanded-count></span>
+                </div>
+                <div data-expanded-list></div>
+              </div>
+              <p class="empty-note" id="quadrant-option-one-note">每格最多预览 4 项 + 1 个“更多任务”；点击后，小窗口展开为当前象限的完整任务列表。</p>
+            </div>
+          </div>
+          <nav class="nav" aria-label="主导航">
+            <span class="nav-item"><span class="nav-icon">☷</span>清单</span>
+            <span class="nav-item active"><span class="nav-icon">▦</span>四象限</span>
+            <span class="nav-item"><span class="nav-icon">□</span>日程</span>
+            <span class="nav-item"><span class="nav-icon">◯</span>我的</span>
+          </nav>
+        </div>
+        <div class="option-notes">
+          <span><strong>适合：</strong>任务较少、需要一眼比较四象限分布。</span>
+          <span><strong>交互：</strong>每格最多预览 4 项；点击“更多任务”后，该格直接扩展为全宽完整列表，其他三个象限暂时隐藏。</span>
+        </div>
+      </section>
+
+      <section class="option" aria-labelledby="option-two-title">
+        <div class="option-heading">
+          <span class="option-kicker">方案二</span>
+          <h2 id="option-two-title">象限地图 + 全宽任务流</h2>
+          <p>顶部保留二维概览，正文用全宽单行任务，兼顾比较和阅读密度。</p>
+        </div>
+        <div class="phone">
+          <div class="phone-status"><span>14:49</span><span>◌ 5G ▂ 66%</span></div>
+          <div class="appbar">
+            <button class="icon-button" aria-label="菜单">☰</button>
+            <label class="app-title" aria-label="选择任务分类">
+              <select class="category-select">
+                <option selected>全部任务</option>
+                <option>工作</option>
+                <option>婚礼</option>
+                <option>党员事项</option>
+              </select>
+              <span class="chevron">⌄</span>
+            </label>
+            <button class="icon-button" aria-label="更多">⋮</button>
+          </div>
+          <div class="viewport">
+            <div class="scroll-content">
+              <div class="summary-map">
+                <div class="summary-cell">
+                  <span class="summary-copy"><span class="summary-code" style="color:var(--q1)">Q1</span><span class="summary-label">重要且紧急</span></span>
+                  <span class="summary-number" style="color:var(--q1)">2</span>
+                </div>
+                <div class="summary-cell">
+                  <span class="summary-copy"><span class="summary-code" style="color:var(--q2)">Q2</span><span class="summary-label">重要不紧急</span></span>
+                  <span class="summary-number" style="color:var(--q2)">5</span>
+                </div>
+                <div class="summary-cell">
+                  <span class="summary-copy"><span class="summary-code" style="color:var(--q3)">Q3</span><span class="summary-label">紧急不重要</span></span>
+                  <span class="summary-number" style="color:var(--q3)">1</span>
+                </div>
+                <div class="summary-cell">
+                  <span class="summary-copy"><span class="summary-code" style="color:var(--q4)">Q4</span><span class="summary-label">不重要不紧急</span></span>
+                  <span class="summary-number" style="color:var(--q4)">3</span>
+                </div>
+              </div>
+
+              <section class="section">
+                <div class="section-heading">
+                  <span class="section-title"><i class="color-bar" style="background:var(--q1)"></i>Q1 重要且紧急</span>
+                  <span class="section-caption">2 项</span>
+                </div>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q1)"></i>
+                  <span class="task-copy"><span class="task-title">完成发布检查</span><span class="task-meta">进行中 · 负责人：我</span></span>
+                  <span class="status q1">逾期 14h20m</span>
+                </button>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q1)"></i>
+                  <span class="task-copy"><span class="task-title">确认入住材料</span><span class="task-meta">待进行 · 负责人：对方</span></span>
+                  <span class="status q1">今天 18:00</span>
+                </button>
+              </section>
+
+              <section class="section">
+                <div class="section-heading">
+                  <span class="section-title"><i class="color-bar" style="background:var(--q2)"></i>Q2 重要不紧急</span>
+                  <span class="section-caption">5 项</span>
+                </div>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q2)"></i>
+                  <span class="task-copy"><span class="task-title">整理婚礼预算与待确认项目</span><span class="task-meta">进行中 · 负责人：我</span></span>
+                  <span class="status q2">09月03日</span>
+                </button>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q2)"></i>
+                  <span class="task-copy"><span class="task-title">预约餐厅</span><span class="task-meta">待进行 · 负责人：我</span></span>
+                  <span class="status q2">09月05日</span>
+                </button>
+              </section>
+            </div>
+          </div>
+          <nav class="nav" aria-label="主导航">
+            <span class="nav-item"><span class="nav-icon">☷</span>清单</span>
+            <span class="nav-item active"><span class="nav-icon">▦</span>四象限</span>
+            <span class="nav-item"><span class="nav-icon">□</span>日程</span>
+            <span class="nav-item"><span class="nav-icon">◯</span>我的</span>
+          </nav>
+        </div>
+        <div class="option-notes">
+          <span><strong>适合：</strong>当前项目。任务保留全宽单行阅读，顶部仍有完整象限认知。</span>
+          <span><strong>交互：</strong>点顶部象限数字定位分组；点任务标题进入任务详情。</span>
+        </div>
+      </section>
+
+      <section class="option" aria-labelledby="option-three-title">
+        <div class="option-heading">
+          <span class="option-kicker">方案三</span>
+          <h2 id="option-three-title">聚焦象限切换</h2>
+          <p>一次只阅读一个象限，可点击切换或左右滑动查看其他三个象限。</p>
+        </div>
+        <div class="phone">
+          <div class="phone-status"><span>14:49</span><span>◌ 5G ▂ 66%</span></div>
+          <div class="appbar">
+            <button class="icon-button" aria-label="菜单">☰</button>
+            <label class="app-title" aria-label="选择任务分类">
+              <select class="category-select">
+                <option selected>全部任务</option>
+                <option>工作</option>
+                <option>婚礼</option>
+                <option>党员事项</option>
+              </select>
+              <span class="chevron">⌄</span>
+            </label>
+            <button class="icon-button" aria-label="更多">⋮</button>
+          </div>
+          <div class="viewport">
+            <div class="scroll-content">
+              <div class="quadrant-switcher" aria-label="四象限切换">
+                <button class="switch-item"><strong style="color:var(--q1)">Q1</strong><span>2 项</span></button>
+                <button class="switch-item active"><strong>Q2</strong><span>5 项</span></button>
+                <button class="switch-item"><strong style="color:var(--q3)">Q3</strong><span>1 项</span></button>
+                <button class="switch-item"><strong style="color:var(--q4)">Q4</strong><span>3 项</span></button>
+              </div>
+              <div class="focus-header">
+                <div class="focus-header-top"><span>重要不紧急</span><span class="focus-count">5</span></div>
+                <div><h3>Q2 计划推进</h3><p>提前安排，避免演变为紧急事项</p></div>
+              </div>
+              <div class="focus-list">
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q2)"></i>
+                  <span class="task-copy"><span class="task-title">整理婚礼预算与待确认项目</span><span class="task-meta">进行中 · 负责人：我</span></span>
+                  <span class="status q2">09月03日</span>
+                </button>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q2)"></i>
+                  <span class="task-copy"><span class="task-title">预约餐厅</span><span class="task-meta">待进行 · 负责人：我</span></span>
+                  <span class="status q2">09月05日</span>
+                </button>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q2)"></i>
+                  <span class="task-copy"><span class="task-title">整理旅行物品清单</span><span class="task-meta">待进行 · 负责人：对方</span></span>
+                  <span class="status q2">09月07日</span>
+                </button>
+                <button class="task-row">
+                  <i class="task-accent" style="background:var(--q2)"></i>
+                  <span class="task-copy"><span class="task-title">确认婚礼摄影方案</span><span class="task-meta">待验收 · 负责人：对方</span></span>
+                  <span class="status q2">明天</span>
+                </button>
+              </div>
+              <p class="empty-note">左右滑动可切换 Q1、Q3、Q4；顶部始终显示其余象限的任务数量。</p>
+            </div>
+          </div>
+          <nav class="nav" aria-label="主导航">
+            <span class="nav-item"><span class="nav-icon">☷</span>清单</span>
+            <span class="nav-item active"><span class="nav-icon">▦</span>四象限</span>
+            <span class="nav-item"><span class="nav-icon">□</span>日程</span>
+            <span class="nav-item"><span class="nav-icon">◯</span>我的</span>
+          </nav>
+        </div>
+        <div class="option-notes">
+          <span><strong>适合：</strong>希望集中处理单一象限、任务标题和辅助信息需要更完整展示。</span>
+          <span><strong>代价：</strong>不能在同一屏比较所有象限，只保留数量作为全局提示。</span>
+        </div>
+      </section>
+    </main>
+    <script>
+      const quadrantDetails = {
+        Q1: {
+          color: 'var(--q1)',
+          statusClass: 'q1',
+          title: 'Q1 重要且紧急',
+          tasks: [
+            ['完成发布检查', '进行中 · 负责人：我', '逾期 14h20m'],
+            ['确认入住材料', '待进行 · 负责人：对方', '今天 18:00'],
+            ['补齐上线回滚记录', '待验收 · 负责人：我', '今天'],
+            ['整理发布凭证', '待进行 · 负责人：我', '明天'],
+            ['回复部署异常处理结论', '阻塞中 · 负责人：对方', '阻塞 2h10m'],
+            ['确认生产环境检查项', '待进行 · 负责人：我', '明天 10:00'],
+          ],
+        },
+        Q2: {
+          color: 'var(--q2)',
+          statusClass: 'q2',
+          title: 'Q2 重要不紧急',
+          tasks: [
+            ['整理婚礼预算', '进行中 · 负责人：我', '09月03日'],
+            ['预约餐厅', '待进行 · 负责人：我', '09月05日'],
+            ['确认摄影方案', '待验收 · 负责人：对方', '明天'],
+            ['核对宾客名单', '待进行 · 负责人：我', '09月07日'],
+            ['整理旅行物品清单', '待进行 · 负责人：对方', '09月09日'],
+            ['确认婚礼主持流程', '进行中 · 负责人：我', '09月10日'],
+            ['预约试妆时间', '待进行 · 负责人：对方', '09月11日'],
+          ],
+        },
+      };
+
+      const matrix = document.querySelector('#quadrant-option-one-matrix');
+      const detail = document.querySelector('#quadrant-option-one-detail');
+      const expandedTitle = detail.querySelector('[data-expanded-title]');
+      const expandedCount = detail.querySelector('[data-expanded-count]');
+      const expandedList = detail.querySelector('[data-expanded-list]');
+      const note = document.querySelector('#quadrant-option-one-note');
+      const scrollViewport = document.querySelector('#quadrant-option-one-phone .viewport');
+
+      function expandedTask([title, meta, due]) {
+        const task = document.createElement('button');
+        task.className = 'tiny-task';
+        task.type = 'button';
+        task.setAttribute('aria-label', `打开任务：${title}`);
+        const taskTitle = document.createElement('strong');
+        taskTitle.textContent = title;
+        const taskMeta = document.createElement('small');
+        taskMeta.textContent = `${meta} · ${due}`;
+        task.append(taskTitle, taskMeta);
+        return task;
+      }
+
+      function showQuadrant(quadrantId, origin) {
+        const quadrant = quadrantDetails[quadrantId];
+        if (!quadrant) return;
+
+        expandedTitle.replaceChildren();
+        const bar = document.createElement('i');
+        bar.className = 'color-bar';
+        bar.style.background = quadrant.color;
+        expandedTitle.append(bar, document.createTextNode(quadrant.title));
+        expandedCount.textContent = quadrant.tasks.length;
+        expandedList.replaceChildren(...quadrant.tasks.map(expandedTask));
+
+        matrix.hidden = true;
+        note.hidden = true;
+        detail.hidden = false;
+        detail.style.setProperty('--expand-origin', origin);
+        detail.classList.remove('is-expanding');
+        void detail.offsetWidth;
+        detail.classList.add('is-expanding');
+        scrollViewport.scrollTo({ top: 0, behavior: 'auto' });
+      }
+
+      document.querySelectorAll('[data-open-quadrant]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const cell = button.closest('.matrix-cell');
+          const matrixBox = matrix.getBoundingClientRect();
+          const isLeftColumn = cell.getBoundingClientRect().left < matrixBox.left + matrixBox.width / 2;
+          showQuadrant(button.dataset.openQuadrant, isLeftColumn ? '0% 0%' : '100% 0%');
+        });
+      });
+
+      document.querySelector('[data-close-quadrant]').addEventListener('click', () => {
+        detail.classList.remove('is-expanding');
+        detail.hidden = true;
+        matrix.hidden = false;
+        note.hidden = false;
+        scrollViewport.scrollTo({ top: 0, behavior: 'auto' });
+      });
+    </script>
+  </body>
+</html>

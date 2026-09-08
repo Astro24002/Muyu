@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Muyu 日程 TAB - 完整月历</title>
+  <style>
+    :root { --page:#f8faf9; --surface:#fff; --text:#1d2d29; --muted:#7c8783; --line:#dce3e0; --brand:#225f50; --focus:#e7f0ed; --coral:#b04a3a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#edf2ef; color:var(--text); font:14px Arial,"Noto Sans SC",sans-serif; }
+    .wrap { max-width:720px; margin:auto; padding:30px 22px; }
+    .eyebrow { color:var(--brand); font-size:12px; font-weight:700; }
+    h1 { margin:8px 0; font-size:25px; }
+    .intro { color:var(--muted); line-height:1.8; }
+    .phone { max-width:390px; margin:22px auto 0; border:9px solid #263530; border-radius:30px; overflow:hidden; background:var(--page); box-shadow:0 12px 30px #243d3420; }
+    .status,.appbar,.bottom { background:var(--surface); }
+    .status { height:25px; padding:5px 14px; display:flex; justify-content:space-between; font-size:11px; }
+    .appbar { height:58px; padding:0 10px; display:flex; align-items:center; border-bottom:1px solid var(--line); }
+    .hamb,.more { width:36px; text-align:center; font-size:19px; }
+    .more { visibility:hidden; }
+    .selector { margin:auto; border:0; border-radius:999px; background:var(--focus); padding:8px 14px; color:var(--brand); font-size:14px; font-weight:700; }
+    .selector small { color:var(--muted); font-size:11px; font-weight:400; }
+    .body { min-height:545px; padding:12px; background:var(--page); }
+    .month-head { height:34px; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border-bottom:1px solid var(--line); }
+    .month-head button { border:0; background:transparent; color:var(--brand); font-size:18px; padding:2px 8px; }
+    .month-head strong { font-size:14px; }
+    .calendar { display:grid; grid-template-columns:repeat(7,1fr) 27px; gap:2px; margin-top:7px; }
+    .calendar > * { min-width:0; padding:4px 1px; text-align:center; font-size:9px; }
+    .calendar .weekday { color:var(--muted); font-weight:700; padding:2px 1px; }
+    .day { height:34px; padding:4px !important; text-align:left !important; background:var(--surface); border:1px solid #edf1ef; border-radius:3px; }
+    .day.outside { color:#aeb9b4; background:#f0f3f1; border-color:#e9eeeb; opacity:.5; }
+    .day.today { padding:3px !important; border:2px solid var(--brand); }
+    .week { height:34px; border:0; border-radius:4px; background:var(--focus); color:var(--brand); font-weight:700; cursor:pointer; }
+    .week.active { background:var(--brand); color:#fff; }
+    .dot { display:block; width:5px; height:5px; margin-top:3px; border-radius:50%; background:var(--coral); }
+    .selection { display:flex; justify-content:space-between; margin:13px 1px 7px; color:var(--muted); font-size:11px; font-weight:700; }
+    .card { margin:7px 0; padding:11px 12px; background:var(--surface); border:1px solid var(--line); border-radius:8px; }
+    .muted { margin-top:4px; color:var(--muted); font-size:10px; }
+    .bottom { height:60px; display:flex; justify-content:space-around; padding-top:9px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; }
+    .bottom .active { color:var(--brand); font-weight:700; }
+    .hint { max-width:390px; margin:12px auto; color:var(--muted); font-size:12px; line-height:1.7; }
+    @media (max-width:760px) { .wrap { padding:24px 14px; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="eyebrow">ANDROID DESIGN REVIEW · 日程 TAB</p>
+    <h1>完整月历视图</h1>
+    <p class="intro">默认显示完整月份。月初前一行和月末后一行仍保留在日历中，但非本月日期降低亮度；右侧周列用于切换周范围，今天默认高亮。</p>
+    <div class="phone">
+      <div class="status"><span>14:49</span><span>5G　▮▮▮　66%</span></div>
+      <div class="appbar"><span class="hamb">☰</span><button class="selector">全部任务⌄ <small>3 类</small></button><span class="more">⋯</span></div>
+      <div class="body">
+        <div class="month-head"><button>‹</button><strong>2026年09月</strong><button>›</button></div>
+        <div class="calendar">
+          <span class="weekday">一</span><span class="weekday">二</span><span class="weekday">三</span><span class="weekday">四</span><span class="weekday">五</span><span class="weekday">六</span><span class="weekday">日</span><span class="weekday">周</span>
+          <span class="day outside">31</span><span class="day">01</span><span class="day">02</span><span class="day">03<span class="dot"></span></span><span class="day">04</span><span class="day">05</span><span class="day">06</span><button class="week">35</button>
+          <span class="day">07</span><span class="day today">08<span class="dot"></span></span><span class="day">09</span><span class="day">10</span><span class="day">11<span class="dot"></span></span><span class="day">12</span><span class="day">13</span><button class="week active">36</button>
+          <span class="day">14</span><span class="day">15</span><span class="day">16</span><span class="day">17</span><span class="day">18</span><span class="day">19</span><span class="day">20</span><button class="week">37</button>
+          <span class="day">21</span><span class="day">22</span><span class="day">23</span><span class="day">24</span><span class="day">25</span><span class="day">26</span><span class="day">27</span><button class="week">38</button>
+          <span class="day">28</span><span class="day">29</span><span class="day">30</span><span class="day outside">01</span><span class="day outside">02</span><span class="day outside">03</span><span class="day outside">04</span><button class="week">39</button>
+        </div>
+        <div class="selection"><span>今天 · 09月08日</span><span>第36周</span></div>
+        <div class="card"><b>完成发布检查</b><div class="muted">今天 18:00 · 进行中 · 分类：工作</div></div>
+        <div class="card"><b>确认采购清单</b><div class="muted">今天 · 待验收 · 分类：生活</div></div>
+        <div class="card"><b>整理会议材料</b><div class="muted">09月11日 10:30 · 阻塞中</div></div>
+      </div>
+      <div class="bottom"><span>☷<br>清单</span><span>▦<br>四象限</span><span class="active">□<br>日程</span><span>♙<br>我的</span></div>
+    </div>
+    <p class="hint">第一行的“31”和最后一行的“01—04”为相邻月份日期，亮度降低；点击周号即可切换对应周。</p>
+  </main>
+  <script>document.querySelectorAll('.week').forEach((button) => button.addEventListener('click', () => { document.querySelectorAll('.week').forEach((item) => item.classList.remove('active')); button.classList.add('active'); document.querySelector('.selection span:last-child').textContent = `第${button.textContent}周`; }));</script>
+</body>
+</html>

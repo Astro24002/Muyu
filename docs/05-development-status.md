@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API/Web 当前仍在 `0008_default_task_due_at`，分类迁移 `0009/0010` 待下一次独立部署验收。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现，`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。

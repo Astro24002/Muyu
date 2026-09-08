@@ -25,6 +25,15 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-09-08 - Android 日程紧凑月历施工完成
+
+- 类型：Android 日程 TAB / 分类筛选 / 月历交互。
+- 变更：日程与清单、四象限共用顶部结构，中央分类下拉默认“全部任务”，分类状态跨任务 TAB 保持一致；正文改为紧凑完整月历，支持月份前后切换，右侧周列选择周范围，今天默认选中，相邻月份日期降低亮度；点击日期或周号后更新下方日期任务清单。
+- 兼容：保留任务点击进入详情、下拉刷新和无新增任务入口，移除日程正文中的重复分类筛选。
+- 验证：Flutter 全量 `192 passed`，日程专项与工作区专项通过；`flutter analyze`、Dart format 和 `git diff --check` 通过。
+- 提交：`eb235a7` 已推送 `origin/main`。
+- 产物：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-eb235a7.apk`，大小 `203394652` 字节，SHA-256 为 `09a99059af59e27b5a752b07958118578e6fe8e6d49c842f75d02cde5c3fae25`；归档校验和线上 API 地址检查通过。
+
 ### 2026-09-08 - Android 四象限动画生命周期断言修复
 
 - 类型：Android 稳定性修复 / 生命周期回归。

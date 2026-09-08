@@ -9,6 +9,7 @@
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
 - 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入，非当前负责人的成员写入受保护字段时继续提交给对方审批；“我的任务”只按当前负责人筛选。
+- 当前分类契约：不再写入或展示系统“默认”分类。每项新任务必须显式选择一个已批准分类；首个分类也需由一方发起 `CLASSIFICATION_CREATE` 并经另一位成员批准。分类为空时 Android 与 Web 只引导进入分类管理，不允许创建任务。
 - 当前 Android 账户概览：从现有 Workspace snapshot 统计当前用户负责的全部未删除父任务和子任务，并显示任务、完成和延期汇总；匹配对象头像打开另一位 ACTIVE 成员的同口径概览。
 - 当前 Android 入口与资料边界：任务审批和 Web 扫码只从“我的”页 AppBar 进入；短信验证成功的每台 Android 设备直接为 `ACTIVE` 且可写；设备管理只能在二次确认后撤销同一账号的其他设备，当前设备不可撤销；个人资料只编辑 `display_name`，头像继续使用默认 `CircleAvatar`。
 - 当前 Workspace bootstrap 契约：只返回 ACTIVE 成员的 `match_status`、成员数量、名称、脱敏手机号和 `is_current`；零或一名成员为 `waiting_partner`，两名成员为 `matched`，未匹配时客户端只显示默认占位头像和“匹配中”，不伪造对方身份。
@@ -23,6 +24,21 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-08 - 移除系统默认分类
+
+- 类型：任务分类契约 / Workspace 初始化 / 数据迁移 / 跨端回归。
+- 变更：Workspace 创建与双人绑定不再自动生成“默认”分类。首个及后续分类均需通过
+  `CLASSIFICATION_CREATE` 双人审批；没有已批准分类时，任务创建在 Android、Web 与 API
+  三层均被拒绝或禁用。
+- 迁移：Alembic `0013_remove_default_classification` 清理既有系统“默认”分类，并将仅
+  使用该分类（含首尾空格变体）的历史任务转换为遗留空分类；其他已批准分类和任务标签
+  保持不变。历史空分类仅保留读取兼容，不能绕过新写入的必选分类规则。
+- 验证：迁移专项及相关 Workspace/API 测试 `13 passed`；容器化 PostgreSQL 后端全量
+  `239 passed, 3 skipped`；Web TypeScript typecheck、Vitest `263 passed` 和生产构建
+  通过；Flutter 格式检查、`flutter analyze` 和 `flutter test` `184 passed` 通过；
+  `alembic heads` 确认 `0013_remove_default_class (head)`，`git diff --check` 与
+  Python compileall 通过。
 
 ### 2026-09-04 - Workspace 分类与单分类任务契约施工完成
 

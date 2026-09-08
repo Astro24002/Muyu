@@ -20,6 +20,9 @@ Android Flutter 和 TypeScript Web。
 - 将历史多值数组压缩为首项，增加数组长度检查；保留遗留空数组只读兼容。单值检查由
   `0010` 迁移拥有，schema 测试显式断言，不能在未改造历史迁移 fixture 前直接复制到
   当前 ORM 元数据。
+- 不再在 Workspace 创建或双人绑定时写入系统“默认”分类。`0013` 清理已部署的系统
+  分类，并将仅使用该分类的历史任务转成遗留空分类；新任务仍必须显式选择一个已批准
+  分类。
 
 ### 2. API 与审批
 
@@ -77,7 +80,7 @@ flutter test
 ## 发布前门禁
 
 1. `git diff --check` 和 Python compileall 通过。
-2. Alembic 在干净数据库从当前 head 升级到 `0010_single_task_classification`。
+2. Alembic 在干净数据库从当前 head 升级到 `0013_remove_default_classification`。
 3. 线上备份完成后再执行迁移；检查任务 `labels` 数组长度不超过 1。
 4. API/Web 部署与 Android APK 发布分开验收，未完成线上迁移不得标记生产完成。
 

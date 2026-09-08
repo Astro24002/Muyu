@@ -55,25 +55,10 @@ TaskItem task(
 );
 
 class FakeTaskRepository implements WorkspaceSyncRepository {
-  FakeTaskRepository({this.failCreate = false, this.createCompleter});
-
-  bool failCreate;
-  final Completer<void>? createCompleter;
-  final List<TaskItem> tasks = [];
-  String? lastTitle;
-  String? lastQuadrant;
-  List<String>? lastLabels;
-  String? lastDueAt;
-
-  @override
-  Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
-    workspaceId: 'w1',
-    cursor: 1,
-    tasks: List.of(tasks),
-    members: const [
-      {'user_id': 'user-1'},
-    ],
-    classifications: const [
+  FakeTaskRepository({
+    this.failCreate = false,
+    this.createCompleter,
+    this.classifications = const [
       WorkspaceClassification(
         id: 'classification-work',
         workspaceId: 'w1',
@@ -93,6 +78,26 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
         createdBy: 'user-1',
       ),
     ],
+  });
+
+  bool failCreate;
+  final Completer<void>? createCompleter;
+  final List<WorkspaceClassification> classifications;
+  final List<TaskItem> tasks = [];
+  String? lastTitle;
+  String? lastQuadrant;
+  List<String>? lastLabels;
+  String? lastDueAt;
+
+  @override
+  Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
+    workspaceId: 'w1',
+    cursor: 1,
+    tasks: List.of(tasks),
+    members: const [
+      {'user_id': 'user-1'},
+    ],
+    classifications: List.unmodifiable(classifications),
   );
 
   @override
@@ -486,6 +491,45 @@ void main() {
     expect(repo.lastLabels, ['工作']);
     expect(find.text('Buy milk'), findsOneWidget);
   });
+
+  testWidgets(
+    'creation stays unavailable when no approved classifications exist',
+    (tester) async {
+      final repo = FakeTaskRepository(classifications: const []);
+      final sync = await readyController(repo);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: muyuLightTheme(),
+          home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('create-task-fab')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('task-title-input')),
+        'Needs a classification',
+      );
+      await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Q1 重要且紧急').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('task-create-label-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('暂无已批准分类，请前往“我的”→“分类管理”创建'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('task-create-label-done')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('create-task-button')))
+            .onPressed,
+        isNull,
+      );
+      expect(repo.lastTitle, isNull);
+    },
+  );
 
   testWidgets('creation icon controls collect deadline labels and quadrant', (
     tester,

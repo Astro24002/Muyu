@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { TaskItem, WorkspaceSnapshot } from '../src/api/types';
+import type { TaskItem, WorkspaceClassification, WorkspaceSnapshot } from '../src/api/types';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../src/sync/workspace-sync';
 import { TaskComposer } from '../src/components/tasks/TaskComposer';
 import { render } from './react-test-helpers';
@@ -42,6 +42,20 @@ describe('TaskComposer', () => {
     fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '有标题' } });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
     expect(screen.getByRole('alert')).toHaveTextContent('请选择四象限。');
+    expect(sync.createTask).not.toHaveBeenCalled();
+  });
+
+  it('does not submit when the workspace has no approved classifications', () => {
+    const { sync } = createFakeSync(makeSnapshot([]));
+
+    render(<TaskComposer sync={sync} />);
+    fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
+    fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '没有分类的任务' } });
+    fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+
+    expect(screen.getByRole('group', { name: '分类' })).toHaveTextContent('暂无已批准分类，请先创建分类。');
+    expect(screen.getByRole('alert')).toHaveTextContent('请选择一个已批准分类。');
     expect(sync.createTask).not.toHaveBeenCalled();
   });
 
@@ -94,12 +108,12 @@ function fillDraft(): void {
   fireEvent.click(screen.getByRole('radio', { name: '工作' }));
 }
 
-function createFakeSync(): {
+function createFakeSync(snapshot = makeSnapshot()): {
   sync: WorkspaceSyncController;
   setState: (state: WorkspaceSyncState) => void;
 } {
   let current: WorkspaceSyncState = {
-    snapshot: makeSnapshot(),
+    snapshot,
     cursor: 1,
     loading: false,
     stale: false,
@@ -127,7 +141,9 @@ function createFakeSync(): {
   };
 }
 
-function makeSnapshot(): WorkspaceSnapshot {
+function makeSnapshot(classifications: WorkspaceClassification[] = [
+  { id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'viewer', created_at: null },
+]): WorkspaceSnapshot {
   return {
     workspace_id: 'workspace-1',
     workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' },
@@ -136,6 +152,6 @@ function makeSnapshot(): WorkspaceSnapshot {
     conflicts: [],
     cursor: 1,
     viewer_user_id: 'viewer',
-    classifications: [{ id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'viewer', created_at: null }],
+    classifications,
   };
 }

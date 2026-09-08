@@ -72,12 +72,8 @@ def test_first_workspace_invite_and_signed_partner_approval(db_engine) -> None:
         assert membership.status == MembershipStatus.ACTIVE
         assert candidate_device.status == DeviceStatus.ACTIVE
         assert request.status == ApprovalStatus.APPROVED
-        default_classification = session.scalar(
+        assert session.scalars(
             select(WorkspaceClassification).where(
                 WorkspaceClassification.workspace_id == workspace.id,
-                WorkspaceClassification.normalized_name == "默认",
             )
-        )
-        assert default_classification is not None
-        assert default_classification.name == "默认"
-        assert default_classification.created_by == owner.id
+        ).all() == []

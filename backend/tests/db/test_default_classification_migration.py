@@ -12,8 +12,8 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from app.db.enums import MembershipStatus
-from app.db.models import User, Workspace, WorkspaceClassification, WorkspaceMembership
+from app.db.enums import MembershipStatus, TaskQuadrant
+from app.db.models import Task, User, Workspace, WorkspaceClassification, WorkspaceMembership
 
 
 def _config(database_url: str, schema: str) -> Config:
@@ -50,7 +50,7 @@ def _user(phone_suffix: str) -> User:
     return User(phone=f"+1555{phone_suffix}")
 
 
-def test_default_classification_migration_seeds_active_workspaces_idempotently(
+def test_default_classification_cleanup_removes_system_rows_and_preserves_history(
     at_0011: Engine,
     database_url: str,
 ) -> None:
@@ -93,6 +93,57 @@ def test_default_classification_migration_seeds_active_workspaces_idempotently(
                 ),
             ]
         )
+        legacy_default_task = Task(
+            workspace_id=seeded.id,
+            task_number="26090001",
+            title="历史默认分类任务",
+            quadrant=TaskQuadrant.Q1,
+            labels=["默认"],
+            current_handler_id=first.id,
+            created_by=first.id,
+        )
+        legacy_unclassified_task = Task(
+            workspace_id=seeded.id,
+            task_number="26090002",
+            title="历史未分类任务",
+            quadrant=TaskQuadrant.Q1,
+            labels=[],
+            current_handler_id=first.id,
+            created_by=first.id,
+        )
+        legacy_spaced_default_task = Task(
+            workspace_id=seeded.id,
+            task_number="26090003",
+            title="历史带空格默认分类任务",
+            quadrant=TaskQuadrant.Q1,
+            labels=[" 默认 "],
+            current_handler_id=first.id,
+            created_by=first.id,
+        )
+        preserved_classification = WorkspaceClassification(
+            workspace_id=seeded.id,
+            name="工作",
+            normalized_name="工作",
+            created_by=first.id,
+        )
+        preserved_classification_task = Task(
+            workspace_id=seeded.id,
+            task_number="26090004",
+            title="保留的已分类任务",
+            quadrant=TaskQuadrant.Q1,
+            labels=["工作"],
+            current_handler_id=first.id,
+            created_by=first.id,
+        )
+        session.add_all(
+            [
+                legacy_default_task,
+                legacy_unclassified_task,
+                legacy_spaced_default_task,
+                preserved_classification,
+                preserved_classification_task,
+            ]
+        )
         preserved = WorkspaceClassification(
             workspace_id=existing.id,
             name="默认",
@@ -105,15 +156,11 @@ def test_default_classification_migration_seeds_active_workspaces_idempotently(
         skipped_id = skipped.id
         existing_id = existing.id
         first_id = first.id
-        preserved_id = preserved.id
         session.commit()
 
     schema = at_0011.connect().scalar(text("SELECT current_schema()"))
     config = _config(database_url, schema)
-    command.upgrade(config, "head")
-    # A second execution of the revision must not create a duplicate row.
-    command.downgrade(config, "0011_legacy_label_backfill")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0012_default_classification")
 
     with Session(at_0011) as session:
         seeded_default = session.scalar(
@@ -125,6 +172,12 @@ def test_default_classification_migration_seeds_active_workspaces_idempotently(
         assert seeded_default is not None
         assert seeded_default.created_by == first_id
 
+    command.upgrade(config, "head")
+    # A second execution of both revisions must remain idempotent.
+    command.downgrade(config, "0011_legacy_label_backfill")
+    command.upgrade(config, "head")
+
+    with Session(at_0011) as session:
         assert session.scalars(
             select(WorkspaceClassification).where(
                 WorkspaceClassification.workspace_id == skipped_id,
@@ -137,5 +190,17 @@ def test_default_classification_migration_seeds_active_workspaces_idempotently(
                 WorkspaceClassification.normalized_name == "默认",
             )
         ).all()
-        assert len(existing_rows) == 1
-        assert existing_rows[0].id == preserved_id
+        assert existing_rows == []
+
+        seeded_tasks = session.scalars(
+            select(Task).where(Task.workspace_id == seeded_id).order_by(Task.task_number)
+        ).all()
+        assert [task.labels for task in seeded_tasks] == [[], [], [], ["工作"]]
+        assert [
+            classification.name
+            for classification in session.scalars(
+                select(WorkspaceClassification)
+                .where(WorkspaceClassification.workspace_id == seeded_id)
+                .order_by(WorkspaceClassification.normalized_name)
+            )
+        ] == ["工作"]

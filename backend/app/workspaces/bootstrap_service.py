@@ -34,7 +34,6 @@ from app.workspaces.bootstrap_schemas import (
     public_device_status,
 )
 from app.workspaces.service import WorkspaceConflict
-from app.workspaces.classifications import ensure_default_classification
 
 if TYPE_CHECKING:
     from app.auth.dependencies import MobilePrincipal
@@ -118,7 +117,6 @@ class WorkspaceBootstrapService:
             )
         )
         self.session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
-        ensure_default_classification(self.session, workspace.id, actor_user_id)
         invite = WorkspaceInvite(
             workspace_id=workspace.id,
             inviter_user_id=actor_user_id,

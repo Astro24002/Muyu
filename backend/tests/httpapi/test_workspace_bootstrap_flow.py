@@ -99,14 +99,11 @@ def test_bind_partner_creates_one_owner_and_pending_invite(db_engine) -> None:
         assert memberships[0].member_slot == 1
         assert memberships[0].status == MembershipStatus.ACTIVE
 
-        default_classification = session.scalar(
+        assert session.scalars(
             select(WorkspaceClassification).where(
                 WorkspaceClassification.workspace_id == UUID(body["workspace"]["id"]),
-                WorkspaceClassification.normalized_name == "默认",
             )
-        )
-        assert default_classification is not None
-        assert default_classification.created_by == owner.id
+        ).all() == []
 
         invites = session.scalars(select(WorkspaceInvite)).all()
         assert len(invites) == 1

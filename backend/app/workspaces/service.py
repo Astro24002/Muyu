@@ -24,7 +24,6 @@ from app.db.models import (
     WorkspaceMembership,
 )
 from app.devices.signatures import verify_device_signature, signed_action_payload
-from app.workspaces.classifications import ensure_default_classification
 
 
 class WorkspaceConflict(Exception):
@@ -80,7 +79,6 @@ class WorkspaceService:
         )
         self.session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
         self.session.flush()
-        ensure_default_classification(self.session, workspace.id, owner_user_id)
         return workspace
 
     def create_invite(self, workspace_id: UUID, inviter_user_id: UUID, invited_phone: str) -> WorkspaceInvite:

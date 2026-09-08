@@ -116,9 +116,9 @@ void main() {
           tasks: [],
           classifications: [
             WorkspaceClassification(
-              id: 'classification-default',
+              id: 'classification-work',
               workspaceId: 'workspace-1',
-              name: '默认',
+              name: '工作',
               createdBy: 'user-1',
             ),
           ],
@@ -160,11 +160,11 @@ void main() {
     );
     expect(
       find.byKey(
-        const Key('classification-management-item-classification-default'),
+        const Key('classification-management-item-classification-work'),
       ),
       findsOneWidget,
     );
-    expect(find.text('默认'), findsOneWidget);
+    expect(find.text('工作'), findsOneWidget);
     expect(
       find.byKey(const Key('classification-management-create')),
       findsOneWidget,

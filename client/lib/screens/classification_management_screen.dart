@@ -122,15 +122,18 @@ class _ClassificationManagementScreenState
     try {
       final approval = await widget.sync.createClassification(trimmed);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(approval == null ? '分类暂时无法提交，请刷新后重试' : '分类已提交，等待对方审批'),
-        ),
-      );
+      _showFeedback(approval == null ? '分类暂时无法提交，请刷新后重试' : '分类已提交，等待对方审批');
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('分类提交失败，请检查后重试')));
+      _showFeedback('分类提交失败，请检查后重试');
     }
+  }
+
+  void _showFeedback(String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    });
   }
 }

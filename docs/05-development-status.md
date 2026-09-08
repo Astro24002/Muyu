@@ -25,6 +25,14 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-09-08 - Android 四象限动画生命周期断言修复
+
+- 类型：Android 稳定性修复 / 生命周期回归。
+- 变更：四象限展开由 `AnimatedSwitcher` 调整为单子树 `AnimatedSize`。切换或卸载页面时不再保留退出中的旧象限子树，避免 `InheritedElement.debugDeactivated` 的 `_dependents.isEmpty` 断言。
+- 验证：新增展开动画进行中由 Tab 容器移除页面的 widget 回归测试；Flutter 全量 `188 passed`，`flutter analyze`、Dart format 与 `git diff --check` 通过。
+- 提交：`6628df3` 已推送 `origin/main`。
+- 产物：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-6628df3.apk`，大小 `203379026` 字节，SHA-256 为 `f10e04dd2945bbaf112f4e201bcb4e5216365ddcb0cd0309952f308a6d5119da`；归档校验和线上 API 地址检查通过。
+
 ### 2026-09-08 - Android 四象限四宫格展示
 
 - 类型：Android 任务视图 / 视觉令牌 / 分类筛选。

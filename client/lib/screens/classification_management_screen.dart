@@ -113,6 +113,12 @@ class _ClassificationManagementScreenState
     controller.dispose();
     final trimmed = name?.trim() ?? '';
     if (!mounted || trimmed.isEmpty) return;
+    // Let the dialog route finish deactivation before notifying the workspace
+    // listeners. Rebuilding the AnimatedBuilder in the same frame as the
+    // AlertDialog is removed can leave inherited dependents attached and
+    // trigger Flutter's InheritedElement debug assertion.
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
     try {
       final approval = await widget.sync.createClassification(trimmed);
       if (!mounted) return;

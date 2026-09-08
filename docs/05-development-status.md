@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工完成，待本轮 APK 产物验收。`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和本轮 APK 验收完成。`v0.1.3` 已完成 CI 验证并发布；任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -30,7 +30,8 @@
 - 类型：Android 任务视图 / 视觉令牌 / 分类筛选。
 - 变更：四象限页改为轻量 2×2 宫格，Q1/Q2/Q3/Q4 标题条分别使用主题中的浅珊瑚、浅琥珀、浅绿和浅蓝灰背景；任务行保持白底并复用清单摘要。每格最多预览四项，超过四项只显示“更多任务”，点击后当前象限扩展为全宽完整列表并隐藏其他象限，可返回宫格。
 - 顶栏：四象限与清单共用分类下拉，默认“全部任务”；四象限正文不再放置独立分类筛选，也不提供新增任务或清单专用更多菜单。
-- 验证：新增四象限 widget 测试覆盖宫格、颜色标题、四项预览、展开/返回和分类筛选；Flutter 全量测试、`flutter analyze`、Dart format 与 `git diff --check` 通过。
+- 验证：新增四象限 widget 测试覆盖宫格、颜色标题、四项预览、展开/返回和分类筛选；Flutter 全量 `187 passed`、`flutter analyze`、Dart format 与 `git diff --check` 通过。提交 `66a864b` 已推送 `origin/main`。
+- 产物：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-66a864b.apk`，大小 `203379618` 字节，SHA-256 为 `b1b3389763105c8382a2f0959775639660b7c13cfce49ec14dfafe5a8fab6cc3`；归档校验通过，包内 API 地址为 `https://muyu.bkverse.space`。本轮不创建版本 Release，正式包继续由 tag/release CI 生成。
 
 ### 2026-09-08 - 移除系统默认分类
 

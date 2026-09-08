@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Muyu Android - 日志 TAB 展示方案</title>
+  <style>
+    :root{--page:#f8faf9;--surface:#fff;--text:#1d2d29;--muted:#7c8783;--line:#dce3e0;--brand:#225f50;--focus:#e7f0ed;--coral:#b04a3a;--amber:#c47a20;--green:#2e7663;--bluegray:#5f6f8a}
+    *{box-sizing:border-box}body{margin:0;background:#edf2ef;color:var(--text);font-family:Inter,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}button{font:inherit;cursor:pointer}.wrap{max-width:1200px;margin:auto;padding:32px 24px 56px}.eyebrow{margin:0 0 8px;color:var(--brand);font-size:12px;font-weight:700}h1{margin:0;font-size:27px}.intro{max-width:760px;color:var(--muted);font-size:14px;line-height:1.7;margin:12px 0 24px}.options{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.options button{border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;padding:10px 14px}.options button.active{background:var(--brand);border-color:var(--brand);color:#fff}.stage{display:grid;grid-template-columns:minmax(320px,390px) minmax(280px,1fr);gap:28px;align-items:start}.phone{width:100%;max-width:390px;margin:auto;background:var(--page);border:9px solid #263530;border-radius:32px;overflow:hidden;box-shadow:0 12px 30px #243d3420}.status{height:26px;padding:5px 14px;background:#f1f5f3;display:flex;justify-content:space-between;font-size:11px}.appbar{height:58px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;gap:12px}.appbar strong{font-size:19px}.appbar span{margin-left:auto;color:var(--muted);font-size:12px}.body{padding:14px 14px 22px;min-height:570px}.filter{display:flex;gap:7px;overflow:auto;margin-bottom:14px}.filter button{white-space:nowrap;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 11px;color:var(--muted);font-size:12px}.filter button.active{color:var(--brand);border-color:#a8c7bb;background:var(--focus)}.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin:9px 0;padding:11px 12px}.row{display:flex;gap:10px;align-items:flex-start}.dot{width:9px;height:9px;border-radius:50%;background:var(--brand);margin-top:5px;flex:none}.card strong{font-size:14px}.meta{color:var(--muted);font-size:11px;margin-top:4px;line-height:1.5}.event{position:relative;padding-left:26px;margin:0 0 15px}.event:before{content:"";position:absolute;left:7px;top:5px;bottom:-17px;width:1px;background:var(--line)}.event:last-child:before{display:none}.event .dot{position:absolute;left:3px;top:3px;border:3px solid var(--page);width:10px;height:10px}.date{color:var(--muted);font-size:12px;font-weight:700;margin:15px 0 8px}.task-head{display:flex;align-items:center;justify-content:space-between}.badge{font-size:10px;border-radius:999px;padding:3px 7px;background:#e7f0ed;color:var(--brand)}.badge.coral{background:#f8e9e5;color:var(--coral)}.badge.amber{background:#fbf0df;color:var(--amber)}.task-card{padding:12px}.task-card .events{border-left:1px solid var(--line);margin:10px 0 0 5px;padding-left:13px}.bottom{height:62px;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding-top:9px;font-size:10px;color:var(--muted)}.bottom .on{color:var(--brand);font-weight:700}.note{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px}.note h2{font-size:18px;margin:0 0 10px}.note p{color:var(--muted);font-size:13px;line-height:1.7;margin:7px 0}.note ul{padding-left:18px;color:var(--body);font-size:13px;line-height:1.9}.hidden{display:none}@media(max-width:760px){.wrap{padding:24px 14px}.stage{grid-template-columns:1fr}.note{order:2}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="eyebrow">ANDROID DESIGN REVIEW · 日志 TAB</p>
+    <h1>三种日志展示效果</h1>
+    <p class="intro">日志只承担“发生过什么”的回顾，不参与任务状态操作。下方可切换三种信息组织方式，手机底部保留四个正式 TAB，当前新增的日志 TAB 作为设计讨论稿展示。</p>
+    <div class="options" role="tablist">
+      <button class="active" data-option="timeline">方案一 · 时间线流</button>
+      <button data-option="date">方案二 · 按日期分组</button>
+      <button data-option="task">方案三 · 按任务聚合</button>
+    </div>
+    <section class="stage">
+      <div class="phone">
+        <div class="status"><span>14:49</span><span>5G　▮▮▮　66%</span></div>
+        <div class="appbar"><span>☰</span><strong>日志</strong><span>筛选⌄　⋯</span></div>
+        <div id="timeline" class="body">
+          <div class="filter"><button class="active">全部</button><button>任务变更</button><button>评论</button><button>审批</button></div>
+          <div class="date">今天 · 09月08日</div>
+          <div class="event"><i class="dot"></i><div class="card"><div class="row"><strong>完成发布检查</strong><span class="badge">状态变更</span></div><div class="meta">你将任务从「待验收」改为「已完成」<br>14:32 · 你</div></div></div>
+          <div class="event"><i class="dot" style="background:var(--amber)"></i><div class="card"><div class="row"><strong>确认周末采购清单</strong><span class="badge amber">评论</span></div><div class="meta">对方：已补充餐厅地址，请查看。<br>11:08 · 对方</div></div></div>
+          <div class="date">昨天 · 09月07日</div>
+          <div class="event"><i class="dot" style="background:var(--coral)"></i><div class="card"><div class="row"><strong>整理会议材料</strong><span class="badge coral">阻塞</span></div><div class="meta">你发起阻塞：等待对方确认会议时间<br>18:41 · 你</div></div></div>
+        </div>
+        <div id="date" class="body hidden">
+          <div class="filter"><button class="active">全部</button><button>今天</button><button>近7天</button></div>
+          <div class="date">今天 · 09月08日 <span style="float:right">3 条</span></div>
+          <div class="card"><div class="task-head"><strong>完成发布检查</strong><span class="badge">已完成</span></div><div class="meta">14:32 · 你　状态：待验收 → 已完成</div></div>
+          <div class="card"><div class="task-head"><strong>确认周末采购清单</strong><span class="badge amber">评论</span></div><div class="meta">11:08 · 对方　新增评论</div></div>
+          <div class="card"><div class="task-head"><strong>整理会议材料</strong><span class="badge coral">阻塞</span></div><div class="meta">09:16 · 你　任务进入阻塞中</div></div>
+          <div class="date">昨天 · 09月07日 <span style="float:right">2 条</span></div>
+          <div class="card"><div class="task-head"><strong>预约餐厅</strong><span class="badge">截止时间</span></div><div class="meta">18:20 · 你　截止时间更新</div></div>
+        </div>
+        <div id="task" class="body hidden">
+          <div class="filter"><button class="active">最近活动</button><button>我发起</button><button>对方发起</button></div>
+          <div class="task-card card"><div class="task-head"><strong>完成发布检查</strong><span class="badge">4 条记录</span></div><div class="events"><div class="meta">14:32　状态：待验收 → 已完成<br><span style="color:var(--brand)">你</span></div><div class="meta">昨天 18:05　提交验收<br><span style="color:var(--brand)">你</span></div><div class="meta">昨天 16:20　评论：已完成部署<br><span style="color:var(--amber)">对方</span></div></div></div>
+          <div class="task-card card"><div class="task-head"><strong>整理会议材料</strong><span class="badge coral">2 条记录</span></div><div class="events"><div class="meta">昨天 18:41　进入阻塞中<br><span style="color:var(--brand)">你</span></div><div class="meta">昨天 18:40　评论：等待确认会议时间<br><span style="color:var(--brand)">你</span></div></div></div>
+        </div>
+        <div class="bottom"><span>☷<br>清单</span><span>▦<br>四象限</span><span>□<br>日程</span><span class="on">◷<br>日志</span></div>
+      </div>
+      <aside class="note">
+        <h2 id="note-title">方案一：时间线流</h2>
+        <p id="note-copy">按发生顺序呈现双方活动，最适合快速回答“刚才发生了什么”。</p>
+        <ul id="note-list"><li>默认显示最近 7 天，向上滚动加载更早记录</li><li>状态变更、评论、审批、截止时间统一为事件</li><li>颜色只表达事件类型，不改变任务本身的象限颜色</li></ul>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const notes={timeline:['方案一：时间线流','按发生顺序呈现双方活动，最适合快速回答“刚才发生了什么”。',['默认显示最近 7 天，向上滚动加载更早记录','状态变更、评论、审批、截止时间统一为事件','颜色只表达事件类型，不改变任务本身的象限颜色']],date:['方案二：按日期分组','按天汇总活动，适合回顾某一天发生的全部协作变化。',['日期标题右侧显示当天事件数','事件卡片更紧凑，扫描成本低','适合和日程视图配合查看']],task:['方案三：按任务聚合','先看任务，再看该任务的完整活动链，适合追溯一项任务的来龙去脉。',['每项任务显示活动数量和最近更新时间','展开后按时间倒序显示完整记录','适合处理争议或确认任务交付过程']]};
+    document.querySelectorAll('[data-option]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-option]').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.body').forEach(x=>x.classList.add('hidden'));document.getElementById(b.dataset.option).classList.remove('hidden');const n=notes[b.dataset.option];document.getElementById('note-title').textContent=n[0];document.getElementById('note-copy').textContent=n[1];document.getElementById('note-list').innerHTML=n[2].map(x=>`<li>${x}</li>`).join('')});
+  </script>
+</body>
+</html>

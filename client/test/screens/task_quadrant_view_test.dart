@@ -77,6 +77,35 @@ void main() {
     expect(header.color, isNot(muyuLightTheme().colorScheme.surface));
   });
 
+  testWidgets(
+    'shows the task title instead of the task number in a compact quadrant row',
+    (tester) async {
+      final task = quadrantTask(
+        'task-1',
+        '准备发布',
+      ).copyWith(taskNumber: '26080001');
+
+      await tester.pumpWidget(
+        quadrantApp(
+          TaskQuadrantView(
+            sync: WorkspaceSyncController.unavailable(),
+            state: quadrantState([task]),
+            canWrite: true,
+            onTaskTap: (_) {},
+          ),
+        ),
+      );
+
+      expect(find.text('准备发布'), findsOneWidget);
+      expect(find.text('26080001'), findsNothing);
+      expect(find.byKey(const ValueKey('task-card-task-1')), findsOneWidget);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('task-card-task-1'))).height,
+        lessThan(56),
+      );
+    },
+  );
+
   testWidgets('previews four tasks and expands only the selected quadrant', (
     tester,
   ) async {

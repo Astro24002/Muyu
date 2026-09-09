@@ -267,6 +267,7 @@ class _QuadrantPanel extends StatelessWidget {
                 TaskSummaryCard(
                   task: task,
                   state: state,
+                  compact: true,
                   onTap: () => onTaskTap(task),
                 ),
               if (onMore != null)

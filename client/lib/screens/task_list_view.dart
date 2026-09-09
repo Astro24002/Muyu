@@ -706,11 +706,13 @@ class TaskSummaryCard extends StatelessWidget {
     required this.task,
     required this.state,
     this.onTap,
+    this.compact = false,
   });
 
   final TaskItem task;
   final WorkspaceSyncState state;
   final VoidCallback? onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -723,10 +725,10 @@ class TaskSummaryCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 56),
-          padding: const EdgeInsets.symmetric(
+          constraints: BoxConstraints(minHeight: compact ? 48 : 56),
+          padding: EdgeInsets.symmetric(
             horizontal: MuyuSpacing.xs,
-            vertical: MuyuSpacing.sm,
+            vertical: compact ? MuyuSpacing.xs : MuyuSpacing.sm,
           ),
           decoration: BoxDecoration(
             border: Border(
@@ -742,27 +744,32 @@ class TaskSummaryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      task.taskNumber.isEmpty
+                      compact || task.taskNumber.isEmpty
                           ? task.title
                           : '${task.taskNumber} ${task.title}',
-                      maxLines: 2,
+                      maxLines: compact ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        decoration: normalizeTaskStatus(task.status) == 'DONE'
-                            ? TextDecoration.lineThrough
-                            : TextDecoration.none,
-                        color: _isTerminal(task.status)
-                            ? theme.colorScheme.onSurface.withValues(
-                                alpha: 0.55,
-                              )
-                            : theme.colorScheme.onSurface,
-                      ),
+                      style:
+                          (compact
+                                  ? theme.textTheme.bodyMedium
+                                  : theme.textTheme.bodyLarge)
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                decoration:
+                                    normalizeTaskStatus(task.status) == 'DONE'
+                                    ? TextDecoration.lineThrough
+                                    : TextDecoration.none,
+                                color: _isTerminal(task.status)
+                                    ? theme.colorScheme.onSurface.withValues(
+                                        alpha: 0.55,
+                                      )
+                                    : theme.colorScheme.onSurface,
+                              ),
                     ),
-                    const SizedBox(height: MuyuSpacing.xs),
+                    SizedBox(height: compact ? 2 : MuyuSpacing.xs),
                     Text(
                       subtitle,
-                      maxLines: 2,
+                      maxLines: compact ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall,
                     ),

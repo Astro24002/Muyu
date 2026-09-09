@@ -27,22 +27,25 @@ TaskItem task() => TaskItem(
   createdAt: DateTime.utc(2026, 8, 28),
   updatedAt: DateTime.utc(2026, 8, 28),
   labels: const [],
+  fieldVersions: const {'title': 1},
 );
 
 TaskApprovalRequest approval(
   String id,
   String requester,
   String approver, {
+  String? taskId = 'task-1',
   String requestType = 'TASK_UPDATE',
+  Map<String, dynamic>? proposedChanges,
 }) => TaskApprovalRequest.fromJson({
   'id': id,
   'workspace_id': 'workspace-1',
-  'task_id': 'task-1',
+  'task_id': taskId,
   'comment_id': null,
   'requester_id': requester,
   'approver_id': approver,
   'request_type': requestType,
-  'proposed_changes': {'title': 'New title'},
+  'proposed_changes': proposedChanges ?? {'title': 'New title'},
   'base_field_versions': {'title': 1},
   'request_id': 'request-$id',
   'status': 'PENDING',
@@ -54,9 +57,10 @@ TaskApprovalRequest approval(
 });
 
 class ApprovalScreenRepository implements WorkspaceSyncRepository {
-  ApprovalScreenRepository(this.approvals);
+  ApprovalScreenRepository(this.approvals, {this.members = const []});
 
   final List<TaskApprovalRequest> approvals;
+  final List<Map<String, dynamic>> members;
   String? approved;
   String? rejected;
   String? cancelled;
@@ -66,6 +70,7 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
     workspaceId: 'workspace-1',
     cursor: 1,
     viewerUserId: 'user-a',
+    members: members,
     tasks: [task()],
     approvalRequests: approvals,
   );
@@ -231,8 +236,11 @@ void main() {
     await tester.tap(find.byKey(const Key('approval-approve-incoming')));
     await tester.pump();
     expect(repository.approved, 'incoming');
-    expect(find.byKey(const Key('approval-card-incoming')), findsOneWidget);
+    expect(find.byKey(const Key('approval-card-incoming')), findsNothing);
     expect(find.byKey(const Key('approval-approve-incoming')), findsNothing);
+    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('approval-card-incoming')), findsOneWidget);
 
     await tester.tap(find.text('我发起的请求'));
     await tester.pumpAndSettle();
@@ -244,8 +252,11 @@ void main() {
     await tester.tap(find.text('确认撤回'));
     await tester.pumpAndSettle();
     expect(repository.cancelled, 'outgoing');
-    expect(find.byKey(const Key('approval-card-outgoing')), findsOneWidget);
+    expect(find.byKey(const Key('approval-card-outgoing')), findsNothing);
     expect(find.byKey(const Key('approval-cancel-outgoing')), findsNothing);
+    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('approval-card-outgoing')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -266,10 +277,127 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('approval-card-resolved')), findsOneWidget);
+    expect(find.byKey(const Key('approval-card-resolved')), findsNothing);
     expect(find.byKey(const Key('approval-approve-resolved')), findsNothing);
-    expect(find.text('任务修改 · 已撤回'), findsOneWidget);
-    expect(find.text('说明：发起人已撤回请求'), findsOneWidget);
+    expect(find.byKey(const Key('approval-resolved-group')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    await tester.pumpAndSettle();
+    expect(find.text('对方 · 发起'), findsOneWidget);
+    expect(find.text('已撤回'), findsOneWidget);
+    expect(find.text('任务修改'), findsOneWidget);
+    expect(find.text('任务标题：原内容未记录 → New title'), findsOneWidget);
+    expect(find.text('说明'), findsOneWidget);
+    expect(find.text('请求方已撤回请求'), findsOneWidget);
+  });
+
+  testWidgets('request details use readable two-person and change semantics', (
+    tester,
+  ) async {
+    final repository = ApprovalScreenRepository(
+      [
+        approval(
+          'incoming',
+          'user-b',
+          'user-a',
+          proposedChanges: {
+            'title': 'Finish release checklist',
+            'due_at': '2026-09-11T10:00:00Z',
+            'quadrant': 'Q1',
+            'labels': ['工作'],
+            'current_handler_id': 'user-b',
+          },
+        ),
+        approval(
+          'outgoing',
+          'user-a',
+          'user-b',
+          proposedChanges: {'target_status': 'REVIEW'},
+        ),
+      ],
+      members: const [
+        {'user_id': 'user-a', 'display_name': '我'},
+        {'user_id': 'user-b', 'display_name': '溪岸'},
+      ],
+    );
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskApprovalScreen(sync: sync, currentUserId: 'user-a'),
+      ),
+    );
+
+    expect(find.text('26080001 · Prepare trip'), findsNothing);
+    expect(find.text('审批事项'), findsOneWidget);
+    expect(find.text('溪岸 · 发起'), findsOneWidget);
+    expect(find.text('2026年08月28日 00:00'), findsOneWidget);
+    expect(find.text('任务修改'), findsOneWidget);
+    expect(find.text('变更内容'), findsOneWidget);
+    expect(
+      find.text('任务标题：Prepare trip → Finish release checklist'),
+      findsOneWidget,
+    );
+    expect(find.text('截止时间：原内容未记录 → 2026年09月11日 10:00'), findsOneWidget);
+    expect(find.text('user-a'), findsNothing);
+    expect(find.text('user-b'), findsNothing);
+
+    await tester.tap(find.text('我发起的请求'));
+    await tester.pumpAndSettle();
+    expect(find.text('我 · 发起'), findsOneWidget);
+    expect(find.text('任务修改'), findsOneWidget);
+    expect(find.text('任务状态：原内容未记录 → 待验收'), findsOneWidget);
+  });
+
+  testWidgets('classification approval uses the explicit empty-to-new diff', (
+    tester,
+  ) async {
+    final repository = ApprovalScreenRepository(
+      [
+        approval(
+          'classification',
+          'user-b',
+          'user-a',
+          taskId: null,
+          requestType: 'CLASSIFICATION_CREATE',
+          proposedChanges: {'name': '测试分类'},
+        ),
+      ],
+      members: const [
+        {'user_id': 'user-b', 'display_name': '溪岸'},
+      ],
+    );
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskApprovalScreen(sync: sync, currentUserId: 'user-a'),
+      ),
+    );
+
+    expect(find.text('审批类别'), findsOneWidget);
+    expect(find.text('新建分类'), findsOneWidget);
+    expect(find.text('分类名称：无 → 测试分类'), findsOneWidget);
+  });
+
+  testWidgets('separates pending tabs from approval history', (tester) async {
+    final repository = ApprovalScreenRepository([
+      approval('pending', 'user-b', 'user-a'),
+      approval('approved', 'user-b', 'user-a').copyWith(status: 'APPROVED'),
+    ]);
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskApprovalScreen(sync: sync, currentUserId: 'user-a'),
+      ),
+    );
+
+    expect(find.byKey(const Key('approval-card-pending')), findsOneWidget);
+    expect(find.byKey(const Key('approval-card-approved')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('approval-card-approved')), findsOneWidget);
   });
 
   testWidgets('unverified device can inspect but cannot act', (tester) async {
@@ -305,7 +433,8 @@ void main() {
       ),
     );
 
-    expect(find.text('ASSIGNEE_UPDATE · 待审批'), findsOneWidget);
+    expect(find.text('其他审批事项'), findsOneWidget);
+    expect(find.text('user-b'), findsNothing);
     expect(find.textContaining('协作者'), findsNothing);
   });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../devices/device_management_repository.dart';
 import '../theme/muyu_theme.dart';
+import '../widgets/route_settle.dart';
 import '../workspace/device_repository.dart';
 
 class DeviceManagementScreen extends StatefulWidget {
@@ -124,6 +125,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    await waitForRouteDismissal();
+    if (!mounted) return;
     try {
       await widget.repository.revoke(device.id);
       _reload();

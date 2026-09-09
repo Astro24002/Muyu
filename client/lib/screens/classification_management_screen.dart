@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/classification.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
+import '../widgets/route_settle.dart';
 
 /// Shows classifications that are already approved in the current workspace.
 ///
@@ -110,14 +111,18 @@ class _ClassificationManagementScreenState
         ],
       ),
     );
-    controller.dispose();
     final trimmed = name?.trim() ?? '';
-    if (!mounted || trimmed.isEmpty) return;
-    // Let the dialog route finish deactivation before notifying the workspace
-    // listeners. Rebuilding the AnimatedBuilder in the same frame as the
-    // AlertDialog is removed can leave inherited dependents attached and
-    // trigger Flutter's InheritedElement debug assertion.
-    await Future<void>.delayed(Duration.zero);
+    if (!mounted || trimmed.isEmpty) {
+      await waitForRouteDismissal();
+      controller.dispose();
+      return;
+    }
+    // The dialog future completes before its reverse transition has finished.
+    // Wait for the overlay to leave the tree before notifying workspace
+    // listeners, otherwise AnimatedBuilder can hit an inherited-element
+    // deactivation assertion.
+    await waitForRouteDismissal();
+    controller.dispose();
     if (!mounted) return;
     try {
       final approval = await widget.sync.createClassification(trimmed);

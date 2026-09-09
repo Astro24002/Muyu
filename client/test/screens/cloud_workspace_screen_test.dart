@@ -10,6 +10,7 @@ import 'package:muyu_client/auth/mobile_session_store.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/task.dart';
+import 'package:muyu_client/models/task_approval_request.dart';
 import 'package:muyu_client/models/task_overview.dart';
 import 'package:muyu_client/models/user.dart';
 import 'package:muyu_client/models/workspace_change.dart';
@@ -88,6 +89,7 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   String? lastQuadrant;
   List<String>? lastLabels;
   String? lastDueAt;
+  int createClassificationCalls = 0;
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
@@ -141,6 +143,32 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     required Map<String, int> fieldVersions,
     required String requestId,
   }) async => task(taskId, fields['title'] as String? ?? 'updated');
+
+  @override
+  Future<TaskApprovalRequest> createClassification({
+    required String name,
+    required String requestId,
+  }) async {
+    createClassificationCalls++;
+    return TaskApprovalRequest.fromJson({
+      'id': 'classification-approval-$createClassificationCalls',
+      'workspace_id': 'w1',
+      'task_id': null,
+      'comment_id': null,
+      'requester_id': 'user-1',
+      'approver_id': 'user-2',
+      'request_type': 'CLASSIFICATION_CREATE',
+      'proposed_changes': {'name': name},
+      'base_field_versions': <String, int>{},
+      'request_id': requestId,
+      'status': 'PENDING',
+      'created_at': '2026-09-09T00:00:00Z',
+      'reviewed_at': null,
+      'reviewed_by': null,
+      'rejection_reason': null,
+      'resolved_cursor': null,
+    });
+  }
 
   @override
   Future<TaskItem> transition(
@@ -375,6 +403,45 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
 
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'classification submission waits for the dialog route before sync rebuild',
+    (tester) async {
+      final repository = FakeTaskRepository();
+      final sync = await readyController(repository);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: muyuLightTheme(),
+          home: CloudWorkspaceScreen(
+            api: profileTestApi(),
+            syncController: sync,
+            session: loggedInSession,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('profile-classification-management')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('classification-management-create')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('create-classification-input')),
+        '生活',
+      );
+      await tester.tap(find.byKey(const Key('create-classification-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repository.createClassificationCalls, 1);
+      expect(find.text('分类已提交，等待对方审批'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

@@ -242,10 +242,11 @@ void main() {
     expect(find.text('撤回审批请求？'), findsOneWidget);
     expect(repository.cancelled, isNull);
     await tester.tap(find.text('确认撤回'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(repository.cancelled, 'outgoing');
     expect(find.byKey(const Key('approval-card-outgoing')), findsOneWidget);
     expect(find.byKey(const Key('approval-cancel-outgoing')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('resolved requests remain history without pending actions', (

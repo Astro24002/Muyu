@@ -5,6 +5,7 @@ import '../models/task_approval_request.dart';
 import '../tasks/task_status.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
+import '../widgets/route_settle.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   const TaskDetailScreen({
@@ -381,6 +382,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       note.dispose();
       return;
     }
+    await waitForRouteDismissal();
+    if (!mounted) {
+      note.dispose();
+      return;
+    }
     try {
       await widget.sync.addDelay(
         _current.id,
@@ -480,6 +486,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         },
       );
       if (blockedReason == null) return;
+      await waitForRouteDismissal();
+      if (!mounted) return;
     }
     if (!mounted) return;
     String? reviewRejectionReason;
@@ -523,8 +531,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           );
         },
       );
+      await waitForRouteDismissal();
       reason.dispose();
       if (reviewRejectionReason == null) return;
+      if (!mounted) return;
     }
     try {
       final result = await widget.sync.transition(

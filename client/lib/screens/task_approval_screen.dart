@@ -6,6 +6,7 @@ import '../core/api_client.dart';
 import '../models/task_approval_request.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
+import '../widgets/route_settle.dart';
 
 class TaskApprovalScreen extends StatefulWidget {
   const TaskApprovalScreen({
@@ -251,7 +252,9 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
         ],
       ),
     );
-    if (confirmed == true && mounted) await _cancel(request);
+    if (confirmed != true || !mounted) return;
+    await waitForRouteDismissal();
+    if (mounted) await _cancel(request);
   }
 
   Future<void> _performAction(

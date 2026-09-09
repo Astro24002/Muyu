@@ -69,10 +69,13 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
         ? widget.currentUserId
         : (state.snapshot?.viewerUserId ?? '');
     final incoming = state.approvalRequests
-        .where((request) => request.isIncoming(viewerId))
+        .where((request) => request.isIncoming(viewerId) && _isPending(request))
         .toList();
     final outgoing = state.approvalRequests
-        .where((request) => request.isOutgoing(viewerId))
+        .where((request) => request.isOutgoing(viewerId) && _isPending(request))
+        .toList();
+    final history = state.approvalRequests
+        .where((request) => !_isPending(request))
         .toList();
     return Scaffold(
       appBar: AppBar(
@@ -110,20 +113,34 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
             ),
           Expanded(
             child: DefaultTabController(
-              length: 2,
+              length: 3,
               child: Column(
                 children: [
                   const TabBar(
                     tabs: [
                       Tab(text: '待我审批'),
                       Tab(text: '我发起的请求'),
+                      Tab(text: '审批记录'),
                     ],
                   ),
                   Expanded(
                     child: TabBarView(
                       children: [
-                        _requestList(incoming, incoming: true),
-                        _requestList(outgoing, incoming: false),
+                        _requestList(
+                          incoming,
+                          emptyLabel: '暂无待我审批请求',
+                          incoming: true,
+                        ),
+                        _requestList(
+                          outgoing,
+                          emptyLabel: '暂无我发起的请求',
+                          incoming: false,
+                        ),
+                        _requestList(
+                          history,
+                          emptyLabel: '暂无审批记录',
+                          incoming: false,
+                        ),
                       ],
                     ),
                   ),
@@ -138,13 +155,10 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
 
   Widget _requestList(
     List<TaskApprovalRequest> requests, {
+    required String emptyLabel,
     required bool incoming,
   }) {
-    if (requests.isEmpty) {
-      return Center(child: Text(incoming ? '暂无待我审批请求' : '暂无我发起的请求'));
-    }
-    final pending = requests.where(_isPending).toList();
-    final resolved = requests.where((request) => !_isPending(request)).toList();
+    if (requests.isEmpty) return Center(child: Text(emptyLabel));
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(
         MuyuSpacing.md,
@@ -152,84 +166,14 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
         MuyuSpacing.md,
         MuyuSpacing.md,
       ),
-      itemCount: (pending.isEmpty ? 0 : 1) + (resolved.isEmpty ? 0 : 1),
-      itemBuilder: (context, index) {
-        if (pending.isNotEmpty && index == 0) {
-          return _approvalGroup(
-            context,
-            title: '待审批',
-            requests: pending,
-            incoming: incoming,
-            initiallyExpanded: true,
-            key: const Key('approval-pending-group'),
-          );
-        }
-        return _approvalGroup(
-          context,
-          title: '已审批',
-          requests: resolved,
-          incoming: incoming,
-          initiallyExpanded: false,
-          key: const Key('approval-resolved-group'),
-        );
-      },
+      itemCount: requests.length,
+      itemBuilder: (context, index) =>
+          _requestCard(context, requests[index], incoming: incoming),
     );
   }
 
   bool _isPending(TaskApprovalRequest request) =>
       request.status.toUpperCase() == 'PENDING';
-
-  Widget _approvalGroup(
-    BuildContext context, {
-    required String title,
-    required List<TaskApprovalRequest> requests,
-    required bool incoming,
-    required bool initiallyExpanded,
-    required Key key,
-  }) {
-    final children = [
-      for (final request in requests)
-        _requestCard(context, request, incoming: incoming),
-    ];
-    if (initiallyExpanded) {
-      return Column(
-        key: key,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [_groupHeader(context, title, requests.length), ...children],
-      );
-    }
-    return Card(
-      key: key,
-      margin: const EdgeInsets.only(bottom: MuyuSpacing.sm),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        initiallyExpanded: false,
-        tilePadding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.md),
-        childrenPadding: const EdgeInsets.fromLTRB(
-          MuyuSpacing.md,
-          0,
-          MuyuSpacing.md,
-          MuyuSpacing.sm,
-        ),
-        title: _groupHeader(context, title, requests.length),
-        children: children,
-      ),
-    );
-  }
-
-  Widget _groupHeader(BuildContext context, String title, int count) => Row(
-    children: [
-      Text(title, style: Theme.of(context).textTheme.titleSmall),
-      const SizedBox(width: MuyuSpacing.xs),
-      Text(
-        '$count',
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    ],
-  );
 
   Widget _requestCard(
     BuildContext context,
@@ -275,11 +219,32 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
             const SizedBox(height: MuyuSpacing.xs),
             _initiatorRow(context, request),
             const SizedBox(height: MuyuSpacing.sm),
-            _detailRow(context, '审批类别', _approvalTypeLabel(request)),
+            _approvalField(
+              context,
+              label: '审批类别',
+              value: Text(
+                _approvalTypeLabel(request),
+                style: theme.textTheme.bodyMedium,
+              ),
+              labelKey: const Key('approval-category-label'),
+              valueKey: const Key('approval-category-value'),
+            ),
             const SizedBox(height: MuyuSpacing.sm),
-            _sectionTitle(context, '变更内容'),
-            const SizedBox(height: MuyuSpacing.xs),
-            ..._changeRows(context, request, task: task, pending: pending),
+            _approvalField(
+              context,
+              label: '变更内容',
+              value: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _changeRows(
+                  context,
+                  request,
+                  task: task,
+                  pending: pending,
+                ),
+              ),
+              labelKey: const Key('approval-change-label'),
+              valueKey: const Key('approval-change-value'),
+            ),
             if (request.rejectionReason != null) ...[
               const SizedBox(height: MuyuSpacing.xs),
               _detailRow(context, '说明', _reasonLabel(request.rejectionReason!)),
@@ -331,21 +296,27 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     );
   }
 
-  Widget _sectionTitle(BuildContext context, String title) =>
-      Text(title, style: Theme.of(context).textTheme.labelLarge);
-
-  Widget _detailRow(BuildContext context, String label, String value) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      SizedBox(
-        width: 76,
-        child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ),
-      Expanded(
-        child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
-      ),
-    ],
-  );
+  Widget _approvalField(
+    BuildContext context, {
+    required String label,
+    required Widget value,
+    Key? labelKey,
+    Key? valueKey,
+  }) {
+    final labelStyle = Theme.of(context).textTheme.bodySmall;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 76,
+          child: Text(label, key: labelKey, style: labelStyle),
+        ),
+        Expanded(
+          child: KeyedSubtree(key: valueKey, child: value),
+        ),
+      ],
+    );
+  }
 
   Widget _initiatorRow(BuildContext context, TaskApprovalRequest request) {
     final name = _memberDisplayName(request.requesterId) ?? '对方';
@@ -433,18 +404,19 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
         ? '无'
         : _changeValue(field, oldValue);
     final newLabel = _changeValue(field, proposedValue);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Text(
-            '${_fieldLabel(field)}：$oldLabel → $newLabel',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
-      ],
+    return Text(
+      '${_fieldLabel(field)}：$oldLabel → $newLabel',
+      key: Key('approval-change-row-$field'),
+      style: Theme.of(context).textTheme.bodyMedium,
     );
   }
+
+  Widget _detailRow(BuildContext context, String label, String value) =>
+      _approvalField(
+        context,
+        label: label,
+        value: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+      );
 
   Object? _originalValue(
     TaskApprovalRequest request,

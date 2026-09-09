@@ -238,7 +238,7 @@ void main() {
     expect(repository.approved, 'incoming');
     expect(find.byKey(const Key('approval-card-incoming')), findsNothing);
     expect(find.byKey(const Key('approval-approve-incoming')), findsNothing);
-    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    await tester.tap(find.text('审批记录'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('approval-card-incoming')), findsOneWidget);
 
@@ -254,7 +254,7 @@ void main() {
     expect(repository.cancelled, 'outgoing');
     expect(find.byKey(const Key('approval-card-outgoing')), findsNothing);
     expect(find.byKey(const Key('approval-cancel-outgoing')), findsNothing);
-    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    await tester.tap(find.text('审批记录'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('approval-card-outgoing')), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -279,9 +279,11 @@ void main() {
 
     expect(find.byKey(const Key('approval-card-resolved')), findsNothing);
     expect(find.byKey(const Key('approval-approve-resolved')), findsNothing);
-    expect(find.byKey(const Key('approval-resolved-group')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    expect(find.text('审批记录'), findsOneWidget);
+    await tester.tap(find.text('审批记录'));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('approval-approve-resolved')), findsNothing);
+    expect(find.byKey(const Key('approval-cancel-resolved')), findsNothing);
     expect(find.text('对方 · 发起'), findsOneWidget);
     expect(find.text('已撤回'), findsOneWidget);
     expect(find.text('任务修改'), findsOneWidget);
@@ -338,6 +340,18 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('截止时间：原内容未记录 → 2026年09月11日 10:00'), findsOneWidget);
+    expect(find.byKey(const Key('approval-change-value')), findsOneWidget);
+    expect(find.byKey(const Key('approval-change-row-title')), findsOneWidget);
+    expect(find.byKey(const Key('approval-change-row-due_at')), findsOneWidget);
+    expect(
+      find.byKey(const Key('approval-change-row-quadrant')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('approval-change-row-labels')), findsOneWidget);
+    expect(
+      find.byKey(const Key('approval-change-row-current_handler_id')),
+      findsOneWidget,
+    );
     expect(find.text('user-a'), findsNothing);
     expect(find.text('user-b'), findsNothing);
 
@@ -377,6 +391,19 @@ void main() {
     expect(find.text('审批类别'), findsOneWidget);
     expect(find.text('新建分类'), findsOneWidget);
     expect(find.text('分类名称：无 → 测试分类'), findsOneWidget);
+
+    final categoryLabel = tester.widget<Text>(
+      find.byKey(const Key('approval-category-label')),
+    );
+    final changeLabel = tester.widget<Text>(
+      find.byKey(const Key('approval-change-label')),
+    );
+    expect(categoryLabel.style?.fontSize, changeLabel.style?.fontSize);
+    expect(categoryLabel.style?.fontWeight, changeLabel.style?.fontWeight);
+    expect(
+      tester.getRect(find.byKey(const Key('approval-category-label'))).width,
+      tester.getRect(find.byKey(const Key('approval-change-label'))).width,
+    );
   });
 
   testWidgets('separates pending tabs from approval history', (tester) async {
@@ -395,9 +422,12 @@ void main() {
     expect(find.byKey(const Key('approval-card-pending')), findsOneWidget);
     expect(find.byKey(const Key('approval-card-approved')), findsNothing);
 
-    await tester.tap(find.byKey(const Key('approval-resolved-group')));
+    expect(find.text('审批记录'), findsOneWidget);
+    await tester.tap(find.text('审批记录'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('approval-card-approved')), findsOneWidget);
+    expect(find.byKey(const Key('approval-approve-approved')), findsNothing);
+    expect(find.byKey(const Key('approval-cancel-approved')), findsNothing);
   });
 
   testWidgets('unverified device can inspect but cannot act', (tester) async {

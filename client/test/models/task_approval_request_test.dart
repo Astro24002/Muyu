@@ -84,6 +84,8 @@ void main() {
     expect(request.isIncoming('user-b'), isFalse);
     expect(request.isOutgoing('user-b'), isTrue);
     expect(request.isOutgoing('user-a'), isFalse);
+    expect(request.isIncoming('USER-A'), isTrue);
+    expect(request.isOutgoing('USER-B'), isTrue);
   });
 
   test(

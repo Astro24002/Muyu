@@ -68,9 +68,11 @@ class TaskApprovalRequest {
     );
   }
 
-  bool isIncoming(String userId) => approverId == userId;
+  bool isIncoming(String userId) =>
+      approverId.toLowerCase() == userId.toLowerCase();
 
-  bool isOutgoing(String userId) => requesterId == userId;
+  bool isOutgoing(String userId) =>
+      requesterId.toLowerCase() == userId.toLowerCase();
 
   Map<String, Object?> toJson() => {
     'id': id,

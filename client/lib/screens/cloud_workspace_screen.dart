@@ -363,7 +363,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
       MaterialPageRoute(
         builder: (_) => TaskApprovalScreen(
           sync: _sync,
-          currentUserId: snapshot.viewerUserId ?? widget.session?.user.id ?? '',
+          currentUserId: widget.session?.user.id ?? snapshot.viewerUserId ?? '',
           canWrite: widget.canWrite,
         ),
       ),

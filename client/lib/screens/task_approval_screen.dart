@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../core/api_client.dart';
 import '../models/task_approval_request.dart';
 import '../sync/workspace_sync_controller.dart';
 import '../theme/muyu_theme.dart';
@@ -22,6 +25,18 @@ class TaskApprovalScreen extends StatefulWidget {
 
 class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   bool _loading = false;
+  final Set<String> _submittingRequestIds = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    // A request may have been created on the partner device after the
+    // workspace snapshot was loaded. Refresh when the approval surface opens
+    // so the two boxes are authoritative even without a realtime hint.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_refresh());
+    });
+  }
 
   Future<void> _refresh() async {
     if (_loading) return;
@@ -36,13 +51,21 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.sync,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final state = widget.sync.state;
+    final viewerId = widget.currentUserId.isNotEmpty
+        ? widget.currentUserId
+        : (state.snapshot?.viewerUserId ?? '');
     final incoming = state.approvalRequests
-        .where((request) => request.isIncoming(widget.currentUserId))
+        .where((request) => request.isIncoming(viewerId))
         .toList();
     final outgoing = state.approvalRequests
-        .where((request) => request.isOutgoing(widget.currentUserId))
+        .where((request) => request.isOutgoing(viewerId))
         .toList();
     return Scaffold(
       appBar: AppBar(
@@ -134,7 +157,8 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
               ? '新建分类：${request.proposedChanges['name'] ?? ''}'
               : (request.taskId ?? '协作请求')
         : '${task.taskNumber.isEmpty ? task.id : task.taskNumber} ${task.title}';
-    final pending = request.status == 'PENDING';
+    final pending = request.status.toUpperCase() == 'PENDING';
+    final submitting = _submittingRequestIds.contains(request.id);
     return Card(
       key: Key('approval-card-${request.id}'),
       child: Padding(
@@ -156,14 +180,14 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
                 children: [
                   FilledButton(
                     key: Key('approval-approve-${request.id}'),
-                    onPressed: () => _approve(request),
-                    child: const Text('批准'),
+                    onPressed: submitting ? null : () => _approve(request),
+                    child: _actionLabel('批准', submitting),
                   ),
                   const SizedBox(width: MuyuSpacing.sm),
                   OutlinedButton(
                     key: Key('approval-reject-${request.id}'),
-                    onPressed: () => _reject(request),
-                    child: const Text('拒绝'),
+                    onPressed: submitting ? null : () => _reject(request),
+                    child: _actionLabel('拒绝', submitting),
                   ),
                 ],
               ),
@@ -172,8 +196,8 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton(
                   key: Key('approval-cancel-${request.id}'),
-                  onPressed: () => _cancel(request),
-                  child: const Text('取消请求'),
+                  onPressed: submitting ? null : () => _cancel(request),
+                  child: _actionLabel('取消请求', submitting),
                 ),
               ),
           ],
@@ -183,27 +207,80 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   }
 
   Future<void> _approve(TaskApprovalRequest request) async {
-    try {
-      await widget.sync.approveApproval(request.id);
-    } catch (_) {
-      // The controller exposes the error in its state.
-    }
+    await _performAction(
+      request,
+      widget.sync.approveApproval,
+      successMessage: '审批已通过',
+    );
   }
 
   Future<void> _reject(TaskApprovalRequest request) async {
-    try {
-      await widget.sync.rejectApproval(request.id);
-    } catch (_) {
-      // The controller exposes the error in its state.
-    }
+    await _performAction(
+      request,
+      widget.sync.rejectApproval,
+      successMessage: '审批已拒绝',
+    );
   }
 
   Future<void> _cancel(TaskApprovalRequest request) async {
+    await _performAction(
+      request,
+      widget.sync.cancelApproval,
+      successMessage: '请求已取消',
+    );
+  }
+
+  Future<void> _performAction(
+    TaskApprovalRequest request,
+    Future<ApprovalActionResult> Function(String approvalId) action, {
+    required String successMessage,
+  }) async {
+    if (_submittingRequestIds.contains(request.id)) return;
+    setState(() => _submittingRequestIds.add(request.id));
     try {
-      await widget.sync.cancelApproval(request.id);
-    } catch (_) {
-      // The controller exposes the error in its state.
+      await action(request.id);
+      _showFeedback(successMessage);
+    } catch (error) {
+      _showFeedback(_actionErrorMessage(error));
+      // The partner may have resolved the request while this page was open.
+      // Reconcile the authoritative snapshot so a stale pending card cannot
+      // leave the user with an action that can no longer succeed.
+      try {
+        await widget.sync.refresh();
+      } catch (_) {
+        // Keep the original action error visible when reconciliation fails.
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _submittingRequestIds.remove(request.id));
+      }
     }
+  }
+
+  Widget _actionLabel(String label, bool submitting) {
+    if (!submitting) return Text(label);
+    return const SizedBox(
+      width: 16,
+      height: 16,
+      child: CircularProgressIndicator(strokeWidth: 2),
+    );
+  }
+
+  void _showFeedback(String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    });
+  }
+
+  String _actionErrorMessage(Object error) {
+    if (error is ApiException && error.message.trim().isNotEmpty) {
+      return error.message;
+    }
+    return '操作失败，请刷新后重试';
   }
 
   static String _typeLabel(String type) => switch (type) {

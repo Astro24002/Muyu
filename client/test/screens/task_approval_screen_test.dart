@@ -160,7 +160,9 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
   }) async {
     approved = approvalId;
     return ApprovalActionResult(
-      approvalRequest: approvals.firstWhere((item) => item.id == approvalId),
+      approvalRequest: approvals
+          .firstWhere((item) => item.id == approvalId)
+          .copyWith(status: 'APPROVED'),
     );
   }
 
@@ -173,7 +175,9 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
   }) async {
     rejected = approvalId;
     return ApprovalActionResult(
-      approvalRequest: approvals.firstWhere((item) => item.id == approvalId),
+      approvalRequest: approvals
+          .firstWhere((item) => item.id == approvalId)
+          .copyWith(status: 'REJECTED'),
     );
   }
 
@@ -185,7 +189,9 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
   }) async {
     cancelled = approvalId;
     return ApprovalActionResult(
-      approvalRequest: approvals.firstWhere((item) => item.id == approvalId),
+      approvalRequest: approvals
+          .firstWhere((item) => item.id == approvalId)
+          .copyWith(status: 'CANCELLED'),
     );
   }
 
@@ -225,6 +231,8 @@ void main() {
     await tester.tap(find.byKey(const Key('approval-approve-incoming')));
     await tester.pump();
     expect(repository.approved, 'incoming');
+    expect(find.byKey(const Key('approval-card-incoming')), findsOneWidget);
+    expect(find.byKey(const Key('approval-approve-incoming')), findsNothing);
 
     await tester.tap(find.text('我发起的请求'));
     await tester.pumpAndSettle();
@@ -232,6 +240,26 @@ void main() {
     await tester.tap(find.byKey(const Key('approval-cancel-outgoing')));
     await tester.pump();
     expect(repository.cancelled, 'outgoing');
+    expect(find.byKey(const Key('approval-card-outgoing')), findsOneWidget);
+    expect(find.byKey(const Key('approval-cancel-outgoing')), findsNothing);
+  });
+
+  testWidgets('resolved requests remain history without pending actions', (
+    tester,
+  ) async {
+    final repository = ApprovalScreenRepository([
+      approval('resolved', 'user-b', 'user-a').copyWith(status: 'CANCELLED'),
+    ]);
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskApprovalScreen(sync: sync, currentUserId: 'user-a'),
+      ),
+    );
+
+    expect(find.byKey(const Key('approval-card-resolved')), findsOneWidget);
+    expect(find.byKey(const Key('approval-approve-resolved')), findsNothing);
   });
 
   testWidgets('unverified device can inspect but cannot act', (tester) async {

@@ -239,6 +239,10 @@ void main() {
     expect(find.byKey(const Key('approval-cancel-outgoing')), findsOneWidget);
     await tester.tap(find.byKey(const Key('approval-cancel-outgoing')));
     await tester.pump();
+    expect(find.text('撤回审批请求？'), findsOneWidget);
+    expect(repository.cancelled, isNull);
+    await tester.tap(find.text('确认撤回'));
+    await tester.pump();
     expect(repository.cancelled, 'outgoing');
     expect(find.byKey(const Key('approval-card-outgoing')), findsOneWidget);
     expect(find.byKey(const Key('approval-cancel-outgoing')), findsNothing);
@@ -248,7 +252,10 @@ void main() {
     tester,
   ) async {
     final repository = ApprovalScreenRepository([
-      approval('resolved', 'user-b', 'user-a').copyWith(status: 'CANCELLED'),
+      approval('resolved', 'user-b', 'user-a').copyWith(
+        status: 'CANCELLED',
+        rejectionReason: 'cancelled by requester',
+      ),
     ]);
     final sync = WorkspaceSyncController(repository);
     await sync.refresh();
@@ -260,6 +267,8 @@ void main() {
 
     expect(find.byKey(const Key('approval-card-resolved')), findsOneWidget);
     expect(find.byKey(const Key('approval-approve-resolved')), findsNothing);
+    expect(find.text('任务修改 · 已撤回'), findsOneWidget);
+    expect(find.text('说明：发起人已撤回请求'), findsOneWidget);
   });
 
   testWidgets('unverified device can inspect but cannot act', (tester) async {
@@ -295,7 +304,7 @@ void main() {
       ),
     );
 
-    expect(find.text('ASSIGNEE_UPDATE · PENDING'), findsOneWidget);
+    expect(find.text('ASSIGNEE_UPDATE · 待审批'), findsOneWidget);
     expect(find.textContaining('协作者'), findsNothing);
   });
 }

@@ -168,13 +168,16 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
           children: [
             Text(taskLabel, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: MuyuSpacing.xs),
-            Text('${_typeLabel(request.requestType)} · ${request.status}'),
+            Text(
+              '${_typeLabel(request.requestType)} · ${_statusLabel(request.status)}',
+            ),
             Text('发起人：${request.requesterId}'),
             Text('审批人：${request.approverId}'),
+            if (!incoming && pending) const Text('等待对方审批，发起人不能审批自己的请求'),
             if (request.proposedChanges.isNotEmpty)
               Text('变更：${request.proposedChanges}'),
             if (request.rejectionReason != null)
-              Text('说明：${request.rejectionReason}'),
+              Text('说明：${_reasonLabel(request.rejectionReason!)}'),
             if (incoming && pending && widget.canWrite)
               Row(
                 children: [
@@ -196,8 +199,8 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton(
                   key: Key('approval-cancel-${request.id}'),
-                  onPressed: submitting ? null : () => _cancel(request),
-                  child: _actionLabel('取消请求', submitting),
+                  onPressed: submitting ? null : () => _confirmCancel(request),
+                  child: _actionLabel('撤回请求', submitting),
                 ),
               ),
           ],
@@ -228,6 +231,27 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
       widget.sync.cancelApproval,
       successMessage: '请求已取消',
     );
+  }
+
+  Future<void> _confirmCancel(TaskApprovalRequest request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('撤回审批请求？'),
+        content: const Text('撤回后对方将无法继续审批，需要重新提交请求。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('继续等待'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('确认撤回'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _cancel(request);
   }
 
   Future<void> _performAction(
@@ -293,5 +317,22 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     'HANDLER_TRANSFER' => '负责人转移',
     'CLASSIFICATION_CREATE' => '新建分类',
     _ => type,
+  };
+
+  static String _statusLabel(String status) => switch (status.toUpperCase()) {
+    'PENDING' => '待审批',
+    'APPROVED' => '已批准',
+    'REJECTED' => '已拒绝',
+    'CONFLICTED' => '已失效',
+    'CANCELLED' => '已撤回',
+    _ => status,
+  };
+
+  static String _reasonLabel(String reason) => switch (reason) {
+    'cancelled by requester' => '发起人已撤回请求',
+    'task handler changed' => '任务负责人已变更',
+    'task was deleted' => '任务已删除',
+    'task was restored' => '任务已恢复',
+    _ => reason,
   };
 }

@@ -20,6 +20,10 @@
    - 与 Web 共享颜色、层级、文案和状态语义；
    - 基于 Material 3、底部导航、触控和系统返回设计实际页面；
    - 明确跨端必须一致、可以不同和禁止偏离的视觉边界。
+5. [产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)
+   - 单人 Workspace 自动提供个人起步分类；
+   - 第二位成员加入后切换到共享分类和双人协作；
+   - 任务必须由另一位成员验收后才能完成。
 
 ## 待执行实施计划
 
@@ -85,7 +89,7 @@
 
 ## 当前状态
 
-当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。Android 只构建 APK/AAB，独立 TypeScript + Vite 应用构建 `web/dist`，Caddy 负责静态文件和 API/WebSocket 反向代理。Web 前端视觉重构实施计划 Tasks 1-10 已完成；剩余工作是使用新的空数据库、真实 Android 设备和短信供应商执行部署验收。Phase 0-3 的实现记录和旧架构文档均为历史基线，不可作为新系统验收依据。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。Android 只构建 APK/AAB，独立 TypeScript + Vite 应用构建 `web/dist`，Caddy 负责静态文件和 API/WebSocket 反向代理。当前产品路线优先处理单人起步、双人加入、双人验收、同步可靠性和任务可发现性；路线文档见[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
 
 ## 历史基线验收
 

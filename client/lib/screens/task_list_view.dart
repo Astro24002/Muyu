@@ -357,25 +357,27 @@ class _MetadataPill extends StatelessWidget {
     label: semanticLabel,
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 132),
-      child: Container(
-        height: compact ? 20 : 24,
-        alignment: compact ? null : Alignment.center,
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? MuyuSpacing.xs : MuyuSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: const BorderRadius.all(Radius.circular(999)),
-        ),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: foreground,
-            fontSize: compact ? 9 : null,
-            height: compact ? 12 / 9 : null,
+      child: IntrinsicWidth(
+        child: Container(
+          height: compact ? 20 : 24,
+          alignment: Alignment.center,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? MuyuSpacing.xs : MuyuSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: const BorderRadius.all(Radius.circular(999)),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: foreground,
+              fontSize: compact ? 9 : null,
+              height: compact ? 12 / 9 : null,
+            ),
           ),
         ),
       ),

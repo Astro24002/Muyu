@@ -187,6 +187,7 @@ void main() {
       final container = tester.widget<Container>(
         find.descendant(of: pill, matching: find.byType(Container)),
       );
+      expect(container.alignment, Alignment.center);
       expect(
         (container.decoration! as BoxDecoration).borderRadius,
         const BorderRadius.all(Radius.circular(999)),

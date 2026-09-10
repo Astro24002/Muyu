@@ -10,7 +10,7 @@
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
 - 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入，非当前负责人的成员写入受保护字段时继续提交给对方审批；“我的任务”只按当前负责人筛选。
 - 当前分类契约：单人 Workspace 自动提供唯一的个人起步分类，允许第一位用户立即创建任务；第二位 ACTIVE 成员加入后，起步分类转为只读迁移分类。双人阶段新任务必须显式选择已批准共享分类，首个共享分类由一方发起 `CLASSIFICATION_CREATE` 并经另一位成员批准。
-- 当前完成契约：任务完成始终需要另一位成员验收。负责人一次提交验收必须同时将任务改为 `REVIEW` 并自动创建验收审批；批准后进入 `DONE`，驳回并填写原因后回到 `IN_PROGRESS`。当前后端仍需补齐这个同事务自动建审批的 R2 实现。单人阶段不能直接完成，也不创建没有审批人的验收请求。
+- 当前完成契约：任务完成始终需要另一位成员验收。负责人一次提交验收会在同一事务内将任务改为 `REVIEW` 并自动创建唯一验收审批；批准后进入 `DONE`，驳回并填写原因后回到 `IN_PROGRESS`。单人阶段不能直接完成，也不创建没有审批人的验收请求。
 - 当前 Android 账户概览：从现有 Workspace snapshot 统计当前用户负责的全部未删除父任务和子任务，并显示任务、完成和延期汇总；匹配对象头像打开另一位 ACTIVE 成员的同口径概览。
 - 当前 Android 入口与资料边界：任务审批和 Web 扫码只从“我的”页 AppBar 进入；短信验证成功的每台 Android 设备直接为 `ACTIVE` 且可写；设备管理只能在二次确认后撤销同一账号的其他设备，当前设备不可撤销；个人资料只编辑 `display_name`，头像继续使用默认 `CircleAvatar`。
 - 当前 Workspace bootstrap 契约：只返回 ACTIVE 成员的 `match_status`、成员数量、名称、脱敏手机号和 `is_current`；零或一名成员为 `waiting_partner`，两名成员为 `matched`，未匹配时客户端只显示默认占位头像和“匹配中”，不伪造对方身份。
@@ -25,6 +25,14 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-10 - 双人任务验收自动审批施工完成
+
+- 类型：后端任务状态 / 双人审批 / Android 与 Web 兼容施工。
+- 变更：负责人提交“待验收”时，服务端在同一事务内执行 `IN_PROGRESS -> REVIEW`，并自动创建唯一的 `STATUS_UPDATE` 验收审批；审批只允许另一位 ACTIVE 成员处理。批准后任务进入 `DONE`，驳回必须填写原因并将任务回到 `IN_PROGRESS`，审批结果和任务快照一并返回，避免客户端等待下一次同步才能恢复状态。
+- 单人边界：ACTIVE 成员不足两人时，提交验收直接拒绝且不会留下 `REVIEW` 任务或无审批人的请求；负责人不能绕过验收直接完成。
+- 客户端：Android 详情、审批中心和同步控制器识别验收审批及任务快照；Web 审批列表隐藏内部 `review_submission` 标记并展示“任务验收 / 待验收”。
+- 验证：任务审批、HTTP 路由、首页和云协议回归，以及 Flutter analyze/test 已通过；完整后端与 Web 门禁在本轮提交前执行并记录。
 
 ### 2026-09-08 - Android 日程紧凑月历施工完成
 

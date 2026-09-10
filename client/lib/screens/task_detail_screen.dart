@@ -550,7 +550,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         reviewRejectionReason: reviewRejectionReason,
       );
       if (result is PendingApproval && mounted) {
-        setState(() => _pendingMessage = '等待负责人审批');
+        final reviewSubmission =
+            result.approvalRequest.proposedChanges['review_submission'] == true;
+        setState(
+          () => _pendingMessage = reviewSubmission ? '已提交验收，等待对方审批' : '等待负责人审批',
+        );
       }
     } catch (_) {
       // Keep the error in the sync banner.

@@ -345,17 +345,19 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   }
 
   String _approvalTypeLabel(TaskApprovalRequest request) =>
-      switch (request.requestType.toUpperCase()) {
-        'TASK_UPDATE' => '任务修改',
-        'QUADRANT_UPDATE' => '四象限修改',
-        'STATUS_UPDATE' => '状态修改',
-        'TASK_DELETE' => '删除任务',
-        'TASK_RESTORE' => '恢复任务',
-        'COMMENT_DELETE' => '删除评论',
-        'HANDLER_TRANSFER' => '负责人转移',
-        'CLASSIFICATION_CREATE' => '新建分类',
-        _ => '其他审批事项',
-      };
+      _isReviewSubmission(request)
+      ? '任务验收'
+      : switch (request.requestType.toUpperCase()) {
+          'TASK_UPDATE' => '任务修改',
+          'QUADRANT_UPDATE' => '四象限修改',
+          'STATUS_UPDATE' => '状态修改',
+          'TASK_DELETE' => '删除任务',
+          'TASK_RESTORE' => '恢复任务',
+          'COMMENT_DELETE' => '删除评论',
+          'HANDLER_TRANSFER' => '负责人转移',
+          'CLASSIFICATION_CREATE' => '新建分类',
+          _ => '其他审批事项',
+        };
 
   List<Widget> _changeRows(
     BuildContext context,
@@ -363,7 +365,9 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     required TaskItem? task,
     required bool pending,
   }) {
-    final entries = _orderedChanges(request.proposedChanges);
+    final entries = _orderedChanges(request.proposedChanges)
+        .where((entry) => entry.key != 'review_submission')
+        .toList();
     if (entries.isEmpty) {
       return [Text('无字段变更', style: Theme.of(context).textTheme.bodyMedium)];
     }
@@ -396,14 +400,21 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
       task: task,
       pending: pending,
     );
-    final oldLabel = oldValue is _UnavailableOriginalValue
+    final reviewSubmission =
+        _isReviewSubmission(request) &&
+        (field == 'target_status' || field == 'status');
+    final oldLabel = reviewSubmission
+        ? '进行中'
+        : oldValue is _UnavailableOriginalValue
         ? '原内容未记录'
         : request.requestType.toUpperCase() == 'CLASSIFICATION_CREATE' &&
               field == 'name' &&
               oldValue == null
         ? '无'
         : _changeValue(field, oldValue);
-    final newLabel = _changeValue(field, proposedValue);
+    final newLabel = reviewSubmission
+        ? '待验收'
+        : _changeValue(field, proposedValue);
     return Text(
       '${_fieldLabel(field)}：$oldLabel → $newLabel',
       key: Key('approval-change-row-$field'),
@@ -547,6 +558,13 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     }
   }
 
+  bool _isReviewSubmission(TaskApprovalRequest request) {
+    final changes = request.proposedChanges;
+    return request.requestType.toUpperCase() == 'STATUS_UPDATE' &&
+        changes['review_submission'] == true &&
+        changes['target_status'] == 'DONE';
+  }
+
   static String _fieldLabel(String field) => switch (field) {
     'title' => '任务标题',
     'description' => '任务描述',
@@ -630,9 +648,53 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   }
 
   Future<void> _reject(TaskApprovalRequest request) async {
+    String? reason;
+    if (_isReviewSubmission(request)) {
+      final controller = TextEditingController();
+      reason = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          String? errorText;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('退回待验收任务'),
+              content: TextField(
+                controller: controller,
+                autofocus: true,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: '退回原因',
+                  errorText: errorText,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final value = controller.text.trim();
+                    if (value.isEmpty) {
+                      setDialogState(() => errorText = '请填写退回原因');
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(value);
+                  },
+                  child: const Text('确认退回'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+      await waitForRouteDismissal();
+      controller.dispose();
+      if (!mounted || reason == null) return;
+    }
     await _performAction(
       request,
-      widget.sync.rejectApproval,
+      (approvalId) => widget.sync.rejectApproval(approvalId, reason: reason),
       successMessage: '审批已拒绝',
     );
   }

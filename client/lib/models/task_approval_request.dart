@@ -130,11 +130,20 @@ class TaskApprovalRequest {
 class PendingApproval implements TaskMutationResult {
   const PendingApproval({
     required this.approvalRequest,
+    this.task,
     this.pending = true,
     this.cursor,
   });
 
   final TaskApprovalRequest approvalRequest;
+
+  /// Optional authoritative task snapshot returned by compound mutations.
+  ///
+  /// Task review submission changes the task to REVIEW and creates the
+  /// approval in one server transaction. Keeping the snapshot on the pending
+  /// response lets the client render that state immediately instead of waiting
+  /// for the next cursor pull.
+  final TaskItem? task;
   final bool pending;
   final int? cursor;
 
@@ -151,6 +160,9 @@ class PendingApproval implements TaskMutationResult {
       approvalRequest: TaskApprovalRequest.fromJson(
         rawRequest.cast<String, dynamic>(),
       ),
+      task: json['task'] is Map
+          ? TaskItem.fromJson((json['task'] as Map).cast<String, dynamic>())
+          : null,
       pending: json['pending'] as bool? ?? true,
       cursor: (json['cursor'] as num?)?.toInt(),
     );

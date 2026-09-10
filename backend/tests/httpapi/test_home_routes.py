@@ -58,8 +58,12 @@ def _transition(
             **metadata,
         },
     )
-    assert response.status_code == 200, response.text
-    return response.json()
+    assert response.status_code in {200, 202}, response.text
+    payload = response.json()
+    if response.status_code == 202:
+        assert payload["pending"] is True
+        return payload["task"]
+    return payload
 
 
 def _section(body: dict[str, object], name: str) -> dict[str, object]:
@@ -151,7 +155,9 @@ def test_home_returns_only_the_actor_actionable_tasks_and_omits_deleted_or_forei
     assert current["has_more"] is False
     assert blocked["has_more"] is False
     assert review["has_more"] is False
-    assert body["pending_approval_count"] == 0
+    # The review submission automatically creates an incoming acceptance
+    # request for the owner of the home page.
+    assert body["pending_approval_count"] == 1
 
     visible_ids = {
         item["id"]
@@ -224,7 +230,9 @@ def test_home_caps_each_section_and_counts_only_incoming_pending_approvals(db_en
     assert blocked["has_more"] is True
     assert len(review["items"]) == 3
     assert review["has_more"] is True
-    assert body["pending_approval_count"] == 1
+    # Four review submissions plus the partner's title change are waiting for
+    # this user.
+    assert body["pending_approval_count"] == 5
 
 
 def test_home_sorts_current_tasks_by_due_urgency_then_update_time_and_id(db_engine) -> None:

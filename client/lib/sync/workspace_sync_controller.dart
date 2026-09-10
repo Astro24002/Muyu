@@ -284,7 +284,9 @@ class WorkspaceSyncController extends ChangeNotifier {
         await pull();
         await _refreshHome();
       } else if (result is PendingApproval) {
+        if (result.task != null) _replaceTask(result.task!);
         _mergeApproval(result.approvalRequest);
+        await _refreshAfterAction(result.cursor);
       }
       return result;
     } catch (error) {

@@ -26,6 +26,17 @@
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
 
+### 2026-09-10 - Android 前台 REST Cursor 自动同步施工完成
+
+- 类型：Android 同步可靠性 / 生命周期 / 测试。
+- 变更：正式 `CloudWorkspaceScreen` 使用的 `WorkspaceSyncController` 现在通过
+  `changes(after_cursor=...)` 每 30 秒轮询增量；进入前台时立即补拉，进入后台或非活跃状态时暂停。
+  定时器、手动刷新和前台恢复共用同一个游标请求，并合并并发请求，继续保留快照缓存和手动刷新。
+- 边界：本轮不引入 WebSocket、Redis、推送或后台常驻服务；应用被系统杀死或长期后台时不承诺实时同步，
+  下一次回到前台会依据本地游标追平服务端变更。REST Cursor 仍是同步正确性来源。
+- 验证：Dart format、`flutter analyze` 和 Flutter 全量测试 `205 passed`；`git diff --check` 通过。
+- 提交：`35a4168`。
+
 ### 2026-09-10 - 双人任务验收自动审批施工完成
 
 - 类型：后端任务状态 / 双人审批 / Android 与 Web 兼容施工。

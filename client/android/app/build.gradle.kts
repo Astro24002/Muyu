@@ -28,25 +28,42 @@ android {
         versionName = flutter.versionName
     }
 
-    val releaseStorePath = System.getenv("ANDROID_KEYSTORE_PATH")
-    val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-    val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
-    val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-    if (listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword).all { it != null }) {
+    val releaseStorePath = System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf(String::isNotBlank)
+    val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf(String::isNotBlank)
+    val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")?.takeIf(String::isNotBlank)
+    val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")?.takeIf(String::isNotBlank)
+    val releaseSigningReady = listOf(
+        releaseStorePath,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword,
+    ).all { it != null }
+    val releaseSigningConfig = if (releaseSigningReady) {
         signingConfigs.create("release") {
             storeFile = file(releaseStorePath!!)
             storePassword = releaseStorePassword
             keyAlias = releaseKeyAlias
             keyPassword = releaseKeyPassword
         }
+    } else {
+        null
     }
 
     buildTypes {
         release {
-            // Local release builds may use debug signing; the protected release
-            // workflow always supplies and selects the real release config.
-            signingConfig = signingConfigs.findByName("release")
-                ?: signingConfigs.getByName("debug")
+            // Release artifacts must never silently fall back to the debug key.
+            signingConfig = releaseSigningConfig
+        }
+    }
+
+    // Keep local debug builds usable without credentials, but fail a requested
+    // release build before Gradle can produce an unsigned or debug-signed APK.
+    gradle.taskGraph.whenReady {
+        if (!releaseSigningReady && allTasks.any { it.name.contains("Release", ignoreCase = true) }) {
+            throw GradleException(
+                "Release Android builds require ANDROID_KEYSTORE_PATH, " +
+                    "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD"
+            )
         }
     }
 }

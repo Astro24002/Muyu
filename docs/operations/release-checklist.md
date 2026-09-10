@@ -39,6 +39,10 @@ Items below remain unchecked unless the described release evidence is produced.
       `Muyu-v0.1.2.apk`.
 - [x] Release APK build, checksum, GitHub tag/release and successful Action run.
 
+The historical `0.1.2` evidence above predates the stable APK signing guard.
+For new releases, `Muyu-vX.Y.Z.apk` must be produced by the signed release
+builder and must not be copied from `app-debug.apk`.
+
 ## 0.1.2 final verification (2026-08-31)
 
 - [x] Final runtime source commit before release: `89bd456ce655b995af5a8a484950580667c6e761`.
@@ -75,12 +79,19 @@ The same focused tests were then run in the prepared Python 3.12 dependency imag
       cookie-secure mode, allowed origin, backup repository credentials, and
       backup encryption key are injected from the secret store.
 - [ ] Run `make verify` and inspect the generated Android/Web artifacts.
+- [ ] Configure the fixed release keystore only in the CI secret store:
+      `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+      `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
+- [ ] Confirm the version APK workflow validates the keystore and runs
+      `apksigner verify`; never publish an APK when a signing input is missing.
 - [ ] Take and verify a fresh encrypted full backup.
 
 ## Deliverables
 
 - [x] Android debug APK: `Muyu-5e1fa66.apk` for internal installation/testing;
       SHA-256 is recorded above.
+- [ ] Signed Android version APK: `Muyu-v<version>.apk`, built by the fixed
+      release keystore workflow and attached as the only APK release asset.
 - [ ] Signed Android App Bundle: `app-release.aab`, produced only by the
       protected signing workflow.
 - [ ] Web static bundle: `web-release.tar.gz` containing `web/dist`.

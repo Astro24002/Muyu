@@ -9,7 +9,7 @@ DART ?= $(dir $(FLUTTER))dart
 API_BASE_URL ?= http://localhost:8080
 ANDROID_BUILD_ENV ?= development
 
-.PHONY: test verify backend-test test-task-approval backend-migrate backend-smoke client-test client-build web-test web-build check-deployment legacy-check boundary-check compose-up compose-down compose-clean smoke smoke-task-approval smoke-lightweight-workspace
+.PHONY: test verify backend-test test-task-approval backend-migrate backend-smoke client-test client-build client-release-build web-test web-build check-deployment legacy-check boundary-check compose-up compose-down compose-clean smoke smoke-task-approval smoke-lightweight-workspace
 
 test: backend-test client-test web-test
 
@@ -50,6 +50,9 @@ client-test:
 
 client-build:
 	API_BASE_URL="$(API_BASE_URL)" ANDROID_BUILD_ENV="$(ANDROID_BUILD_ENV)" FLUTTER="$(FLUTTER)" ./scripts/build-android-debug.sh
+
+client-release-build:
+	API_BASE_URL="$(API_BASE_URL)" RELEASE_TAG="$(RELEASE_TAG)" ANDROID_KEYSTORE_PATH="$(ANDROID_KEYSTORE_PATH)" ANDROID_KEYSTORE_PASSWORD="$(ANDROID_KEYSTORE_PASSWORD)" ANDROID_KEY_ALIAS="$(ANDROID_KEY_ALIAS)" ANDROID_KEY_PASSWORD="$(ANDROID_KEY_PASSWORD)" FLUTTER="$(FLUTTER)" ./scripts/build-android-release.sh
 
 web-test:
 	cd web && npm ci && npm run typecheck && npm test -- --run

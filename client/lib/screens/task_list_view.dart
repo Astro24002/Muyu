@@ -343,12 +343,14 @@ class _MetadataPill extends StatelessWidget {
     required this.semanticLabel,
     required this.background,
     required this.foreground,
+    this.compact = false,
   });
 
   final String label;
   final String semanticLabel;
   final Color background;
   final Color foreground;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -356,9 +358,11 @@ class _MetadataPill extends StatelessWidget {
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 132),
       child: Container(
-        height: 24,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.sm),
+        height: compact ? 20 : 24,
+        alignment: compact ? null : Alignment.center,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? MuyuSpacing.xs : MuyuSpacing.sm,
+        ),
         decoration: BoxDecoration(
           color: background,
           borderRadius: const BorderRadius.all(Radius.circular(999)),
@@ -368,8 +372,11 @@ class _MetadataPill extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.labelMedium
-              ?.copyWith(color: foreground),
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: foreground,
+            fontSize: compact ? 9 : null,
+            height: compact ? 12 / 9 : null,
+          ),
         ),
       ),
     ),
@@ -719,6 +726,9 @@ class TaskSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final subtitle = _subtitle(task, state);
+    if (compact) {
+      return _buildCompact(theme);
+    }
     return Material(
       key: ValueKey('task-card-${task.id}'),
       color: theme.colorScheme.surface,
@@ -802,6 +812,126 @@ class TaskSummaryCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildCompact(ThemeData theme) {
+    final extension = theme.extension<MuyuThemeExtension>();
+    final owner = _memberDisplayName(state, task.currentHandlerId);
+    final status = taskStatusLabel(task.status);
+    final classification = task.labels.isEmpty ? null : task.labels.first;
+    final focusSurface =
+        extension?.focusSurface ?? theme.colorScheme.secondaryContainer;
+    final ownerPill = _MetadataPill(
+      key: ValueKey('task-card-owner-${task.id}'),
+      label: owner,
+      semanticLabel: '负责人$owner',
+      background: focusSurface,
+      foreground: theme.colorScheme.primary,
+      compact: true,
+    );
+    final statusPill = _MetadataPill(
+      key: ValueKey('task-card-status-${task.id}'),
+      label: status,
+      semanticLabel: '状态$status',
+      background: _compactStatusBackground(theme, extension),
+      foreground: _compactStatusForeground(theme, extension),
+      compact: true,
+    );
+
+    return Material(
+      key: ValueKey('task-card-${task.id}'),
+      color: theme.colorScheme.surface,
+      elevation: 0,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(
+            horizontal: MuyuSpacing.xs,
+            vertical: MuyuSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: theme.colorScheme.outline),
+            ),
+          ),
+          child: Row(
+            children: [
+              _TaskStatusIcon(status: task.status, compact: true),
+              const SizedBox(width: MuyuSpacing.xs),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      key: ValueKey('task-card-title-${task.id}'),
+                      task.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 12,
+                        height: 16 / 12,
+                        fontWeight: FontWeight.w600,
+                        decoration: normalizeTaskStatus(task.status) == 'DONE'
+                            ? TextDecoration.lineThrough
+                            : TextDecoration.none,
+                        color: _isTerminal(task.status)
+                            ? theme.colorScheme.onSurface.withValues(
+                                alpha: 0.55,
+                              )
+                            : theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Wrap(
+                      key: ValueKey('task-card-metadata-${task.id}'),
+                      spacing: MuyuSpacing.xs,
+                      runSpacing: 2,
+                      children: [
+                        ownerPill,
+                        statusPill,
+                        if (classification != null)
+                          _MetadataPill(
+                            key: ValueKey('task-card-label-${task.id}'),
+                            label: classification,
+                            semanticLabel: '分类$classification',
+                            background:
+                                theme.colorScheme.surfaceContainerHighest,
+                            foreground: theme.colorScheme.onSurfaceVariant,
+                            compact: true,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _compactStatusBackground(
+    ThemeData theme,
+    MuyuThemeExtension? extension,
+  ) {
+    return switch (taskStatusTone(task.status)) {
+      TaskStatusTone.blocked || TaskStatusTone.cancelled =>
+        extension?.coralSurface ?? theme.colorScheme.errorContainer,
+      _ => extension?.focusSurface ?? theme.colorScheme.secondaryContainer,
+    };
+  }
+
+  Color _compactStatusForeground(
+    ThemeData theme,
+    MuyuThemeExtension? extension,
+  ) {
+    return switch (taskStatusTone(task.status)) {
+      TaskStatusTone.blocked || TaskStatusTone.cancelled =>
+        extension?.coral ?? theme.colorScheme.onErrorContainer,
+      _ => theme.colorScheme.primary,
+    };
   }
 
   static String _subtitle(TaskItem task, WorkspaceSyncState state) {

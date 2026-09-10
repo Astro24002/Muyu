@@ -32,12 +32,16 @@ TaskItem quadrantTask(
   updatedAt: DateTime.utc(2026, 9, 1),
 );
 
-WorkspaceSyncState quadrantState(List<TaskItem> tasks) => WorkspaceSyncState(
+WorkspaceSyncState quadrantState(
+  List<TaskItem> tasks, {
+  List<Map<String, dynamic>> members = const [],
+}) => WorkspaceSyncState(
   snapshot: WorkspaceSnapshot(
     workspaceId: 'workspace-1',
     cursor: 1,
     tasks: tasks,
     viewerUserId: 'user-1',
+    members: members,
   ),
   isStale: false,
 );
@@ -130,12 +134,12 @@ void main() {
     final title = tester.widget<Text>(
       find.byKey(const ValueKey('task-card-title-task-dense')),
     );
-    final subtitle = tester.widget<Text>(
-      find.byKey(const ValueKey('task-card-subtitle-task-dense')),
-    );
     expect(title.maxLines, 1);
-    expect(title.style?.fontSize, 13);
-    expect(subtitle.style?.fontSize, 10);
+    expect(title.style?.fontSize, 12);
+    expect(
+      find.byKey(const ValueKey('task-card-metadata-task-dense')),
+      findsOneWidget,
+    );
     expect(
       tester.getSize(find.byKey(const ValueKey('task-card-task-dense'))).height,
       lessThan(48),
@@ -146,6 +150,48 @@ void main() {
           .width,
       greaterThan(100),
     );
+  });
+
+  testWidgets('renders compact owner, status, and classification pills', (
+    tester,
+  ) async {
+    final task = quadrantTask('task-pills', '准备婚礼物料', labels: const ['婚礼101']);
+
+    await tester.pumpWidget(
+      quadrantApp(
+        TaskQuadrantView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: quadrantState(
+            [task],
+            members: const [
+              {'user_id': 'user-1', 'display_name': 'Bokang'},
+            ],
+          ),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.text('Bokang'), findsOneWidget);
+    expect(find.text('待进行'), findsOneWidget);
+    expect(find.text('婚礼101'), findsOneWidget);
+    for (final key in [
+      'task-card-owner-task-pills',
+      'task-card-status-task-pills',
+      'task-card-label-task-pills',
+    ]) {
+      final pill = find.byKey(ValueKey(key));
+      expect(pill, findsOneWidget);
+      expect(tester.getSize(pill).height, 20);
+      final container = tester.widget<Container>(
+        find.descendant(of: pill, matching: find.byType(Container)),
+      );
+      expect(
+        (container.decoration! as BoxDecoration).borderRadius,
+        const BorderRadius.all(Radius.circular(999)),
+      );
+    }
   });
 
   testWidgets('previews four tasks and expands only the selected quadrant', (

@@ -89,6 +89,62 @@ def test_non_owner_patch_creates_pending_approval_and_owner_can_apply(db_engine)
     assert approved.json()["task"]["title"] == "Partner proposal"
 
 
+def test_lifecycle_complete_submits_review_and_rejection_returns_task_snapshot(db_engine) -> None:
+    client = _client(db_engine)
+    owner, reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    reviewer_headers = _headers(reviewer)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Lifecycle review", "quadrant": "Q1", "labels": ["工作"]},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    started = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": task["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+
+    submitted = client.post(
+        f"/api/v1/tasks/{task['id']}/lifecycle",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "action": "complete",
+            "base_lifecycle_version": started.json()["lifecycle_version"],
+        },
+    )
+    assert submitted.status_code == 202, submitted.text
+    approval = submitted.json()["approval_request"]
+    assert submitted.json()["task"]["status"] == "REVIEW"
+    assert approval["approver_id"] == reviewer["user"]["id"]
+
+    missing_reason = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/reject",
+        headers=reviewer_headers,
+        json={"request_id": str(uuid4())},
+    )
+    assert missing_reason.status_code == 422, missing_reason.text
+    assert missing_reason.json()["code"] == "invalid_request"
+
+    rejected = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/reject",
+        headers=reviewer_headers,
+        json={"request_id": str(uuid4()), "reason": "补充验收材料"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["approval_request"]["status"] == "REJECTED"
+    assert rejected.json()["task"]["status"] == "IN_PROGRESS"
+    assert rejected.json()["task"]["review_rejection_reason"] == "补充验收材料"
+
+
 def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
@@ -133,8 +189,10 @@ def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow
             "base_status_version": started.json()["status_version"],
         },
     )
-    assert submitted.status_code == 200, submitted.text
-    before = submitted.json()
+    assert submitted.status_code == 202, submitted.text
+    submitted_payload = submitted.json()
+    before = submitted_payload["task"]
+    approval = submitted_payload["approval_request"]
 
     rejected = client.post(
         f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
@@ -164,20 +222,17 @@ def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow
     assert kept.json()["current_handler_id"] == owner["user"]["id"]
 
     done = client.post(
-        f"/api/v1/tasks/{task['id']}/transition",
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
         headers=partner_headers,
-        json={
-            "request_id": str(uuid4()),
-            "target_status": "DONE",
-            "base_status_version": kept.json()["status_version"],
-        },
+        json={"request_id": str(uuid4())},
     )
     assert done.status_code == 200, done.text
-    assert done.json()["status"] == "DONE"
-    assert done.json()["current_handler_id"] == owner["user"]["id"]
+    assert done.json()["approval_request"]["status"] == "APPROVED"
+    assert done.json()["task"]["status"] == "DONE"
+    assert done.json()["task"]["current_handler_id"] == owner["user"]["id"]
 
 
-def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> None:
+def test_review_rejection_requires_acceptance_request_and_reason(db_engine) -> None:
     client = _client(db_engine)
     owner, reviewer = _ready_workspace(client)
     owner_headers = _headers(owner)
@@ -196,7 +251,7 @@ def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> Non
             "base_status_version": created["status_version"],
         },
     ).json()
-    submitted = client.post(
+    submitted_response = client.post(
         f"/api/v1/tasks/{created['id']}/transition",
         headers=owner_headers,
         json={
@@ -204,57 +259,33 @@ def test_stale_review_status_409_uses_full_conflict_projection(db_engine) -> Non
             "target_status": "REVIEW",
             "base_status_version": started["status_version"],
         },
-    ).json()
+    )
+    assert submitted_response.status_code == 202, submitted_response.text
+    payload = submitted_response.json()
+    approval = payload["approval_request"]
+    submitted = payload["task"]
 
-    request_id = str(uuid4())
-    body = {
-        "request_id": request_id,
-        "target_status": "IN_PROGRESS",
-        "base_status_version": submitted["status_version"] - 1,
-        "review_rejection_reason": "补充验收材料",
-    }
-    stale = client.post(
+    missing_reason = client.post(
         f"/api/v1/tasks/{created['id']}/transition",
         headers=reviewer_headers,
-        json=body,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": submitted["status_version"],
+        },
     )
-    assert stale.status_code == 409, stale.text
-    http_conflict = stale.json()["details"]["conflicts"][0]
+    assert missing_reason.status_code == 422, missing_reason.text
+    assert missing_reason.json()["code"] == "invalid_request"
 
-    listed = client.get(f"/api/v1/tasks/{created['id']}/conflicts", headers=reviewer_headers)
-    assert listed.status_code == 200, listed.text
-    get_conflict = listed.json()[0]
-    assert http_conflict == get_conflict
-    assert http_conflict["current_snapshot"] == {
-        **http_conflict["current_snapshot"],
-        "status": "REVIEW",
-        "reviewer_user_id": reviewer["user"]["id"],
-        "review_submitted_at": submitted["review_submitted_at"],
-        "status_version": submitted["status_version"],
-        "lifecycle_version": submitted["lifecycle_version"],
-    }
-    assert http_conflict["status_version"] == submitted["status_version"]
-    assert http_conflict["lifecycle_version"] == submitted["lifecycle_version"]
-    assert http_conflict["field_versions"] == submitted["field_versions"]
-    assert http_conflict["proposed_payload"]["review_rejection_reason"] == "补充验收材料"
-
-    resolved = client.post(
-        f"/api/v1/tasks/{created['id']}/conflicts/{http_conflict['id']}/resolve",
+    rejected = client.post(
+        f"/api/v1/workspaces/{created['workspace_id']}/approval-requests/{approval['id']}/reject",
         headers=reviewer_headers,
-        json={"request_id": str(uuid4()), "resolution": "proposed"},
+        json={"request_id": str(uuid4()), "reason": "补充验收材料"},
     )
-    assert resolved.status_code == 200, resolved.text
-    assert resolved.json()["status"] == "IN_PROGRESS"
-    assert resolved.json()["review_rejection_reason"] == "补充验收材料"
-    before_replay = _side_effect_counts(db_engine, created["workspace_id"], created["id"])
-    replay = client.post(
-        f"/api/v1/tasks/{created['id']}/transition",
-        headers=reviewer_headers,
-        json=body,
-    )
-    assert replay.status_code == 409, replay.text
-    assert replay.json() == stale.json()
-    assert _side_effect_counts(db_engine, created["workspace_id"], created["id"]) == before_replay
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["approval_request"]["status"] == "REJECTED"
+    assert rejected.json()["task"]["status"] == "IN_PROGRESS"
+    assert rejected.json()["task"]["review_rejection_reason"] == "补充验收材料"
 
 
 def test_stale_patch_request_replays_the_original_409_across_http_sessions(db_engine) -> None:

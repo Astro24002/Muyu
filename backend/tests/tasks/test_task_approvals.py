@@ -29,7 +29,7 @@ from app.db.models import (
     WorkspaceMembership,
 )
 from app.tasks.approval_schemas import ApprovalRequestCreate
-from app.tasks.approvals import TaskApprovalResult, TaskApprovalService
+from app.tasks.approvals import TaskApprovalError, TaskApprovalResult, TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.service import TaskService
 from tests.classification_fixtures import seed_approved_classification
@@ -391,6 +391,21 @@ def test_list_filters_incoming_and_outgoing_boxes(db_engine) -> None:
         assert service.list(workspace.id, requester.id, "incoming") == []
         assert service.list(workspace.id, owner.id, "outgoing") == []
         assert {row.id for row in service.list(workspace.id, owner.id)} == {outgoing.id}
+
+
+def test_pending_classification_duplicate_is_rejected_before_second_request(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, requester], workspace = _workspace(session, phone_seed=8100)
+        service = TaskApprovalService(session)
+        first = service.create_classification(workspace.id, requester.id, uuid4(), "婚礼")
+
+        with pytest.raises(TaskApprovalError) as duplicate:
+            service.create_classification(workspace.id, requester.id, uuid4(), " 婚礼 ")
+
+        assert duplicate.value.code == "approval_already_pending"
+        assert session.scalars(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.workspace_id == workspace.id)
+        ).all() == [first]
 
 
 def test_approve_requires_derived_active_approver_and_applies_once(db_engine) -> None:

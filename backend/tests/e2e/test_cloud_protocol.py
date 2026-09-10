@@ -349,14 +349,18 @@ def test_two_user_task_workflow_postgresql(db_engine) -> None:
             "base_status_version": started.json()["status_version"],
         },
     )
-    assert review.status_code == 200, review.text
+    assert review.status_code == 202, review.text
+    review_payload = review.json()
+    review_task = review_payload["task"]
+    review_approval = review_payload["approval_request"]
     done = client.post(
-        f"/api/v1/tasks/{task_id}/transition",
+        f"/api/v1/workspaces/{workspace_id}/approval-requests/{review_approval['id']}/approve",
         headers=headers_b,
-        json={"request_id": str(uuid4()), "target_status": "DONE", "base_status_version": review.json()["status_version"]},
+        json={"request_id": str(uuid4())},
     )
     assert done.status_code == 200, done.text
-    assert done.json()["status"] == "DONE"
+    assert done.json()["approval_request"]["status"] == "APPROVED"
+    assert done.json()["task"]["status"] == "DONE"
 
     comment = client.post(
         f"/api/v1/tasks/{task_id}/comments",

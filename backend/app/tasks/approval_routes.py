@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.db.models import Task
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
 from app.tasks.approval_schemas import (
@@ -137,12 +138,37 @@ def reject_approval_request(
     service = TaskApprovalService(session)
     try:
         result = service.reject(workspace_id, actor.user_id, approval_id, body.request_id, body.reason)
+        if isinstance(result, TaskApprovalResult):
+            result_request = result.request
+            result_cursor = result.cursor
+            task_snapshot = (
+                TaskService(session).snapshot(result.task)
+                if result.task is not None
+                else None
+            )
+        else:
+            result_request = result
+            result_cursor = result.resolved_cursor
+            task_snapshot = None
+            if result.task_id is not None:
+                task = session.get(Task, result.task_id)
+                if task is not None:
+                    task_snapshot = TaskService(session).snapshot(task)
         session.commit()
     except TaskApprovalError as error:
-        session.rollback()
+        if error.code == "approval_conflicted":
+            session.commit()
+        else:
+            session.rollback()
         raise _approval_error(error) from error
-    _queue_hint(background_tasks, request, workspace_id, result.resolved_cursor)
-    return {"approval_request": approval_request_json(result), "cursor": result.resolved_cursor}
+    _queue_hint(background_tasks, request, workspace_id, result_cursor)
+    payload: dict[str, object] = {
+        "approval_request": approval_request_json(result_request),
+        "cursor": result_cursor,
+    }
+    if task_snapshot is not None:
+        payload["task"] = task_snapshot
+    return payload
 
 
 @router.post("/{approval_id}/cancel")

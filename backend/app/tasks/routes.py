@@ -21,7 +21,7 @@ from app.tasks.delays import add_delay, list_delays
 from app.tasks.operations import task_conflict_json
 from app.tasks.recurrence import create_rule
 from app.tasks.approval_schemas import approval_request_json, comment_json
-from app.tasks.approvals import TaskApprovalError, TaskApprovalService
+from app.tasks.approvals import TaskApprovalError, TaskApprovalResult, TaskApprovalService
 from app.tasks.schemas import CommentDeleteRequest, CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
 from app.tasks.search import search_tasks
 from app.tasks.service import TaskService
@@ -189,15 +189,19 @@ def _approval_error(error: TaskApprovalError) -> ApiError:
     return ApiError(status_code, error.code, str(error))
 
 
-def _pending_response(approval, service: TaskApprovalService) -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={
-            "approval_request": approval_request_json(approval),
-            "pending": True,
-            "cursor": service.last_cursor,
-        },
-    )
+def _pending_response(
+    approval,
+    service: TaskApprovalService,
+    task: Task | None = None,
+) -> JSONResponse:
+    payload: dict[str, object] = {
+        "approval_request": approval_request_json(approval),
+        "pending": True,
+        "cursor": service.last_cursor,
+    }
+    if task is not None:
+        payload["task"] = TaskService(service.session).snapshot(task)
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=payload)
 
 
 def _patch_approval_type(changes: dict[str, object]) -> TaskApprovalRequestType:
@@ -303,6 +307,19 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
         if target is None:
             raise TaskConflictError("not_found", "task not found")
         action = body.action.lower()
+        if target.current_handler_id == actor.user_id and action in {"complete", "completed"}:
+            approval_service = TaskApprovalService(session)
+            result = approval_service.submit_review(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                target.id,
+                target.status_version,
+                base_lifecycle_version=body.base_lifecycle_version,
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, result.cursor)
+            return _pending_response(result.request, approval_service, result.task)
         if target.current_handler_id != actor.user_id and not _is_task_mutation_replay(session, actor.workspace_id, body.request_id):
             approval_type: TaskApprovalRequestType
             changes: dict[str, object]
@@ -351,10 +368,92 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
         target = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
         if target is None:
             raise TaskConflictError("not_found", "task not found")
+        if target.current_handler_id == actor.user_id and body.target_status == "REVIEW":
+            approval_service = TaskApprovalService(session)
+            result = approval_service.submit_review(
+                actor.workspace_id,
+                actor.user_id,
+                body.request_id,
+                target.id,
+                body.base_status_version,
+            )
+            session.commit()
+            _queue_hint(background_tasks, request, actor.workspace_id, result.cursor)
+            return _pending_response(result.request, approval_service, result.task)
         is_reviewer_decision = body.target_status in {"DONE", "IN_PROGRESS"} and (
             (target.status.value if hasattr(target.status, "value") else str(target.status)) == "REVIEW"
             and target.reviewer_user_id == actor.user_id
         )
+        if is_reviewer_decision:
+            approval_service = TaskApprovalService(session)
+            pending_review = approval_service.pending_review_request(
+                actor.workspace_id,
+                target.id,
+                actor.user_id,
+            )
+            if pending_review is not None:
+                # The transition endpoint is also used by older clients for
+                # the review decision. Preserve its optimistic-concurrency
+                # contract before adapting the request to the approval row.
+                if body.base_status_version != target.status_version:
+                    service = TaskService(session)
+                    service.transition(
+                        actor.workspace_id,
+                        actor.user_id,
+                        task_id,
+                        body.request_id,
+                        body.target_status,
+                        body.base_status_version,
+                        body.blocked_reason,
+                        body.resume_handler_id,
+                        body.waiting_for_user_id,
+                        review_rejection_reason=body.review_rejection_reason,
+                    )
+                if body.target_status == "DONE":
+                    result = approval_service.approve(
+                        actor.workspace_id,
+                        actor.user_id,
+                        pending_review.id,
+                        body.request_id,
+                    )
+                    session.commit()
+                    _queue_hint(background_tasks, request, actor.workspace_id, result.cursor)
+                    return {
+                        "approval_request": approval_request_json(result.request),
+                        "task": TaskService(session).snapshot(result.task) if result.task is not None else None,
+                        "cursor": result.cursor,
+                    }
+                rejected = approval_service.reject(
+                    actor.workspace_id,
+                    actor.user_id,
+                    pending_review.id,
+                    body.request_id,
+                    body.review_rejection_reason,
+                )
+                if isinstance(rejected, TaskApprovalResult):
+                    rejected_request = rejected.request
+                    task_snapshot = (
+                        TaskService(session).snapshot(rejected.task)
+                        if rejected.task is not None
+                        else None
+                    )
+                    rejected_cursor = rejected.cursor
+                else:
+                    rejected_request = rejected
+                    task_after_rejection = session.get(Task, target.id)
+                    task_snapshot = (
+                        TaskService(session).snapshot(task_after_rejection)
+                        if task_after_rejection is not None
+                        else None
+                    )
+                    rejected_cursor = approval_service.last_cursor
+                session.commit()
+                _queue_hint(background_tasks, request, actor.workspace_id, rejected_cursor)
+                return {
+                    "approval_request": approval_request_json(rejected_request),
+                    "task": task_snapshot,
+                    "cursor": rejected_cursor,
+                }
         if (
             target.current_handler_id != actor.user_id
             and not is_reviewer_decision

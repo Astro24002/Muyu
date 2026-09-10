@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import ConflictStatus, MembershipStatus, Resolution, TaskApprovalRequestStatus, TaskApprovalRequestType, TaskStatus
-from app.db.models import ActivityEvent, Task, TaskOperation, TaskStatusHistory, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
-from app.tasks.approvals import TaskApprovalService
+from app.db.models import ActivityEvent, Task, TaskApprovalRequest, TaskOperation, TaskStatusHistory, User, Workspace, WorkspaceChangeLog, WorkspaceCursor, WorkspaceMembership
+from app.tasks.approvals import TaskApprovalError, TaskApprovalService
 from app.tasks.conflicts import TaskConflictError
 from app.tasks.schemas import TransitionRequest
 from app.tasks.service import TaskService
@@ -40,11 +40,38 @@ def _workspace_with_two_users(session: Session, phone_seed: int = 3671) -> tuple
     return users[0], users[1], workspace
 
 
+def _workspace_with_one_user(session: Session, phone_seed: int = 3674) -> tuple[User, Workspace]:
+    user = User(phone=f"+1415555{phone_seed:04d}")
+    workspace = Workspace(name="Personal")
+    session.add_all([user, workspace])
+    session.flush()
+    session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            member_slot=1,
+            status=MembershipStatus.ACTIVE,
+            joined_at=NOW,
+        )
+    )
+    session.add(WorkspaceCursor(workspace_id=workspace.id, next_cursor=1))
+    session.flush()
+    seed_approved_classification(session, workspace.id, user.id)
+    return user, workspace
+
+
 def _review_task(session: Session, owner: User, workspace: Workspace) -> tuple[Task, TaskService]:
     service = TaskService(session, now=lambda: NOW)
     task = service.create(workspace.id, owner.id, uuid4(), "交付结果", quadrant="Q1", labels=["工作"])
     task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
     task = service.transition(workspace.id, owner.id, task.id, uuid4(), "REVIEW", task.status_version)
+    return task, service
+
+
+def _in_progress_task(session: Session, owner: User, workspace: Workspace) -> tuple[Task, TaskService]:
+    service = TaskService(session, now=lambda: NOW)
+    task = service.create(workspace.id, owner.id, uuid4(), "交付结果", quadrant="Q1", labels=["工作"])
+    task = service.transition(workspace.id, owner.id, task.id, uuid4(), "IN_PROGRESS", task.status_version)
     return task, service
 
 
@@ -85,6 +112,128 @@ def test_in_progress_submit_derives_other_active_member_and_preserves_handler(db
         assert operation.after_state["status"] == "REVIEW"
         assert operation.after_state["reviewer_user_id"] == str(reviewer.id)
         assert operation.after_state["review_submitted_at"] == NOW.isoformat()
+
+
+def test_submit_review_creates_one_acceptance_request_and_replays_atomically(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3672)
+        task, _task_service = _in_progress_task(session, owner, workspace)
+        request_id = uuid4()
+        service = TaskApprovalService(session, now=lambda: NOW)
+
+        result = service.submit_review(
+            workspace.id,
+            owner.id,
+            request_id,
+            task.id,
+            task.status_version,
+        )
+
+        assert result.task is task
+        assert task.status == TaskStatus.REVIEW
+        assert result.request.status == TaskApprovalRequestStatus.PENDING
+        assert result.request.requester_id == owner.id
+        assert result.request.approver_id == reviewer.id
+        assert result.request.proposed_changes == {
+            "target_status": "DONE",
+            "review_submission": True,
+        }
+        assert result.request.request_id == request_id
+        assert result.request.base_field_versions == {"status_version": task.status_version}
+        assert session.scalar(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.task_id == task.id)
+        ) is result.request
+
+        operation_count = len(session.scalars(select(TaskOperation).where(TaskOperation.task_id == task.id)).all())
+        operation_request_ids = [
+            operation.request_id
+            for operation in session.scalars(select(TaskOperation).where(TaskOperation.task_id == task.id)).all()
+        ]
+        assert request_id in operation_request_ids
+        assert len(operation_request_ids) == len(set(operation_request_ids))
+        replay = service.submit_review(
+            workspace.id,
+            owner.id,
+            request_id,
+            task.id,
+            task.status_version - 1,
+        )
+        assert replay.request.id == result.request.id
+        assert replay.task.status == TaskStatus.REVIEW
+        assert len(session.scalars(select(TaskOperation).where(TaskOperation.task_id == task.id)).all()) == operation_count
+
+        approved = service.approve(workspace.id, reviewer.id, result.request.id, uuid4())
+        assert approved.request.status == TaskApprovalRequestStatus.APPROVED
+        assert approved.task.status == TaskStatus.DONE
+
+
+def test_review_rejection_requires_reason_and_returns_task_to_progress(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, reviewer, workspace = _workspace_with_two_users(session, phone_seed=3673)
+        task, _task_service = _in_progress_task(session, owner, workspace)
+        service = TaskApprovalService(session, now=lambda: NOW)
+        result = service.submit_review(
+            workspace.id,
+            owner.id,
+            uuid4(),
+            task.id,
+            task.status_version,
+        )
+
+        with pytest.raises(TaskApprovalError, match="reason is required"):
+            service.reject(workspace.id, reviewer.id, result.request.id, uuid4())
+        assert result.request.status == TaskApprovalRequestStatus.PENDING
+        assert task.status == TaskStatus.REVIEW
+
+        rejected = service.reject(
+            workspace.id,
+            reviewer.id,
+            result.request.id,
+            uuid4(),
+            "  请补充验收材料  ",
+        )
+        assert rejected.request.status == TaskApprovalRequestStatus.REJECTED
+        assert rejected.request.rejection_reason == "请补充验收材料"
+        assert rejected.request.reviewed_by == reviewer.id
+        assert rejected.task is task
+        assert rejected.task.status == TaskStatus.IN_PROGRESS
+        assert rejected.task.review_rejection_reason == "请补充验收材料"
+        assert rejected.task.reviewed_at == NOW
+
+
+def test_single_member_cannot_submit_review_or_create_acceptance_request(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, workspace = _workspace_with_one_user(session)
+        task = TaskService(session, now=lambda: NOW).create(
+            workspace.id,
+            owner.id,
+            uuid4(),
+            "单人任务",
+            quadrant="Q1",
+            labels=["工作"],
+        )
+        task = TaskService(session, now=lambda: NOW).transition(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            "IN_PROGRESS",
+            task.status_version,
+        )
+
+        with pytest.raises(TaskApprovalError, match="exactly two active"):
+            TaskApprovalService(session, now=lambda: NOW).submit_review(
+                workspace.id,
+                owner.id,
+                uuid4(),
+                task.id,
+                task.status_version,
+            )
+
+        assert task.status == TaskStatus.IN_PROGRESS
+        assert session.scalars(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.task_id == task.id)
+        ).all() == []
 
 
 def test_reviewer_can_accept_review_and_records_reviewed_at(db_engine) -> None:

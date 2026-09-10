@@ -51,6 +51,10 @@ STATUS_CHANGE_FIELDS = {
     "resume_handler_id",
     "waiting_for_user_id",
     "review_rejection_reason",
+    # Internal marker for the compound owner action.  The proposed target is
+    # DONE because that is what approval applies, while the task has already
+    # moved to REVIEW when this request is created.
+    "review_submission",
 }
 
 
@@ -118,6 +122,9 @@ class TaskApprovalService:
         proposed_changes: dict[str, Any],
         base_field_versions: dict[str, int],
         comment_id: UUID | None = None,
+        *,
+        allow_review_acceptance: bool = False,
+        event_request_id: UUID | None = None,
     ) -> TaskApprovalRequest:
         workspace_id = self._uuid(workspace_id, "workspace_id")
         requester_id = self._uuid(requester_id, "requester_id")
@@ -192,6 +199,29 @@ class TaskApprovalService:
         if request_type == TaskApprovalRequestType.STATUS_UPDATE and task is not None:
             changes = self._validate_status_proposal(task, changes, member_ids)
 
+        review_acceptance = self._is_review_acceptance_proposal(
+            task,
+            request_type,
+            changes,
+            requester_id,
+        )
+        if (
+            request_type == TaskApprovalRequestType.STATUS_UPDATE
+            and task is not None
+            and task.status == TaskStatus.REVIEW
+            and changes.get("target_status") == TaskStatus.DONE.value
+        ):
+            if not allow_review_acceptance:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "review acceptance is created by submit_review",
+                )
+            if not review_acceptance:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "only the task owner may submit a review acceptance",
+                )
+
         comment: TaskComment | None = None
         if comment_id is not None:
             comment = self.session.scalar(
@@ -206,7 +236,25 @@ class TaskApprovalService:
             if comment is None:
                 raise TaskApprovalError("approval_not_allowed", "comment does not belong to the task workspace")
 
-        if request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+        if review_acceptance and task is not None:
+            reviewer_id = task.reviewer_user_id
+            if reviewer_id is None or reviewer_id not in member_ids or reviewer_id == requester_id:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "review acceptance requires another active workspace member",
+                )
+            pending = self._pending_review_request(
+                workspace_id,
+                task.id,
+                with_for_update=True,
+            )
+            if pending is not None and pending.request_id != request_id:
+                raise TaskApprovalError(
+                    "approval_already_pending",
+                    "task review approval is already pending",
+                )
+            approver_id = reviewer_id
+        elif request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
             if comment_id is not None:
                 raise TaskApprovalError("approval_not_allowed", "classification approval cannot target a comment")
             approver_id = next(item.user_id for item in members if item.user_id != requester_id)
@@ -249,11 +297,146 @@ class TaskApprovalService:
             request,
             task,
             actor_user_id=requester_id,
-            action_request_id=request_id,
+            action_request_id=event_request_id or request_id,
             event_type="APPROVAL_REQUESTED",
             change_action=ChangeAction.CREATED,
         )
         return request
+
+    def submit_review(
+        self,
+        workspace_id: UUID,
+        requester_id: UUID,
+        request_id: UUID,
+        task_id: UUID,
+        base_status_version: int,
+        *,
+        base_lifecycle_version: int | None = None,
+        operation_fingerprint: str | None = None,
+    ) -> TaskApprovalResult:
+        """Submit a task for acceptance and create its acceptance request atomically.
+
+        ``TaskService`` remains the owner of status transitions.  This method
+        composes that transition with the approval row in the caller's
+        transaction so a failed approval insert cannot leave a task in review.
+        """
+
+        workspace_id = self._uuid(workspace_id, "workspace_id")
+        requester_id = self._uuid(requester_id, "requester_id")
+        request_id = self._uuid(request_id, "request_id")
+        task_id = self._uuid(task_id, "task_id")
+        if isinstance(base_status_version, bool) or int(base_status_version) < 1:
+            raise TaskApprovalError("approval_not_allowed", "status version is required")
+        base_status_version = int(base_status_version)
+
+        self._require_active_principal(workspace_id, requester_id)
+        # Lock membership rows before the task, matching ``create`` and
+        # serializing the derived reviewer and pending-request check.
+        members = self._active_members(workspace_id)
+        if len(members) != 2:
+            raise TaskApprovalError(
+                "approval_not_allowed",
+                "exactly two active workspace members are required",
+            )
+        task = self.session.scalar(
+            select(Task)
+            .where(Task.id == task_id, Task.workspace_id == workspace_id)
+            .with_for_update()
+        )
+        if task is None:
+            raise TaskApprovalError("approval_not_allowed", "task does not belong to the workspace")
+
+        existing = self.session.scalar(
+            select(TaskApprovalRequest)
+            .where(
+                TaskApprovalRequest.workspace_id == workspace_id,
+                TaskApprovalRequest.request_id == request_id,
+            )
+            .with_for_update()
+        )
+        if existing is not None:
+            if (
+                existing.requester_id != requester_id
+                or existing.task_id != task_id
+                or existing.request_type != TaskApprovalRequestType.STATUS_UPDATE
+                or (existing.proposed_changes or {}).get("target_status") != TaskStatus.DONE.value
+                or (existing.proposed_changes or {}).get("review_submission") is not True
+            ):
+                raise TaskApprovalError(
+                    "approval_request_reused",
+                    "request id was used with a different review submission",
+                )
+            operation = self.session.scalar(
+                select(TaskOperation).where(
+                    TaskOperation.workspace_id == workspace_id,
+                    TaskOperation.request_id == request_id,
+                )
+            )
+            if (
+                operation is not None
+                and isinstance(operation.before_state, dict)
+                and (
+                    operation.before_state.get("status_version") != base_status_version
+                    or (
+                        base_lifecycle_version is not None
+                        and operation.before_state.get("lifecycle_version") != base_lifecycle_version
+                    )
+                )
+            ):
+                raise TaskApprovalError(
+                    "approval_request_reused",
+                    "request id was used with a different review submission",
+                )
+            self.last_cursor = self._request_cursor(existing)
+            return TaskApprovalResult(request=existing, task=task, cursor=self.last_cursor)
+
+        if task.current_handler_id != requester_id:
+            raise TaskApprovalError("approval_required", "only the task owner may submit a review")
+        if base_lifecycle_version is not None and task.lifecycle_version != base_lifecycle_version:
+            raise TaskApprovalError("lifecycle_conflict", "task lifecycle changed")
+        pending = self._pending_review_request(workspace_id, task.id, with_for_update=True)
+        if pending is not None:
+            raise TaskApprovalError(
+                "approval_already_pending",
+                "task review approval is already pending",
+            )
+
+        reviewer_ids = [item.user_id for item in members if item.user_id != task.current_handler_id]
+        if len(reviewer_ids) != 1:
+            raise TaskApprovalError(
+                "approval_not_allowed",
+                "exactly one other active workspace member is required",
+            )
+
+        task_service = TaskService(self.session, now=self.now)
+        task = task_service.transition(
+            workspace_id,
+            requester_id,
+            task.id,
+            request_id,
+            TaskStatus.REVIEW.value,
+            base_status_version,
+            operation_fingerprint=operation_fingerprint,
+        )
+        request = self.create(
+            workspace_id,
+            requester_id,
+            request_id,
+            task.id,
+            TaskApprovalRequestType.STATUS_UPDATE,
+            {
+                "target_status": TaskStatus.DONE.value,
+                "review_submission": True,
+            },
+            {"status_version": task.status_version},
+            allow_review_acceptance=True,
+            event_request_id=uuid4(),
+        )
+        return TaskApprovalResult(
+            request=request,
+            task=task,
+            cursor=self.last_cursor,
+        )
 
     def create_classification(
         self,
@@ -328,6 +511,7 @@ class TaskApprovalService:
         self._require_pending(request)
 
         task, comment = self._lock_target(request)
+        review_acceptance = self._is_review_acceptance_request(request, task)
         if request.request_type == TaskApprovalRequestType.STATUS_UPDATE:
             changes = self._normalize_changes(request.proposed_changes or {})
             versions = self._normalize_versions(request.base_field_versions or {})
@@ -344,13 +528,12 @@ class TaskApprovalService:
                 changes,
                 {member.user_id for member in self._active_members(request.workspace_id)},
             )
-        target_actor = (
-            request.approver_id
-            if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE
-            else comment.author_user_id
-            if request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment
-            else task.current_handler_id
-        )
+        if review_acceptance or request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+            target_actor = request.approver_id
+        elif request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment:
+            target_actor = comment.author_user_id
+        else:
+            target_actor = task.current_handler_id
         if target_actor is None or target_actor != request.approver_id:
             self._cancel_for_stale_owner(request, task, comment, action_request_id, "task owner changed")
         try:
@@ -401,7 +584,7 @@ class TaskApprovalService:
         approval_id: UUID,
         action_request_id: UUID,
         reason: str | None = None,
-    ) -> TaskApprovalRequest:
+    ) -> TaskApprovalRequest | TaskApprovalResult:
         workspace_id = self._uuid(workspace_id, "workspace_id")
         approver_id = self._uuid(approver_id, "approver_id")
         approval_id = self._uuid(approval_id, "approval_id")
@@ -415,13 +598,43 @@ class TaskApprovalService:
             if action.actor_user_id != approver_id:
                 raise TaskApprovalError("approval_request_reused", "action request id belongs to another actor")
             self.last_cursor = action.cursor
+            task = self.session.get(Task, request.task_id) if request.task_id is not None else None
+            if self._is_review_acceptance_record(request, task):
+                return self._result_from_request(request, action.cursor)
             return request
         self._require_pending(request)
         task, comment = self._lock_target(request)
+        review_acceptance = self._is_review_acceptance_request(request, task)
+        normalized_reason = reason.strip() if isinstance(reason, str) else None
+        if review_acceptance and not normalized_reason:
+            raise TaskApprovalError(
+                "invalid_request",
+                "review rejection reason is required",
+            )
+        if review_acceptance:
+            self._check_freshness(request, task, comment, action_request_id)
+            changes = self._normalize_changes(request.proposed_changes or {})
+            self._validate_status_proposal(
+                task,
+                changes,
+                {member.user_id for member in self._active_members(request.workspace_id)},
+            )
+            try:
+                TaskService(self.session, now=self.now).transition(
+                    task.workspace_id,
+                    request.approver_id,
+                    task.id,
+                    request.id,
+                    TaskStatus.IN_PROGRESS.value,
+                    task.status_version,
+                    review_rejection_reason=normalized_reason,
+                )
+            except TaskConflictError as error:
+                self._mark_conflicted(request, task, comment, action_request_id, str(error))
         request.status = TaskApprovalRequestStatus.REJECTED
         request.reviewed_at = self.now()
         request.reviewed_by = approver_id
-        request.rejection_reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
+        request.rejection_reason = normalized_reason if normalized_reason else None
         cursor = self._emit_request_event(
             request,
             task,
@@ -432,6 +645,8 @@ class TaskApprovalService:
         )
         request.resolved_cursor = cursor
         self.session.flush()
+        if review_acceptance:
+            return TaskApprovalResult(request=request, task=task, cursor=cursor)
         return request
 
     def cancel(
@@ -475,6 +690,35 @@ class TaskApprovalService:
 
     def cancel_stale_for_task(self, workspace_id: UUID, task_id: UUID, reason: str) -> int:
         return self._cancel_pending_for_task(workspace_id, task_id, reason)
+
+    def pending_review_request(
+        self,
+        workspace_id: UUID,
+        task_id: UUID,
+        approver_id: UUID | None = None,
+    ) -> TaskApprovalRequest | None:
+        """Return the pending acceptance request for a task, if any."""
+
+        workspace_id = self._uuid(workspace_id, "workspace_id")
+        task_id = self._uuid(task_id, "task_id")
+        approver_id = self._uuid(approver_id, "approver_id") if approver_id is not None else None
+        task = self.session.scalar(
+            select(Task).where(Task.id == task_id, Task.workspace_id == workspace_id)
+        )
+        if task is None:
+            return None
+        statement = select(TaskApprovalRequest).where(
+            TaskApprovalRequest.workspace_id == workspace_id,
+            TaskApprovalRequest.task_id == task_id,
+            TaskApprovalRequest.request_type == TaskApprovalRequestType.STATUS_UPDATE,
+            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+        )
+        if approver_id is not None:
+            statement = statement.where(TaskApprovalRequest.approver_id == approver_id)
+        for request in self.session.scalars(statement.order_by(TaskApprovalRequest.created_at.asc())).all():
+            if self._is_review_acceptance_request(request, task):
+                return request
+        return None
 
     def _cancel_pending_for_task(
         self,
@@ -558,10 +802,15 @@ class TaskApprovalService:
             status_version = self._base_version(request, "status_version", "status")
             if status_version is None:
                 raise TaskApprovalError("approval_conflicted", "status version is required")
+            transition_actor = (
+                request.approver_id
+                if self._is_review_acceptance_request(request, task)
+                else target_actor
+            )
             return (
                 service.transition(
                     task.workspace_id,
-                    target_actor,
+                    transition_actor,
                     task.id,
                     request.id,
                     str(changes["target_status"]),
@@ -625,6 +874,16 @@ class TaskApprovalService:
                 self._mark_conflicted(request, task, comment, action_request_id, "comment version changed")
             if comment.author_user_id != request.approver_id:
                 self._cancel_for_stale_owner(request, task, comment, action_request_id, "comment author changed")
+            return
+
+        review_acceptance = (
+            request.request_type == TaskApprovalRequestType.STATUS_UPDATE
+            and self._is_review_acceptance_request(request, task)
+        )
+        if review_acceptance:
+            expected = self._base_version(request, "status_version", "status")
+            if expected is None or task.status_version != expected:
+                self._mark_conflicted(request, task, comment, action_request_id, "task status version changed")
             return
 
         if task.current_handler_id != request.approver_id:
@@ -913,6 +1172,60 @@ class TaskApprovalService:
             "resolved_cursor": request.resolved_cursor,
         }
 
+    def _is_review_acceptance_proposal(
+        self,
+        task: Task | None,
+        request_type: TaskApprovalRequestType,
+        changes: Mapping[str, Any],
+        requester_id: UUID,
+    ) -> bool:
+        return bool(
+            task is not None
+            and request_type == TaskApprovalRequestType.STATUS_UPDATE
+            and task.status == TaskStatus.REVIEW
+            and changes.get("target_status") == TaskStatus.DONE.value
+            and changes.get("review_submission") is True
+            and task.current_handler_id == requester_id
+        )
+
+    def _is_review_acceptance_request(
+        self,
+        request: TaskApprovalRequest,
+        task: Task | None,
+    ) -> bool:
+        return bool(
+            task is not None
+            and task.status == TaskStatus.REVIEW
+            and self._is_review_acceptance_record(request, task)
+        )
+
+    def _is_review_acceptance_record(
+        self,
+        request: TaskApprovalRequest,
+        task: Task | None,
+    ) -> bool:
+        return bool(
+            task is not None
+            and request.request_type == TaskApprovalRequestType.STATUS_UPDATE
+            and (request.proposed_changes or {}).get("target_status") == TaskStatus.DONE.value
+            and (request.proposed_changes or {}).get("review_submission") is True
+            and request.requester_id == task.current_handler_id
+            and request.approver_id == task.reviewer_user_id
+            and request.approver_id != request.requester_id
+        )
+
+    def _request_cursor(self, request: TaskApprovalRequest) -> int | None:
+        return self.session.scalar(
+            select(WorkspaceChangeLog.cursor)
+            .where(
+                WorkspaceChangeLog.workspace_id == request.workspace_id,
+                WorkspaceChangeLog.resource_type == "approval_request",
+                WorkspaceChangeLog.resource_id == request.id,
+            )
+            .order_by(WorkspaceChangeLog.cursor.desc())
+            .limit(1)
+        )
+
     def _validate_request_shape(
         self,
         request_type: TaskApprovalRequestType,
@@ -954,6 +1267,8 @@ class TaskApprovalService:
                 raise TaskApprovalError("approval_not_allowed", "status version is required")
             if changes["target_status"] not in {"TODO", "IN_PROGRESS", "BLOCKED", "REVIEW", "DONE", "CANCELLED"}:
                 raise TaskApprovalError("approval_not_allowed", "unsupported target status")
+            if "review_submission" in changes and changes["review_submission"] is not True:
+                raise TaskApprovalError("approval_not_allowed", "review_submission must be true")
         elif request_type in {TaskApprovalRequestType.TASK_DELETE, TaskApprovalRequestType.TASK_RESTORE}:
             if changes or set(versions) not in ({"lifecycle_version"}, {"lifecycle"}):
                 raise TaskApprovalError("approval_not_allowed", "lifecycle approval fields are invalid")
@@ -1002,6 +1317,27 @@ class TaskApprovalService:
             for item in pending
         ):
             raise TaskApprovalError("approval_already_pending", "classification approval is already pending")
+
+    def _pending_review_request(
+        self,
+        workspace_id: UUID,
+        task_id: UUID,
+        *,
+        with_for_update: bool = False,
+    ) -> TaskApprovalRequest | None:
+        statement = select(TaskApprovalRequest).where(
+            TaskApprovalRequest.workspace_id == workspace_id,
+            TaskApprovalRequest.task_id == task_id,
+            TaskApprovalRequest.request_type == TaskApprovalRequestType.STATUS_UPDATE,
+            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+        )
+        if with_for_update:
+            statement = statement.with_for_update()
+        for request in self.session.scalars(statement.order_by(TaskApprovalRequest.created_at.asc())).all():
+            task = self.session.get(Task, task_id)
+            if task is not None and self._is_review_acceptance_request(request, task):
+                return request
+        return None
 
     def _validate_status_proposal(
         self,

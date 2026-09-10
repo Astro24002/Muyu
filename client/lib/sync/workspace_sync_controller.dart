@@ -3,7 +3,7 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../core/api_client.dart';
 import '../models/workspace_change.dart';
@@ -60,40 +60,82 @@ class WorkspaceSyncState {
   static const _unset = Object();
 }
 
-class WorkspaceSyncController extends ChangeNotifier {
+typedef WorkspaceSyncTimerFactory = Timer Function(
+  Duration duration,
+  void Function() callback,
+);
+
+class WorkspaceSyncController extends ChangeNotifier
+    with WidgetsBindingObserver {
   // Keep public constructor aliases while retaining private controller state.
   WorkspaceSyncController(
     this._repository, {
     WorkspaceCache? cache,
     String? workspaceId,
+    Duration pollingInterval = const Duration(seconds: 30),
+    WorkspaceSyncTimerFactory? timerFactory,
   }) : _cache = cache,
-       _workspaceId = workspaceId;
+       _workspaceId = workspaceId,
+       _pollingInterval = pollingInterval,
+       _timerFactory = timerFactory ?? _periodicTimerFactory {
+    if (pollingInterval <= Duration.zero) {
+      throw ArgumentError.value(
+        pollingInterval,
+        'pollingInterval',
+        'must be greater than zero',
+      );
+    }
+  }
 
   WorkspaceSyncController.unavailable()
     : _repository = null,
       _cache = null,
-      _workspaceId = null;
+      _workspaceId = null,
+      _pollingInterval = const Duration(seconds: 30),
+      _timerFactory = _periodicTimerFactory;
 
   final WorkspaceSyncRepository? _repository;
   final WorkspaceCache? _cache;
   final String? _workspaceId;
+  final Duration _pollingInterval;
+  final WorkspaceSyncTimerFactory _timerFactory;
   WorkspaceSyncState state = const WorkspaceSyncState();
   final List<Object> inFlightMutations = [];
   StreamSubscription? _hintsSubscription;
+  Timer? _pollingTimer;
   Future<void>? _refreshInFlight;
   Future<void>? _pullInFlight;
+  Future<void>? _startInFlight;
+  bool _started = false;
+  bool _lifecycleObserverRegistered = false;
+  bool _isForeground = true;
   bool _disposed = false;
 
   Future<bool> get canMutate async =>
       _repository != null && !_disposed && !state.isStale;
 
-  Future<void> start() async {
+  Future<void> start() {
     final repository = _repository;
-    if (repository == null || _disposed) return;
+    if (repository == null || _disposed) return Future<void>.value();
+    final existing = _startInFlight;
+    if (existing != null) return existing;
+    if (_started) return Future<void>.value();
+    _started = true;
+    _registerLifecycleObserver();
+    final operation = _start(repository);
+    _startInFlight = operation;
+    operation.whenComplete(() {
+      if (identical(_startInFlight, operation)) _startInFlight = null;
+    });
+    return operation;
+  }
+
+  Future<void> _start(WorkspaceSyncRepository repository) async {
     await _restoreCachedSnapshot();
     if (_disposed) return;
     await refresh();
     if (_disposed) return;
+    _startPolling();
     scheduleMicrotask(() {
       if (_disposed) return;
       final subscription = repository.openWorkspaceHints().listen((hint) {
@@ -105,6 +147,21 @@ class WorkspaceSyncController extends ChangeNotifier {
       }
       _hintsSubscription = subscription;
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_disposed || !_started) return;
+    if (state != AppLifecycleState.resumed) {
+      _isForeground = false;
+      _stopPolling();
+      return;
+    }
+
+    final wasForeground = _isForeground;
+    _isForeground = true;
+    _startPolling();
+    if (!wasForeground) unawaited(pull());
   }
 
   Future<void> refresh() {
@@ -649,6 +706,13 @@ class WorkspaceSyncController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _stopPolling();
+    if (_lifecycleObserverRegistered) {
+      WidgetsBinding.instance.removeObserver(this);
+      _lifecycleObserverRegistered = false;
+    }
+    _started = false;
+    _startInFlight = null;
     _refreshInFlight = null;
     _pullInFlight = null;
     final subscription = _hintsSubscription;
@@ -656,6 +720,37 @@ class WorkspaceSyncController extends ChangeNotifier {
     if (subscription != null) unawaited(subscription.cancel());
     super.dispose();
   }
+
+  void _registerLifecycleObserver() {
+    if (_lifecycleObserverRegistered || _disposed) return;
+    // The app binding is already initialized by runApp in production. Calling
+    // ensureInitialized also keeps this controller safe in pure Dart/Flutter
+    // tests that exercise sync without mounting a widget tree.
+    WidgetsFlutterBinding.ensureInitialized().addObserver(this);
+    _lifecycleObserverRegistered = true;
+  }
+
+  void _startPolling() {
+    if (_disposed || !_started || !_isForeground || _pollingTimer != null) {
+      return;
+    }
+    _pollingTimer = _timerFactory(_pollingInterval, () {
+      if (_disposed || !_started || !_isForeground) return;
+      // pull() coalesces timer ticks with an in-flight REST request, so a slow
+      // request cannot create overlapping cursor reads.
+      unawaited(pull());
+    });
+  }
+
+  void _stopPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
+  }
+
+  static Timer _periodicTimerFactory(
+    Duration duration,
+    void Function() callback,
+  ) => Timer.periodic(duration, (_) => callback());
 
   void _setLoading() {
     state = state.copyWith(loading: true, errorMessage: null);

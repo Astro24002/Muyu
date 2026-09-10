@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/classification.dart';
 import 'package:muyu_client/models/task.dart';
@@ -257,6 +259,111 @@ void main() {
       expect(controller.state.cursor, 12);
     },
   );
+
+  test('start schedules a foreground REST cursor poll every 30 seconds', () {
+    fakeAsync((async) {
+      final repository = FakeSyncRepository();
+      final controller = WorkspaceSyncController(repository);
+      var startCompleted = false;
+
+      controller.start().then((_) => startCompleted = true);
+      async.flushMicrotasks();
+
+      expect(startCompleted, isTrue);
+      expect(repository.requestedAfterCursors, isEmpty);
+
+      async.elapse(const Duration(seconds: 29));
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, isEmpty);
+
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, [11]);
+
+      controller.dispose();
+    });
+  });
+
+  test('background pauses polling and resume pulls immediately', () {
+    fakeAsync((async) {
+      final repository = FakeSyncRepository();
+      final controller = WorkspaceSyncController(
+        repository,
+        pollingInterval: const Duration(seconds: 5),
+      );
+
+      controller.start();
+      async.flushMicrotasks();
+      controller.didChangeAppLifecycleState(AppLifecycleState.paused);
+
+      async.elapse(const Duration(seconds: 20));
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, isEmpty);
+
+      controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, [11]);
+
+      // Repeated resumed notifications do not start a second immediate pull.
+      controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, [11]);
+
+      controller.dispose();
+    });
+  });
+
+  test('polling and resume pulls share the in-flight cursor request', () {
+    fakeAsync((async) {
+      final repository = FakeSyncRepository()
+        ..changesCompleter = Completer<WorkspaceChanges>();
+      final controller = WorkspaceSyncController(
+        repository,
+        pollingInterval: const Duration(seconds: 5),
+      );
+
+      controller.start();
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 5));
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, [11]);
+
+      async.elapse(const Duration(seconds: 5));
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, [11]);
+
+      controller.didChangeAppLifecycleState(AppLifecycleState.paused);
+      controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, [11]);
+
+      repository.changesCompleter!.complete(
+        const WorkspaceChanges(workspaceId: 'w1', cursor: 11, changes: []),
+      );
+      async.flushMicrotasks();
+
+      controller.dispose();
+    });
+  });
+
+  test('dispose cancels the polling timer', () {
+    fakeAsync((async) {
+      final repository = FakeSyncRepository();
+      final controller = WorkspaceSyncController(
+        repository,
+        pollingInterval: const Duration(seconds: 5),
+      );
+
+      controller.start();
+      async.flushMicrotasks();
+      controller.dispose();
+
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+      expect(repository.requestedAfterCursors, isEmpty);
+    });
+  });
 
   test('manual refresh uses the same authoritative snapshot routine', () async {
     final repository = FakeSyncRepository();

@@ -32,7 +32,13 @@
 - 变更：负责人提交“待验收”时，服务端在同一事务内执行 `IN_PROGRESS -> REVIEW`，并自动创建唯一的 `STATUS_UPDATE` 验收审批；审批只允许另一位 ACTIVE 成员处理。批准后任务进入 `DONE`，驳回必须填写原因并将任务回到 `IN_PROGRESS`，审批结果和任务快照一并返回，避免客户端等待下一次同步才能恢复状态。
 - 单人边界：ACTIVE 成员不足两人时，提交验收直接拒绝且不会留下 `REVIEW` 任务或无审批人的请求；负责人不能绕过验收直接完成。
 - 客户端：Android 详情、审批中心和同步控制器识别验收审批及任务快照；Web 审批列表隐藏内部 `review_submission` 标记并展示“任务验收 / 待验收”。
-- 验证：任务审批、HTTP 路由、首页和云协议回归，以及 Flutter analyze/test 已通过；完整后端与 Web 门禁在本轮提交前执行并记录。
+- 验证：后端 PostgreSQL 全量 `245 passed, 3 skipped, 1 warning`；Web TypeScript
+  typecheck、Vitest `264 passed` 和 Vite 生产构建通过；Flutter Dart format、`flutter analyze`
+  和 `flutter test` `201 passed` 通过；`git diff --check` 与 Python compileall 通过。
+- Android：本地调试包为 `client/build/app/outputs/flutter-apk/Muyu-d5caaa2.apk`，大小约
+  `173 MB`，SHA-256 为
+  `f15a0c4304453ab99d487b62302514128906876bf55b983a4c0c1c351312f8f7`；包内 API 地址检查和
+  `unzip -tq` 通过。本轮不创建版本 Release，正式包仍由 tag/release CI 生成。
 
 ### 2026-09-08 - Android 日程紧凑月历施工完成
 

@@ -557,7 +557,7 @@ Android job runs Flutter pub get, format, analyze, test, and flutter build apk -
 
 - [ ] Step 3: Update release workflow.
 
-Keep version tag and release.published as the only release events. Run backend, Android, and Web verification before the release job. The release job validates four signing secrets, builds a temporary-keystore Android AAB, builds web/dist with VITE_API_BASE_URL=/, creates web/web-release.tar.gz, writes SHA256SUMS and SOURCE_COMMIT, and uploads tag-derived artifacts. Use github.event.release.tag_name for a published Release and github.ref_name for a tag push. Use a tag-keyed concurrency group. If both events point to one release, only the release event runs the protected signing/upload job; the tag event runs verification.
+Keep version tag and release.published as the only release events. Run backend, Android, and Web verification before the release job. The Android release job validates four signing secrets, materializes the fixed keystore in the runner temp directory, builds and verifies `Muyu-vX.Y.Z.apk`, and attaches that APK to the GitHub Release. A protected follow-up job may additionally build the signed Android AAB, build web/dist with VITE_API_BASE_URL=/, create web/web-release.tar.gz, and write SHA256SUMS and SOURCE_COMMIT. Use github.event.release.tag_name for a published Release and github.ref_name for a tag push. Use a tag-keyed concurrency group. If both events point to one release, both verification runs may occur, but only the verified version APK is uploaded and no Debug APK is renamed as a release asset.
 
 - [ ] Step 4: Update Make targets and check.
 
@@ -631,7 +631,7 @@ Explain Vite /api and WebSocket proxying, ACTIVE Android QR approval, HttpOnly c
 
 - [ ] Step 3: Update artifact/deployment/release docs.
 
-Use these deliverables: Android debug APK, signed Android AAB, web/web-release.tar.gz containing web/dist, SHA256SUMS, SOURCE_COMMIT. State no IPA and no Flutter Web artifact. Update deployment to say Caddy serves Vite static files and proxies API/WebSocket while FastAPI remains API-only.
+Use these deliverables: commit-named Android debug APK for local/internal testing, fixed-signed `Muyu-vX.Y.Z.apk` for a version Release, optional signed Android AAB, web/web-release.tar.gz containing web/dist, SHA256SUMS, and SOURCE_COMMIT. State no IPA and no Flutter Web artifact. Update deployment to say Caddy serves Vite static files and proxies API/WebSocket while FastAPI remains API-only.
 
 - [ ] Step 4: Run the complete verification matrix.
 
@@ -686,5 +686,5 @@ Record skipped emulator/production-only checks and reasons; do not claim release
 - [ ] Caddy serves web/dist, proxies API/WebSocket, and emits required security headers.
 - [ ] CI has no pull_request trigger, no unfiltered push, no flutter test -d chrome, and no flutter build web.
 - [ ] Version tag and published Release events run intended checks; signed publication runs once per tag.
-- [ ] Release artifacts are Android AAB, Android debug APK where applicable, Web static tarball, checksums, and source commit; no IPA or Flutter Web bundle is produced.
+- [ ] Release artifacts are the fixed-signed version APK, optional Android AAB, Web static tarball, checksums, and source commit; commit-named Debug APKs are verification artifacts only; no IPA or Flutter Web bundle is produced.
 - [ ] No secret or private credential appears in source, logs, Web bundle, APK build arguments, or docs.

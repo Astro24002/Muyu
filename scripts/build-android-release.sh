@@ -80,13 +80,13 @@ if [[ -z "$apksigner_bin" || ! -x "$apksigner_bin" ]]; then
 fi
 "$apksigner_bin" verify --verbose --print-certs "$release_apk" >/dev/null
 
-kernel_blob="$(mktemp)"
-trap 'rm -f -- "$kernel_blob"' EXIT
-if ! unzip -p "$release_apk" assets/flutter_assets/kernel_blob.bin >"$kernel_blob"; then
-  printf 'Android release APK is missing Flutter kernel_blob.bin: %s\n' "$release_apk" >&2
+app_binary="$(mktemp)"
+trap 'rm -f -- "$app_binary"' EXIT
+if ! unzip -p "$release_apk" 'lib/*/libapp.so' >"$app_binary" || [[ ! -s "$app_binary" ]]; then
+  printf 'Android release APK is missing Flutter libapp.so: %s\n' "$release_apk" >&2
   exit 1
 fi
-if ! strings "$kernel_blob" | grep -F -- "$api_base_url" >/dev/null; then
+if ! strings "$app_binary" | grep -F -- "$api_base_url" >/dev/null; then
   printf 'Android release APK does not contain API_BASE_URL=%s: %s\n' "$api_base_url" "$release_apk" >&2
   exit 1
 fi

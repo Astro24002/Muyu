@@ -82,6 +82,7 @@ assert 'ANDROID_KEY_ALIAS' in release_builder_text
 assert 'ANDROID_KEY_PASSWORD' in release_builder_text
 assert 'apksigner_bin' in release_builder_text
 assert 'Muyu-${release_tag}.apk' in release_builder_text
+assert "lib/*/libapp.so" in release_builder_text
 
 gradle = Path("client/android/app/build.gradle.kts").read_text(encoding="utf-8")
 assert "signingConfig = releaseSigningConfig" in gradle

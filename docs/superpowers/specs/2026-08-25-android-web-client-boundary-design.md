@@ -134,7 +134,7 @@ npm run test
 npm run build
 ```
 
-生产 Web 产物为 `web/dist`，可打包为 `web-release.tar.gz`。Android 产物仍由 Flutter 生成 debug APK 和签名 AAB。
+生产 Web 产物为 `web/dist`，可打包为 `web-release.tar.gz`。Android 本地开发产出 commit 命名的 debug APK；版本 tag/Release 产出由固定 release keystore 签名的版本 APK，受保护 job 可额外生成签名 AAB。
 
 部署镜像使用 Node 构建阶段生成 Web 静态文件，再复制到 Caddy 镜像；FastAPI 镜像只安装 Python 后端依赖，不安装 Node 或 Web 依赖。Caddy 只服务构建后的 `index.html`、静态资源并代理 API，不运行任何 Flutter Web 或 SSR 运行时。
 
@@ -160,7 +160,7 @@ CI 分工：
 - `web`：Node 依赖安装、TypeScript 检查、Vitest、Vite build；
 - `deployment`：Compose、Caddy 配置和无旧运行时引用检查。
 
-`release.yml` 只在版本 tag 或已发布 Release 的发布流程中生成签名 Android AAB 和 Web 静态压缩包。未配置 Android 签名 Secret 时，发布工作流必须明确失败，不得回退为“看似成功”的未签名产物。
+`release.yml` 只在版本 tag 或已发布 Release 的发布流程中生成固定签名的版本 APK 和 Web 静态压缩包；受保护 job 可额外生成签名 Android AAB。未配置 Android 签名 Secret 时，发布工作流必须明确失败，不得回退为 Debug 签名、未签名或仅改名的产物。
 
 ## 7. 测试与验收
 

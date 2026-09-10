@@ -555,6 +555,7 @@ class _ScheduleGroup extends StatelessWidget {
           TaskSummaryCard(
             task: task,
             state: state,
+            compact: true,
             onTap: () => onTaskTap(task),
           ),
       ],

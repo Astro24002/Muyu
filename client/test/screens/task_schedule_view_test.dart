@@ -200,6 +200,47 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('task-card-work-task')));
     expect(tapped?.id, 'work-task');
   });
+
+  testWidgets(
+    'agenda cards hide task numbers and times while showing compact metadata pills',
+    (tester) async {
+      final today = dateOnly(DateTime.now().toLocal());
+      final task = scheduleTask(
+        'compact-schedule-task',
+        '准备婚礼物料',
+        dueAt: today.add(const Duration(hours: 18, minutes: 30)),
+        labels: const ['婚礼101'],
+      ).copyWith(taskNumber: '26080001');
+
+      await tester.pumpWidget(
+        scheduleApp(
+          TaskScheduleView(
+            sync: WorkspaceSyncController.unavailable(),
+            state: scheduleState([task]),
+            canWrite: true,
+            onTaskTap: (_) {},
+          ),
+        ),
+      );
+
+      expect(find.text('准备婚礼物料'), findsOneWidget);
+      expect(find.text('26080001'), findsNothing);
+      expect(find.text('婚礼101'), findsOneWidget);
+      expect(find.textContaining('18:30'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('task-card-metadata-compact-schedule-task')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .getSize(
+              find.byKey(const ValueKey('task-card-compact-schedule-task')),
+            )
+            .height,
+        lessThan(48),
+      );
+    },
+  );
 }
 
 String _dateKey(DateTime value) {

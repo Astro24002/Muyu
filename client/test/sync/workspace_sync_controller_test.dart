@@ -284,6 +284,40 @@ void main() {
     });
   });
 
+  test(
+    'initial sync completed while backgrounded does not restart polling',
+    () {
+      fakeAsync((async) {
+        final repository = FakeSyncRepository()
+          ..snapshotCompleter = Completer<WorkspaceSnapshot>();
+        final controller = WorkspaceSyncController(
+          repository,
+          pollingInterval: const Duration(seconds: 5),
+        );
+
+        controller.start();
+        async.flushMicrotasks();
+        expect(repository.snapshotCalls, 1);
+
+        controller.didChangeAppLifecycleState(AppLifecycleState.paused);
+        repository.snapshotCompleter!.complete(
+          const WorkspaceSnapshot(workspaceId: 'w1', cursor: 11, tasks: []),
+        );
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 20));
+        async.flushMicrotasks();
+        expect(repository.requestedAfterCursors, isEmpty);
+
+        controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        async.flushMicrotasks();
+        expect(repository.requestedAfterCursors, [11]);
+
+        controller.dispose();
+      });
+    },
+  );
+
   test('background pauses polling and resume pulls immediately', () {
     fakeAsync((async) {
       final repository = FakeSyncRepository();

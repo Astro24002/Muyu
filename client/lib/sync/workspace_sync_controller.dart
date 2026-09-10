@@ -107,6 +107,7 @@ class WorkspaceSyncController extends ChangeNotifier
   Future<void>? _pullInFlight;
   Future<void>? _startInFlight;
   bool _started = false;
+  bool _initialSyncCompleted = false;
   bool _lifecycleObserverRegistered = false;
   bool _isForeground = true;
   bool _disposed = false;
@@ -135,6 +136,7 @@ class WorkspaceSyncController extends ChangeNotifier
     if (_disposed) return;
     await refresh();
     if (_disposed) return;
+    _initialSyncCompleted = true;
     _startPolling();
     scheduleMicrotask(() {
       if (_disposed) return;
@@ -726,12 +728,23 @@ class WorkspaceSyncController extends ChangeNotifier
     // The app binding is already initialized by runApp in production. Calling
     // ensureInitialized also keeps this controller safe in pure Dart/Flutter
     // tests that exercise sync without mounting a widget tree.
-    WidgetsFlutterBinding.ensureInitialized().addObserver(this);
+    final binding = WidgetsFlutterBinding.ensureInitialized();
+    final lifecycleState = binding.lifecycleState;
+    // A null lifecycle state means Flutter has not delivered its first
+    // lifecycle event yet; treat that as foreground during startup. Once a
+    // state is known, do not start a timer for an already-backgrounded app.
+    _isForeground =
+        lifecycleState == null || lifecycleState == AppLifecycleState.resumed;
+    binding.addObserver(this);
     _lifecycleObserverRegistered = true;
   }
 
   void _startPolling() {
-    if (_disposed || !_started || !_isForeground || _pollingTimer != null) {
+    if (_disposed ||
+        !_started ||
+        !_initialSyncCompleted ||
+        !_isForeground ||
+        _pollingTimer != null) {
       return;
     }
     _pollingTimer = _timerFactory(_pollingInterval, () {

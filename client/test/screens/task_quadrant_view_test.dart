@@ -11,6 +11,7 @@ TaskItem quadrantTask(
   String title, {
   String quadrant = 'Q1',
   List<String> labels = const ['工作'],
+  DateTime? dueAt,
 }) => TaskItem(
   id: id,
   parentTaskId: null,
@@ -21,7 +22,7 @@ TaskItem quadrantTask(
   quadrant: quadrant,
   labels: labels,
   plannedStartAt: null,
-  dueAt: null,
+  dueAt: dueAt,
   estimatedMinutes: null,
   completedAt: null,
   createdBy: 'user-1',
@@ -101,10 +102,51 @@ void main() {
       expect(find.byKey(const ValueKey('task-card-task-1')), findsOneWidget);
       expect(
         tester.getSize(find.byKey(const ValueKey('task-card-task-1'))).height,
-        lessThan(56),
+        lessThan(48),
       );
     },
   );
+
+  testWidgets('keeps compact quadrant rows dense when a due date is present', (
+    tester,
+  ) async {
+    final task = quadrantTask(
+      'task-dense',
+      '准备发布生产环境检查清单',
+      dueAt: DateTime.utc(2026, 9, 3, 18, 30),
+    );
+
+    await tester.pumpWidget(
+      quadrantApp(
+        TaskQuadrantView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: quadrantState([task]),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+
+    final title = tester.widget<Text>(
+      find.byKey(const ValueKey('task-card-title-task-dense')),
+    );
+    final subtitle = tester.widget<Text>(
+      find.byKey(const ValueKey('task-card-subtitle-task-dense')),
+    );
+    expect(title.maxLines, 1);
+    expect(title.style?.fontSize, 13);
+    expect(subtitle.style?.fontSize, 10);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('task-card-task-dense'))).height,
+      lessThan(48),
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('task-card-title-task-dense')))
+          .width,
+      greaterThan(100),
+    );
+  });
 
   testWidgets('previews four tasks and expands only the selected quadrant', (
     tester,

@@ -628,9 +628,10 @@ class TaskListRow extends StatelessWidget {
 }
 
 class _TaskStatusIcon extends StatelessWidget {
-  const _TaskStatusIcon({required this.status});
+  const _TaskStatusIcon({required this.status, this.compact = false});
 
   final String status;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -665,7 +666,7 @@ class _TaskStatusIcon extends StatelessWidget {
     return Icon(
       icon,
       color: color,
-      size: 24,
+      size: compact ? 18 : 24,
       semanticLabel: taskStatusLabel(normalized),
     );
   }
@@ -725,7 +726,7 @@ class TaskSummaryCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Container(
-          constraints: BoxConstraints(minHeight: compact ? 48 : 56),
+          constraints: BoxConstraints(minHeight: compact ? 44 : 56),
           padding: EdgeInsets.symmetric(
             horizontal: MuyuSpacing.xs,
             vertical: compact ? MuyuSpacing.xs : MuyuSpacing.sm,
@@ -737,13 +738,14 @@ class TaskSummaryCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _TaskStatusIcon(status: task.status),
-              const SizedBox(width: MuyuSpacing.sm),
+              _TaskStatusIcon(status: task.status, compact: compact),
+              SizedBox(width: compact ? MuyuSpacing.xs : MuyuSpacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
+                      key: ValueKey('task-card-title-${task.id}'),
                       compact || task.taskNumber.isEmpty
                           ? task.title
                           : '${task.taskNumber} ${task.title}',
@@ -751,7 +753,10 @@ class TaskSummaryCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style:
                           (compact
-                                  ? theme.textTheme.bodyMedium
+                                  ? theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 13,
+                                      height: 18 / 13,
+                                    )
                                   : theme.textTheme.bodyLarge)
                               ?.copyWith(
                                 fontWeight: FontWeight.w600,
@@ -766,17 +771,23 @@ class TaskSummaryCard extends StatelessWidget {
                                     : theme.colorScheme.onSurface,
                               ),
                     ),
-                    SizedBox(height: compact ? 2 : MuyuSpacing.xs),
+                    SizedBox(height: compact ? 1 : MuyuSpacing.xs),
                     Text(
+                      key: ValueKey('task-card-subtitle-${task.id}'),
                       subtitle,
                       maxLines: compact ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall,
+                      style: compact
+                          ? theme.textTheme.labelMedium?.copyWith(
+                              fontSize: 10,
+                              height: 14 / 10,
+                            )
+                          : theme.textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
-              if (task.dueAt != null) ...[
+              if (!compact && task.dueAt != null) ...[
                 const SizedBox(width: MuyuSpacing.sm),
                 Text(
                   _dateText(task.dueAt!),

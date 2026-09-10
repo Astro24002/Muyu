@@ -287,21 +287,51 @@ def test_upgrade_adds_enum_value_when_public_has_same_named_enum(
     at_0004: Engine, database_url: str
 ) -> None:
     admin_engine = create_engine(database_url, pool_pre_ping=True, poolclass=NullPool)
+    backup_name = f"task_approval_request_type_backup_{uuid4().hex}"
+    renamed_existing_type = False
+    created_public_type = False
     try:
         with admin_engine.begin() as connection:
+            existing_type = connection.scalar(
+                text(
+                    "SELECT t.typtype "
+                    "FROM pg_type t "
+                    "JOIN pg_namespace n ON n.oid = t.typnamespace "
+                    "WHERE n.nspname = 'public' "
+                    "AND t.typname = 'task_approval_request_type'"
+                )
+            )
+            if existing_type is not None:
+                assert existing_type == "e"
+                connection.execute(
+                    text(
+                        "ALTER TYPE public.task_approval_request_type "
+                        f"RENAME TO {backup_name}"
+                    )
+                )
             connection.execute(
                 text(
                     "CREATE TYPE public.task_approval_request_type "
                     "AS ENUM ('CLASSIFICATION_CREATE')"
                 )
             )
+        renamed_existing_type = existing_type is not None
+        created_public_type = True
 
         _upgrade_to_head(at_0004, database_url)
 
         assert _enum_labels(at_0004, "task_approval_request_type") == _NEW_APPROVAL_REQUEST_TYPES
     finally:
         with admin_engine.begin() as connection:
-            connection.execute(text("DROP TYPE public.task_approval_request_type"))
+            if created_public_type:
+                connection.execute(text("DROP TYPE public.task_approval_request_type"))
+            if renamed_existing_type:
+                connection.execute(
+                    text(
+                        "ALTER TYPE public."
+                        f"{backup_name} RENAME TO task_approval_request_type"
+                    )
+                )
         admin_engine.dispose()
 
 

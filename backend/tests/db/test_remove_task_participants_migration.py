@@ -283,6 +283,28 @@ def _downgrade_to_0004(engine: Engine, database_url: str) -> None:
     command.downgrade(_config(database_url, schema), "0004_task_labels_quadrant")
 
 
+def test_upgrade_adds_enum_value_when_public_has_same_named_enum(
+    at_0004: Engine, database_url: str
+) -> None:
+    admin_engine = create_engine(database_url, pool_pre_ping=True, poolclass=NullPool)
+    try:
+        with admin_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TYPE public.task_approval_request_type "
+                    "AS ENUM ('CLASSIFICATION_CREATE')"
+                )
+            )
+
+        _upgrade_to_head(at_0004, database_url)
+
+        assert _enum_labels(at_0004, "task_approval_request_type") == _NEW_APPROVAL_REQUEST_TYPES
+    finally:
+        with admin_engine.begin() as connection:
+            connection.execute(text("DROP TYPE public.task_approval_request_type"))
+        admin_engine.dispose()
+
+
 def test_upgrade_from_0004_preserves_owner_history_and_non_assignee_approvals(
     at_0004: Engine, database_url: str
 ) -> None:

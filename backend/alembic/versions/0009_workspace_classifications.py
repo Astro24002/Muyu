@@ -22,7 +22,9 @@ def _add_approval_enum_value() -> None:
                     SELECT 1
                     FROM pg_enum item
                     JOIN pg_type type ON type.oid = item.enumtypid
-                    WHERE type.typname = 'task_approval_request_type'
+                    JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
+                    WHERE namespace.nspname = current_schema()
+                      AND type.typname = 'task_approval_request_type'
                       AND item.enumlabel = 'CLASSIFICATION_CREATE'
                 ) THEN
                     ALTER TYPE task_approval_request_type

@@ -123,6 +123,29 @@ def test_create_rejects_workspaces_without_exactly_two_active_members(db_engine,
         assert error.value.code == "approval_not_allowed"
 
 
+def test_owner_handler_transfer_requires_another_active_member(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner], workspace = _workspace(session, member_count=1, phone_seed=8020)
+        task = _task(session, workspace, owner)
+        request_id = uuid4()
+
+        with pytest.raises(TaskApprovalError, match="another active workspace member") as error:
+            TaskApprovalService(session).create(
+                workspace.id,
+                owner.id,
+                request_id,
+                task.id,
+                TaskApprovalRequestType.HANDLER_TRANSFER,
+                {"current_handler_id": uuid4()},
+                {"current_handler_id": task.field_versions["current_handler_id"]},
+            )
+
+        assert error.value.code == "approval_not_allowed"
+        assert session.scalar(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.request_id == request_id)
+        ) is None
+
+
 def test_create_rejects_self_and_cross_workspace_requests(db_engine) -> None:
     with Session(db_engine) as session:
         [user_a, user_b], workspace = _workspace(session)

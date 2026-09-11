@@ -161,7 +161,12 @@ class TaskApprovalService:
 
         members = self._active_members(workspace_id)
         if len(members) != 2:
-            raise TaskApprovalError("approval_not_allowed", "exactly two active workspace members are required")
+            message = (
+                "handler transfer requires another active workspace member"
+                if request_type == TaskApprovalRequestType.HANDLER_TRANSFER
+                else "exactly two active workspace members are required"
+            )
+            raise TaskApprovalError("approval_not_allowed", message)
         member_ids = {item.user_id for item in members}
         requester = self.session.get(User, requester_id)
         if requester_id not in member_ids or requester is None or requester.status != UserStatus.ACTIVE:
@@ -286,7 +291,13 @@ class TaskApprovalService:
                 # The current owner asks the other member to accept the
                 # transfer. In a two-person workspace that is the only other
                 # active member.
-                approver_id = next(item.user_id for item in members if item.user_id != requester_id)
+                other_member_ids = [item.user_id for item in members if item.user_id != requester_id]
+                if len(other_member_ids) != 1:
+                    raise TaskApprovalError(
+                        "approval_not_allowed",
+                        "handler transfer requires another active workspace member",
+                    )
+                approver_id = other_member_ids[0]
                 if proposed_handler_id != approver_id:
                     raise TaskApprovalError(
                         "approval_not_allowed",

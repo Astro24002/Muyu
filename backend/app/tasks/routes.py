@@ -271,7 +271,11 @@ def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, backgrou
         )
         if target is None:
             raise TaskConflictError("not_found", "task not found")
-        if target.current_handler_id != actor.user_id and not _is_task_mutation_replay(session, actor.workspace_id, body.request_id):
+        handler_transfer = "current_handler_id" in body.changes
+        if (
+            (handler_transfer or target.current_handler_id != actor.user_id)
+            and not _is_task_mutation_replay(session, actor.workspace_id, body.request_id)
+        ):
             approval_service = TaskApprovalService(session)
             approval = approval_service.create(
                 actor.workspace_id,

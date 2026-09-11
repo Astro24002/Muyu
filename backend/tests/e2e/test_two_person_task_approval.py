@@ -160,7 +160,20 @@ def test_two_users_complete_task_approval_and_sync_lifecycle(db_engine) -> None:
             "base_field_versions": {"current_handler_id": owner_edit.json()["field_versions"]["current_handler_id"]},
         },
     )
-    assert transfer.status_code == 200, transfer.text
+    assert transfer.status_code == 202, transfer.text
+    owner_transfer = transfer.json()["approval_request"]
+    assert owner_transfer["request_type"] == "HANDLER_TRANSFER"
+    assert owner_transfer["requester_id"] == owner["user"]["id"]
+    assert owner_transfer["approver_id"] == partner["user"]["id"]
+
+    approved_transfer = client.post(
+        f"/api/v1/workspaces/{workspace_id}/approval-requests/{owner_transfer['id']}/approve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4())},
+    )
+    assert approved_transfer.status_code == 200, approved_transfer.text
+    assert approved_transfer.json()["approval_request"]["status"] == "APPROVED"
+    assert approved_transfer.json()["task"]["current_handler_id"] == partner["user"]["id"]
     outgoing = client.get(
         f"/api/v1/workspaces/{workspace_id}/approval-requests?box=outgoing",
         headers=partner_headers,

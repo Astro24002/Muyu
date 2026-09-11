@@ -6,8 +6,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import ActivityEvent, TaskOperation, TaskStatusHistory, WorkspaceChangeLog, WorkspaceCursor
+from app.db.models import ActivityEvent, Task, TaskOperation, TaskStatusHistory, WorkspaceChangeLog, WorkspaceCursor
 from app.main import create_app
+from app.tasks.service import TaskService
 
 from .test_device_readonly_permissions import _headers, _ready_workspace
 from .test_lightweight_routes import FakeSmsProvider
@@ -89,6 +90,84 @@ def test_non_owner_patch_creates_pending_approval_and_owner_can_apply(db_engine)
     assert approved.json()["task"]["title"] == "Partner proposal"
 
 
+def test_owner_handler_patch_requires_partner_approval_and_replays_idempotently(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Owner transfer", "quadrant": "Q1", "labels": ["工作"]},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    request_id = str(uuid4())
+    body = {
+        "request_id": request_id,
+        "changes": {"current_handler_id": partner["user"]["id"]},
+        "base_field_versions": {"current_handler_id": task["field_versions"]["current_handler_id"]},
+    }
+
+    pending = client.patch(f"/api/v1/tasks/{task['id']}", headers=owner_headers, json=body)
+    assert pending.status_code == 202, pending.text
+    approval = pending.json()["approval_request"]
+    assert approval["request_type"] == "HANDLER_TRANSFER"
+    assert approval["requester_id"] == owner["user"]["id"]
+    assert approval["approver_id"] == partner["user"]["id"]
+    assert pending.json()["pending"] is True
+
+    before_approval = client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers)
+    assert before_approval.status_code == 200, before_approval.text
+    assert before_approval.json()["current_handler_id"] == owner["user"]["id"]
+
+    replay = client.patch(f"/api/v1/tasks/{task['id']}", headers=owner_headers, json=body)
+    assert replay.status_code == 202, replay.text
+    assert replay.json()["approval_request"]["id"] == approval["id"]
+    assert replay.json()["approval_request"]["request_id"] == request_id
+
+    approved = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4())},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["approval_request"]["status"] == "APPROVED"
+    assert approved.json()["task"]["current_handler_id"] == partner["user"]["id"]
+
+
+def test_owner_handler_patch_can_be_rejected_without_mutating_task(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    task = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={"request_id": str(uuid4()), "title": "Rejected transfer", "quadrant": "Q1", "labels": ["工作"]},
+    ).json()
+    pending = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"current_handler_id": partner["user"]["id"]},
+            "base_field_versions": {"current_handler_id": task["field_versions"]["current_handler_id"]},
+        },
+    )
+    assert pending.status_code == 202, pending.text
+    approval = pending.json()["approval_request"]
+
+    rejected = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/reject",
+        headers=partner_headers,
+        json={"request_id": str(uuid4()), "reason": "暂不转交"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["approval_request"]["status"] == "REJECTED"
+    assert rejected.json()["task"]["current_handler_id"] == owner["user"]["id"]
+
+
 def test_lifecycle_complete_submits_review_and_rejection_returns_task_snapshot(db_engine) -> None:
     client = _client(db_engine)
     owner, reviewer = _ready_workspace(client)
@@ -145,7 +224,7 @@ def test_lifecycle_complete_submits_review_and_rejection_returns_task_snapshot(d
     assert rejected.json()["task"]["review_rejection_reason"] == "补充验收材料"
 
 
-def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow(db_engine) -> None:
+def test_handler_transfer_is_rejected_while_task_is_in_review(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
     owner_headers = _headers(owner)
@@ -157,18 +236,6 @@ def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow
     )
     assert created.status_code == 201, created.text
     task = created.json()
-
-    stale = client.patch(
-        f"/api/v1/tasks/{task['id']}",
-        headers=owner_headers,
-        json={
-            "request_id": str(uuid4()),
-            "changes": {"current_handler_id": partner["user"]["id"]},
-            "base_field_versions": {"current_handler_id": 0},
-        },
-    )
-    assert stale.status_code == 409, stale.text
-    conflict_id = stale.json()["details"]["conflicts"][0]["id"]
 
     started = client.post(
         f"/api/v1/tasks/{task['id']}/transition",
@@ -190,46 +257,23 @@ def test_review_handler_conflict_proposed_resolution_cannot_bypass_reviewer_flow
         },
     )
     assert submitted.status_code == 202, submitted.text
-    submitted_payload = submitted.json()
-    before = submitted_payload["task"]
-    approval = submitted_payload["approval_request"]
-
-    rejected = client.post(
-        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
-        headers=partner_headers,
-        json={"request_id": str(uuid4()), "resolution": "proposed"},
+    transfer = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"current_handler_id": partner["user"]["id"]},
+            "base_field_versions": {"current_handler_id": task["field_versions"]["current_handler_id"]},
+        },
     )
-    assert rejected.status_code == 422, rejected.text
-    assert rejected.json()["code"] == "invalid_request"
-
-    after_rejection = client.get(f"/api/v1/tasks/{task['id']}", headers=partner_headers)
-    assert after_rejection.status_code == 200, after_rejection.text
-    assert after_rejection.json()["status"] == "REVIEW"
-    assert after_rejection.json()["current_handler_id"] == owner["user"]["id"]
-    assert after_rejection.json()["reviewer_user_id"] == partner["user"]["id"]
-    assert after_rejection.json()["version"] == before["version"]
-    conflicts = client.get(f"/api/v1/tasks/{task['id']}/conflicts", headers=partner_headers)
-    assert conflicts.status_code == 200, conflicts.text
-    assert conflicts.json()[0]["status"] == "OPEN"
-
-    kept = client.post(
-        f"/api/v1/tasks/{task['id']}/conflicts/{conflict_id}/resolve",
-        headers=partner_headers,
-        json={"request_id": str(uuid4()), "resolution": "current"},
-    )
-    assert kept.status_code == 200, kept.text
-    assert kept.json()["status"] == "REVIEW"
-    assert kept.json()["current_handler_id"] == owner["user"]["id"]
-
-    done = client.post(
-        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
-        headers=partner_headers,
-        json={"request_id": str(uuid4())},
-    )
-    assert done.status_code == 200, done.text
-    assert done.json()["approval_request"]["status"] == "APPROVED"
-    assert done.json()["task"]["status"] == "DONE"
-    assert done.json()["task"]["current_handler_id"] == owner["user"]["id"]
+    assert transfer.status_code == 403, transfer.text
+    assert transfer.json()["code"] == "approval_not_allowed"
+    assert transfer.json()["message"] == "handler transfer is not allowed while task is in review"
+    current = client.get(f"/api/v1/tasks/{task['id']}", headers=partner_headers)
+    assert current.status_code == 200, current.text
+    assert current.json()["status"] == "REVIEW"
+    assert current.json()["current_handler_id"] == owner["user"]["id"]
+    assert current.json()["reviewer_user_id"] == partner["user"]["id"]
 
 
 def test_review_rejection_requires_acceptance_request_and_reason(db_engine) -> None:
@@ -385,9 +429,8 @@ def test_stale_status_request_replays_the_original_409_across_http_sessions(db_e
     assert isinstance(first.json()["details"]["cursor"], int)
 
 
-def test_conflict_replay_stays_409_after_proposed_handler_transfer_changes_owner(db_engine) -> None:
+def test_owner_handler_transfer_approval_cancels_when_owner_is_stale(db_engine) -> None:
     client = _client(db_engine)
-    replay_client = _client(db_engine)
     owner, partner = _ready_workspace(client)
     owner_headers = _headers(owner)
     partner_headers = _headers(partner)
@@ -396,7 +439,7 @@ def test_conflict_replay_stays_409_after_proposed_handler_transfer_changes_owner
         headers=owner_headers,
         json={"request_id": str(uuid4()), "title": "Handler replay", "quadrant": "Q1", "labels": ["工作"]},
     ).json()
-    transferred = client.patch(
+    pending = client.patch(
         f"/api/v1/tasks/{created['id']}",
         headers=owner_headers,
         json={
@@ -405,31 +448,32 @@ def test_conflict_replay_stays_409_after_proposed_handler_transfer_changes_owner
             "base_field_versions": {"current_handler_id": 1},
         },
     )
-    assert transferred.status_code == 200, transferred.text
+    assert pending.status_code == 202, pending.text
+    approval = pending.json()["approval_request"]
 
-    request_id = str(uuid4())
-    body = {
-        "request_id": request_id,
-        "changes": {"current_handler_id": owner["user"]["id"]},
-        "base_field_versions": {"current_handler_id": 1},
-    }
-    first = client.patch(f"/api/v1/tasks/{created['id']}", headers=partner_headers, json=body)
-    assert first.status_code == 409, first.text
-    conflict_id = first.json()["details"]["conflicts"][0]["id"]
+    with Session(db_engine) as session:
+        task_row = session.get(Task, created["id"])
+        assert task_row is not None
+        TaskService(session).patch(
+            task_row.workspace_id,
+            task_row.current_handler_id,
+            task_row.id,
+            uuid4(),
+            {"current_handler_id": partner["user"]["id"]},
+            {"current_handler_id": task_row.field_versions["current_handler_id"]},
+        )
+        session.commit()
 
-    resolved = replay_client.post(
-        f"/api/v1/tasks/{created['id']}/conflicts/{conflict_id}/resolve",
+    stale = client.post(
+        f"/api/v1/workspaces/{created['workspace_id']}/approval-requests/{approval['id']}/approve",
         headers=partner_headers,
-        json={"request_id": str(uuid4()), "resolution": "proposed"},
+        json={"request_id": str(uuid4())},
     )
-    assert resolved.status_code == 200, resolved.text
-    assert resolved.json()["current_handler_id"] == owner["user"]["id"]
-
-    before_replay = _side_effect_counts(db_engine, created["workspace_id"], created["id"])
-    replay = replay_client.patch(f"/api/v1/tasks/{created['id']}", headers=partner_headers, json=body)
-    assert replay.status_code == 409, replay.text
-    assert replay.json() == first.json()
-    assert _side_effect_counts(db_engine, created["workspace_id"], created["id"]) == before_replay
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["code"] == "approval_conflicted"
+    current = client.get(f"/api/v1/tasks/{created['id']}", headers=partner_headers)
+    assert current.status_code == 200, current.text
+    assert current.json()["current_handler_id"] == partner["user"]["id"]
 
 
 def test_stale_blocked_status_409_uses_full_conflict_projection(db_engine) -> None:

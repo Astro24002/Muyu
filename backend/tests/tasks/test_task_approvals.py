@@ -638,6 +638,105 @@ def test_handler_transfer_approval_changes_task_handler_to_other_active_member(d
         assert task.current_handler_id == requester.id
 
 
+def test_owner_handler_transfer_requires_other_member_and_is_idempotent(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, partner], workspace = _workspace(session, phone_seed=8320)
+        task = _task(session, workspace, owner)
+        service = TaskApprovalService(session)
+        request_id = uuid4()
+        base_version = task.field_versions["current_handler_id"]
+
+        request = service.create(
+            workspace.id,
+            owner.id,
+            request_id,
+            task.id,
+            TaskApprovalRequestType.HANDLER_TRANSFER,
+            {"current_handler_id": partner.id},
+            {"current_handler_id": base_version},
+        )
+        replay = service.create(
+            workspace.id,
+            owner.id,
+            request_id,
+            task.id,
+            TaskApprovalRequestType.HANDLER_TRANSFER,
+            {"current_handler_id": partner.id},
+            {"current_handler_id": base_version},
+        )
+
+        assert replay.id == request.id
+        assert request.requester_id == owner.id
+        assert request.approver_id == partner.id
+        assert request.status == TaskApprovalRequestStatus.PENDING
+        assert task.current_handler_id == owner.id
+
+        result = service.approve(workspace.id, partner.id, request.id, uuid4())
+
+        assert result.request.status == TaskApprovalRequestStatus.APPROVED
+        assert result.task is task
+        assert task.current_handler_id == partner.id
+
+
+def test_owner_handler_transfer_can_be_rejected_without_mutating_task(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, partner], workspace = _workspace(session, phone_seed=8330)
+        task = _task(session, workspace, owner)
+        service = TaskApprovalService(session)
+        request = service.create(
+            workspace.id,
+            owner.id,
+            uuid4(),
+            task.id,
+            TaskApprovalRequestType.HANDLER_TRANSFER,
+            {"current_handler_id": partner.id},
+            {"current_handler_id": task.field_versions["current_handler_id"]},
+        )
+
+        rejected = service.reject(workspace.id, partner.id, request.id, uuid4(), "请继续负责")
+
+        assert rejected.request_type == TaskApprovalRequestType.HANDLER_TRANSFER
+        assert rejected.status == TaskApprovalRequestStatus.REJECTED
+        assert rejected.reviewed_by == partner.id
+        assert rejected.rejection_reason == "请继续负责"
+        assert task.current_handler_id == owner.id
+
+
+def test_owner_handler_transfer_rejects_stale_owner_at_approval(db_engine) -> None:
+    with Session(db_engine) as session:
+        [owner, partner], workspace = _workspace(session, phone_seed=8340)
+        task = _task(session, workspace, owner)
+        service = TaskApprovalService(session)
+        request = service.create(
+            workspace.id,
+            owner.id,
+            uuid4(),
+            task.id,
+            TaskApprovalRequestType.HANDLER_TRANSFER,
+            {"current_handler_id": partner.id},
+            {"current_handler_id": task.field_versions["current_handler_id"]},
+        )
+
+        # Simulate a stale request after another trusted write changed the
+        # owner. The pending request must not apply a second transfer.
+        TaskService(session).patch(
+            workspace.id,
+            owner.id,
+            task.id,
+            uuid4(),
+            {"current_handler_id": partner.id},
+            {"current_handler_id": task.field_versions["current_handler_id"]},
+        )
+
+        with pytest.raises(TaskConflictError) as error:
+            service.approve(workspace.id, partner.id, request.id, uuid4())
+
+        assert error.value.code == "approval_conflicted"
+        assert request.status == TaskApprovalRequestStatus.CANCELLED
+        assert request.rejection_reason == "task handler changed"
+        assert task.current_handler_id == partner.id
+
+
 def test_handler_transfer_approval_is_rejected_during_review(db_engine) -> None:
     with Session(db_engine) as session:
         [owner, requester], workspace = _workspace(session, phone_seed=8300)

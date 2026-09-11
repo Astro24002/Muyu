@@ -266,6 +266,43 @@ class TaskApprovalService:
             if comment.author_user_id not in member_ids:
                 raise TaskApprovalError("approval_not_allowed", "comment author must be an active workspace member")
             approver_id = comment.author_user_id
+        elif request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
+            if comment_id is not None:
+                raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
+            if task is None or task.current_handler_id is None or task.current_handler_id not in member_ids:
+                raise TaskApprovalError("approval_not_allowed", "task owner must be an active workspace member")
+            proposed_handler_id = self._uuid(changes["current_handler_id"], "current_handler_id")
+            if proposed_handler_id not in member_ids:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "handler must be an active workspace member",
+                )
+            if proposed_handler_id == task.current_handler_id:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "handler transfer must change the task owner",
+                )
+            if task.current_handler_id == requester_id:
+                # The current owner asks the other member to accept the
+                # transfer. In a two-person workspace that is the only other
+                # active member.
+                approver_id = next(item.user_id for item in members if item.user_id != requester_id)
+                if proposed_handler_id != approver_id:
+                    raise TaskApprovalError(
+                        "approval_not_allowed",
+                        "handler transfer must target the other active workspace member",
+                    )
+            else:
+                # Preserve the delegated flow: the non-owner asks the
+                # current owner to approve a transfer to the requester.
+                approver_id = task.current_handler_id
+                if proposed_handler_id != requester_id:
+                    raise TaskApprovalError(
+                        "approval_not_allowed",
+                        "handler transfer must target the requesting workspace member",
+                    )
+            if task.deleted_at is not None:
+                raise TaskApprovalError("approval_not_allowed", "deleted tasks cannot receive this approval request")
         else:
             if comment_id is not None:
                 raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
@@ -532,9 +569,15 @@ class TaskApprovalService:
             target_actor = request.approver_id
         elif request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment:
             target_actor = comment.author_user_id
+        elif request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
+            target_actor = self._handler_transfer_owner(request)
         else:
             target_actor = task.current_handler_id
-        if target_actor is None or target_actor != request.approver_id:
+        if request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
+            stale_target = target_actor is None or target_actor != task.current_handler_id
+        else:
+            stale_target = target_actor is None or target_actor != request.approver_id
+        if stale_target:
             self._cancel_for_stale_owner(request, task, comment, action_request_id, "task owner changed")
         try:
             target_task, target_comment, target_classification = self._apply(request, task, comment, target_actor)
@@ -886,7 +929,11 @@ class TaskApprovalService:
                 self._mark_conflicted(request, task, comment, action_request_id, "task status version changed")
             return
 
-        if task.current_handler_id != request.approver_id:
+        if request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
+            expected_owner = self._handler_transfer_owner(request)
+            if task.current_handler_id != expected_owner:
+                self._cancel_for_stale_owner(request, task, comment, action_request_id, "task handler changed")
+        elif task.current_handler_id != request.approver_id:
             self._cancel_for_stale_owner(request, task, comment, action_request_id, "task handler changed")
         if task.deleted_at is not None and request.request_type != TaskApprovalRequestType.TASK_RESTORE:
             self._cancel_for_stale_owner(request, task, comment, action_request_id, "task was deleted")
@@ -1212,6 +1259,28 @@ class TaskApprovalService:
             and request.requester_id == task.current_handler_id
             and request.approver_id == task.reviewer_user_id
             and request.approver_id != request.requester_id
+        )
+
+    def _handler_transfer_owner(self, request: TaskApprovalRequest) -> UUID:
+        """Return the owner whose authority is being delegated.
+
+        A transfer request has no separate direction column. In a two-person
+        workspace, an owner request targets the approver while a delegated
+        request targets the requester. Deriving the owner from that target
+        keeps the freshness check and approved mutation aligned.
+        """
+
+        proposed_handler_id = self._uuid(
+            (request.proposed_changes or {}).get("current_handler_id"),
+            "current_handler_id",
+        )
+        if proposed_handler_id == request.approver_id:
+            return request.requester_id
+        if proposed_handler_id == request.requester_id:
+            return request.approver_id
+        raise TaskApprovalError(
+            "approval_conflicted",
+            "handler transfer target is not a request participant",
         )
 
     def _request_cursor(self, request: TaskApprovalRequest) -> int | None:

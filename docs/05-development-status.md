@@ -33,8 +33,9 @@
   `HANDLER_TRANSFER` 请求，由另一位 ACTIVE 成员审批；审批前负责人保持不变，批准后由原负责人
   的任务写入授权应用转交，拒绝不改变任务。非负责人申请接手的既有“当前负责人审批”路径保留。
   转交目标必须是 Workspace 中另一位成员，且不能与其他字段混合提交；任务处于 `REVIEW` 时继续禁止转交。
-- 验证：独立 PostgreSQL 测试实例上的负责人审批专项 `44 passed`；Python compileall 与
-  `git diff --check` 通过。共享旧测试库的失败原因为全局 `pg_trgm` 扩展并发迁移竞态，未计入代码失败。
+- 验证：独立 PostgreSQL 测试实例上的后端全量 `250 passed, 3 skipped, 2 warnings`；负责人
+  转交专项包含幂等、批准、拒绝和过期负责人回归；Python compileall 与 `git diff --check`
+  通过。共享旧测试库的失败原因为全局 `pg_trgm` 扩展并发迁移竞态，未计入代码失败。
 - 提交：`a76d6f3`。
 
 ### 2026-09-10 - Android 前台 REST Cursor 自动同步施工完成

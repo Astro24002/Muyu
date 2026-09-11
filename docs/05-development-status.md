@@ -34,8 +34,9 @@
   定时器、手动刷新和前台恢复共用同一个游标请求，并合并并发请求，继续保留快照缓存和手动刷新。
 - 边界：本轮不引入 WebSocket、Redis、推送或后台常驻服务；应用被系统杀死或长期后台时不承诺实时同步，
   下一次回到前台会依据本地游标追平服务端变更。REST Cursor 仍是同步正确性来源。
-- 验证：Dart format、`flutter analyze` 和 Flutter 全量测试 `205 passed`；`git diff --check` 通过。
-- 提交：`35a4168`。
+- 验证：Dart format、`flutter analyze` 和 Flutter 全量测试 `206 passed`；另覆盖初始化期间进入后台的生命周期回归；
+  `git diff --check` 通过。
+- 提交：`35a4168`；后续生命周期竞态修复为 `2280989`。
 
 ### 2026-09-10 - 双人任务验收自动审批施工完成
 

@@ -8,7 +8,7 @@
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
-- 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入，非当前负责人的成员写入受保护字段时继续提交给对方审批；“我的任务”只按当前负责人筛选。
+- 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入普通字段，但负责人转交必须单独提交 `HANDLER_TRANSFER` 并由另一位成员审批；非当前负责人的成员写入受保护字段时继续提交给当前负责人审批；“我的任务”只按当前负责人筛选。
 - 当前分类契约：单人 Workspace 自动提供唯一的个人起步分类，允许第一位用户立即创建任务；第二位 ACTIVE 成员加入后，起步分类转为只读迁移分类。双人阶段新任务必须显式选择已批准共享分类，首个共享分类由一方发起 `CLASSIFICATION_CREATE` 并经另一位成员批准。
 - 当前完成契约：任务完成始终需要另一位成员验收。负责人一次提交验收会在同一事务内将任务改为 `REVIEW` 并自动创建唯一验收审批；批准后进入 `DONE`，驳回并填写原因后回到 `IN_PROGRESS`。单人阶段不能直接完成，也不创建没有审批人的验收请求。
 - 当前 Android 账户概览：从现有 Workspace snapshot 统计当前用户负责的全部未删除父任务和子任务，并显示任务、完成和延期汇总；匹配对象头像打开另一位 ACTIVE 成员的同口径概览。
@@ -25,6 +25,17 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-11 - 负责人转交审批绕过修复完成
+
+- 类型：任务负责人权限 / 双人审批 / HTTP 与领域回归。
+- 变更：服务端不再允许当前负责人直接改写 `current_handler_id`。负责人发起转交时创建
+  `HANDLER_TRANSFER` 请求，由另一位 ACTIVE 成员审批；审批前负责人保持不变，批准后由原负责人
+  的任务写入授权应用转交，拒绝不改变任务。非负责人申请接手的既有“当前负责人审批”路径保留。
+  转交目标必须是 Workspace 中另一位成员，且不能与其他字段混合提交；任务处于 `REVIEW` 时继续禁止转交。
+- 验证：独立 PostgreSQL 测试实例上的负责人审批专项 `44 passed`；Python compileall 与
+  `git diff --check` 通过。共享旧测试库的失败原因为全局 `pg_trgm` 扩展并发迁移竞态，未计入代码失败。
+- 提交：`a76d6f3`。
 
 ### 2026-09-10 - Android 前台 REST Cursor 自动同步施工完成
 

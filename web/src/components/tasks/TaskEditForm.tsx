@@ -150,7 +150,7 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
     const submittedFields = fieldsForChanges(changes).filter((field) => dirtyFields.current.has(field));
     run('save', () => actions.onSave(changes), (value) => {
       if (isPendingApproval(value)) {
-        setError('等待负责人审批');
+        setError('current_handler_id' in changes ? '负责人变更已提交，等待对方审批' : '等待负责人审批');
       } else if (isAppliedWriteResult(value, task.id)) {
         clearDirtyFields(dirtyFields.current, draftRef.current, submittedDraft, submittedFields);
       } else {

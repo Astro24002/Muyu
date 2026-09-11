@@ -576,7 +576,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         fields: {'current_handler_id': handlerId},
       );
       if (result is PendingApproval && mounted) {
-        setState(() => _pendingMessage = '等待负责人审批');
+        setState(() => _pendingMessage = '负责人变更已提交，等待对方审批');
       }
     } catch (_) {
       // Keep the error in the sync banner.

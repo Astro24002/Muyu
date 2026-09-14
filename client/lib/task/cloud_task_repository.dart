@@ -76,6 +76,7 @@ class CloudTaskRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
     String? requestId,
   }) async {
     final id = requestId ?? newRequestId();
@@ -87,6 +88,7 @@ class CloudTaskRepository {
       'resume_handler_id': resumeHandlerId,
       'waiting_for_user_id': waitingForUserId,
       'review_rejection_reason': reviewRejectionReason,
+      'review_content': reviewContent,
     });
     final result = _taskMutation(value);
     if (result == null) {
@@ -234,6 +236,33 @@ class CloudTaskRepository {
       return TaskComment.fromJson(json);
     }
     return null;
+  }
+
+  /// Reads the optional append-only detail projection for a task.
+  Future<List<TaskActivity>> activity(String taskId) async {
+    try {
+      final value = await _api.request(
+        'GET',
+        '/api/v1/tasks/$taskId/activity',
+        authenticated: true,
+      );
+      if (value is! List) {
+        throw const CloudTaskFailure('服务器返回了无效活动列表');
+      }
+      return value.map((item) {
+        if (item is! Map) {
+          throw const CloudTaskFailure('服务器返回了无效活动记录');
+        }
+        return TaskActivity.fromJson(item.cast<String, dynamic>());
+      }).toList();
+    } on ApiException catch (error) {
+      throw CloudTaskFailure(
+        error.message,
+        code: error.code,
+        statusCode: error.statusCode,
+        details: error.details,
+      );
+    }
   }
 
   Future<Object?> _write(

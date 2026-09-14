@@ -45,12 +45,15 @@ TaskItem detailTask({
 
 class RecordingRepository implements WorkspaceSyncRepository {
   String? transitionedTo;
+  String? transitionReviewContent;
   String? transitionResumeHandlerId;
   int? transitionBaseVersion;
   String? comment;
   String? delayReason;
   String? resolvedConflict;
   Map<String, Object?>? updatedFields;
+  List<TaskActivity> activityItems = const [];
+  bool failActivity = false;
 
   @override
   Future<WorkspaceSnapshot> snapshot() async => WorkspaceSnapshot(
@@ -108,9 +111,11 @@ class RecordingRepository implements WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
     required String requestId,
   }) async {
     transitionedTo = targetStatus;
+    transitionReviewContent = reviewContent;
     transitionBaseVersion = baseStatusVersion;
     transitionResumeHandlerId = resumeHandlerId;
     return detailTask(status: targetStatus);
@@ -136,6 +141,12 @@ class RecordingRepository implements WorkspaceSyncRepository {
   }) async {
     delayReason = reason;
     return null;
+  }
+
+  @override
+  Future<List<TaskActivity>> activity(String taskId) async {
+    if (failActivity) throw StateError('activity unavailable');
+    return activityItems;
   }
 
   @override
@@ -187,6 +198,215 @@ void main() {
   });
 
   testWidgets(
+    'shows the server-provided next step in the compact detail block',
+    (tester) async {
+      final task = detailTask().copyWith(
+        nextStep: const MomentNextStep(
+          kind: 'CONTINUE_TASK',
+          label: '继续处理任务',
+          canAct: true,
+          actions: ['SUBMIT_REVIEW'],
+        ),
+      );
+      final sync = WorkspaceSyncController.unavailable();
+      sync.state = WorkspaceSyncState(
+        snapshot: WorkspaceSnapshot(
+          workspaceId: 'w1',
+          cursor: 1,
+          viewerUserId: 'user-1',
+          tasks: [task],
+        ),
+        isStale: false,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TaskDetailScreen(task: task, sync: sync),
+        ),
+      );
+
+      expect(find.byKey(const Key('task-next-step')), findsOneWidget);
+      expect(find.byKey(const Key('task-next-step-label')), findsOneWidget);
+      expect(find.text('继续处理任务'), findsOneWidget);
+    },
+  );
+
+  testWidgets('requires a transfer note before changing the handler', (
+    tester,
+  ) async {
+    final repository = RecordingRepository();
+    final sync = WorkspaceSyncController(repository);
+    await sync.refresh();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: detailTask(), sync: sync),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('task-save-button')));
+    await tester.pump();
+    final listState = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    listState.position.jumpTo(listState.position.maxScrollExtent);
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('task-handler-select')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('task-handler-select')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('小雨').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('transfer-note-input')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('transfer-note-submit')));
+    await tester.pump();
+    expect(find.text('请填写交接说明'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('transfer-note-input')),
+      '请继续跟进合同',
+    );
+    await tester.tap(find.byKey(const Key('transfer-note-submit')));
+    await tester.pumpAndSettle();
+
+    expect(repository.updatedFields, {
+      'current_handler_id': 'user-2',
+      'transfer_note': '请继续跟进合同',
+    });
+  });
+
+  testWidgets('shows activity evidence with operator and timestamp', (
+    tester,
+  ) async {
+    final repository = RecordingRepository();
+    repository.activityItems = [
+      TaskActivity(
+        id: 'activity-1',
+        action: 'APPROVAL_REJECTED',
+        eventType: 'APPROVAL_REJECTED',
+        actorUserId: 'user-2',
+        before: null,
+        after: null,
+        payload: const {
+          'approval_request': {
+            'proposed_changes': {
+              'transfer_note': '请继续跟进客户',
+              'review_content': '已完成验收清单',
+            },
+            'rejection_reason': '请补充截图',
+          },
+          'reason': '请补充截图',
+        },
+        createdAt: DateTime.utc(2026, 9, 1, 2, 3),
+      ),
+    ];
+    final task = detailTask();
+    final sync = WorkspaceSyncController(repository);
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '我'},
+          {'user_id': 'user-2', 'display_name': '小雨'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('task-activity-activity-1')),
+    );
+
+    expect(find.byKey(const Key('task-activity-section')), findsOneWidget);
+    expect(find.text('负责人变更被拒绝'), findsOneWidget);
+    expect(find.text('小雨'), findsOneWidget);
+    expect(find.text('交接说明：请继续跟进客户'), findsOneWidget);
+    expect(find.text('验收内容：已完成验收清单'), findsOneWidget);
+    expect(find.text('退回原因：请补充截图'), findsOneWidget);
+  });
+
+  testWidgets('keeps task details when activity loading fails', (tester) async {
+    final repository = RecordingRepository()..failActivity = true;
+    final task = detailTask();
+    final sync = WorkspaceSyncController(repository);
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('task-detail-card')), findsOneWidget);
+    expect(find.text('Original'), findsOneWidget);
+    expect(find.byKey(const Key('task-activity-section')), findsOneWidget);
+  });
+
+  testWidgets('submits review content through the compatible transition path', (
+    tester,
+  ) async {
+    final task = detailTask(status: 'IN_PROGRESS');
+    final repository = RecordingRepository();
+    final sync = WorkspaceSyncController(repository);
+    sync.state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'w1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [task],
+        members: const [
+          {'user_id': 'user-1', 'display_name': '我'},
+          {'user_id': 'user-2', 'display_name': '小雨'},
+        ],
+      ),
+      isStale: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskDetailScreen(task: task, sync: sync),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -260));
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('task-status-review')));
+    await tester.tap(find.byKey(const Key('task-status-review')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('review-content-input')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('review-submit-confirm')));
+    await tester.pump();
+    expect(find.text('请填写验收内容'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('review-content-input')),
+      '已完成清单并附上截图',
+    );
+    await tester.tap(find.byKey(const Key('review-submit-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.transitionedTo, 'REVIEW');
+    expect(repository.transitionReviewContent, '已完成清单并附上截图');
+  });
+
+  testWidgets(
     'detail actions use current status version and expose comment/conflict controls',
     (tester) async {
       final repository = RecordingRepository();
@@ -201,6 +421,10 @@ void main() {
       await tester.pump();
 
       await tester.drag(find.byType(ListView), const Offset(0, -500));
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const Key('task-status-in_progress')),
+      );
       await tester.pump();
       await tester.ensureVisible(
         find.byKey(const Key('task-status-in_progress')),

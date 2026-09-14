@@ -1,5 +1,9 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'moment_next_step.dart';
+
+export 'moment_next_step.dart';
+
 abstract interface class TaskMutationResult {}
 
 class TaskItem implements TaskMutationResult {
@@ -27,6 +31,7 @@ class TaskItem implements TaskMutationResult {
     this.reviewSubmittedAt,
     this.reviewedAt,
     this.reviewRejectionReason,
+    this.nextStep,
     required this.plannedStartAt,
     required this.dueAt,
     required this.estimatedMinutes,
@@ -72,6 +77,7 @@ class TaskItem implements TaskMutationResult {
   final DateTime? reviewSubmittedAt;
   final DateTime? reviewedAt;
   final String? reviewRejectionReason;
+  final MomentNextStep? nextStep;
   final DateTime? plannedStartAt;
   final DateTime? dueAt;
   final int? estimatedMinutes;
@@ -114,6 +120,9 @@ class TaskItem implements TaskMutationResult {
       reviewSubmittedAt: _date(json['review_submitted_at']),
       reviewedAt: _date(json['reviewed_at']),
       reviewRejectionReason: json['review_rejection_reason'] as String?,
+      nextStep: json['next_step'] == null
+          ? null
+          : MomentNextStep.fromJson(json['next_step']),
       plannedStartAt: _date(json['planned_start_at']),
       dueAt: _date(json['due_at']),
       estimatedMinutes: json['estimated_minutes'] as int?,
@@ -148,6 +157,7 @@ class TaskItem implements TaskMutationResult {
     DateTime? reviewSubmittedAt,
     DateTime? reviewedAt,
     String? reviewRejectionReason,
+    MomentNextStep? nextStep,
     Map<String, int>? fieldVersions,
     int? lifecycleVersion,
     DateTime? deletedAt,
@@ -171,6 +181,7 @@ class TaskItem implements TaskMutationResult {
     reviewSubmittedAt: reviewSubmittedAt ?? this.reviewSubmittedAt,
     reviewedAt: reviewedAt ?? this.reviewedAt,
     reviewRejectionReason: reviewRejectionReason ?? this.reviewRejectionReason,
+    nextStep: nextStep ?? this.nextStep,
     plannedStartAt: plannedStartAt,
     dueAt: dueAt,
     estimatedMinutes: estimatedMinutes,
@@ -207,6 +218,7 @@ class TaskItem implements TaskMutationResult {
     'review_submitted_at': reviewSubmittedAt?.toUtc().toIso8601String(),
     'reviewed_at': reviewedAt?.toUtc().toIso8601String(),
     'review_rejection_reason': reviewRejectionReason,
+    if (nextStep != null) 'next_step': nextStep!.toJson(),
     'planned_start_at': plannedStartAt?.toUtc().toIso8601String(),
     'due_at': dueAt?.toUtc().toIso8601String(),
     'estimated_minutes': estimatedMinutes,
@@ -358,24 +370,129 @@ class TaskActivity {
     required this.after,
     required this.payload,
     required this.createdAt,
+    this.kind = 'activity',
+    this.eventType,
+    this.operationType,
+    this.actorUserId,
+    this.authorUserId,
+    this.requestId,
+    this.body,
+    this.reason,
+    this.note,
+    this.newDueAt,
+    this.delayDurationMinutes,
   });
 
   final String id;
+  final String kind;
   final String action;
+  final String? eventType;
+  final String? operationType;
+  final String? actorUserId;
+  final String? authorUserId;
+  final String? requestId;
   final Map<String, dynamic>? before;
   final Map<String, dynamic>? after;
   final Map<String, dynamic> payload;
+  final String? body;
+  final String? reason;
+  final String? note;
+  final DateTime? newDueAt;
+  final int? delayDurationMinutes;
   final DateTime createdAt;
 
-  factory TaskActivity.fromJson(Map<String, dynamic> json) => TaskActivity(
-    id: json['id'] as String,
-    action: json['action'] as String,
-    before: (json['before_json'] as Map<Object?, Object?>?)
-        ?.cast<String, dynamic>(),
-    after: (json['after_json'] as Map<Object?, Object?>?)
-        ?.cast<String, dynamic>(),
-    payload: (json['payload_json'] as Map<Object?, Object?>)
-        .cast<String, dynamic>(),
-    createdAt: DateTime.parse(json['created_at'] as String),
-  );
+  factory TaskActivity.fromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    final createdAt = json['created_at'];
+    if (id is! String || id.isEmpty || createdAt is! String) {
+      throw const FormatException('task activity has invalid identity');
+    }
+    final kind = _string(json['kind']) ?? 'activity';
+    final eventType = _string(json['event_type']);
+    final operationType = _string(json['operation_type']);
+    final action =
+        _string(json['action']) ?? eventType ?? operationType ?? kind;
+    final payload = _map(json['payload'] ?? json['payload_json']);
+    final before =
+        _mapOrNull(json['before'] ?? json['before_json']) ??
+        _mapOrNull(payload['before']);
+    final after =
+        _mapOrNull(json['after'] ?? json['after_json']) ??
+        _mapOrNull(payload['after']);
+    return TaskActivity(
+      id: id,
+      kind: kind,
+      action: action,
+      eventType: eventType,
+      operationType: operationType,
+      actorUserId: _string(json['actor_user_id']),
+      authorUserId: _string(json['author_user_id']),
+      requestId: _string(json['request_id']),
+      before: before,
+      after: after,
+      payload: payload,
+      body: _string(json['body']),
+      reason: _string(json['reason']),
+      note: _string(json['note']),
+      newDueAt: _date(json['new_due_at']),
+      delayDurationMinutes: (json['delay_duration_minutes'] as num?)?.toInt(),
+      createdAt: DateTime.parse(createdAt),
+    );
+  }
+
+  /// Approval metadata is nested in activity payloads on the cloud API.
+  Map<String, dynamic> get approvalRequest => _map(payload['approval_request']);
+
+  Map<String, dynamic> get proposedChanges =>
+      _map(approvalRequest['proposed_changes']);
+
+  String? get transferNote => _firstString([
+    payload['transfer_note'],
+    proposedChanges['transfer_note'],
+    _map(payload['after'])['transfer_note'],
+  ]);
+
+  String? get reviewContent => _firstString([
+    payload['review_content'],
+    proposedChanges['review_content'],
+    _map(payload['after'])['review_content'],
+  ]);
+
+  String? get rejectionReason => _firstString([
+    payload['rejection_reason'],
+    payload['reason'],
+    approvalRequest['rejection_reason'],
+    proposedChanges['review_rejection_reason'],
+    _map(payload['after'])['review_rejection_reason'],
+  ]);
+
+  String? get operatorId =>
+      actorUserId ??
+      authorUserId ??
+      _string(approvalRequest['reviewed_by']) ??
+      _string(approvalRequest['requester_id']);
+
+  static Map<String, dynamic> _map(Object? value) {
+    if (value is! Map) return <String, dynamic>{};
+    return value.map((key, item) => MapEntry('$key', item));
+  }
+
+  static Map<String, dynamic>? _mapOrNull(Object? value) {
+    if (value is! Map) return null;
+    return value.map((key, item) => MapEntry('$key', item));
+  }
+
+  static String? _string(Object? value) =>
+      value is String && value.isNotEmpty ? value : null;
+
+  static String? _firstString(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = _string(value)?.trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
+  static DateTime? _date(Object? value) =>
+      value is String ? DateTime.tryParse(value) : null;
 }

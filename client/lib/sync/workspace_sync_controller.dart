@@ -294,6 +294,7 @@ class WorkspaceSyncController extends ChangeNotifier
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
   }) async {
     final repository = _repository;
     final matches =
@@ -334,6 +335,7 @@ class WorkspaceSyncController extends ChangeNotifier
         reviewRejectionReason: isReviewReturn
             ? normalizedReviewReason
             : reviewRejectionReason,
+        reviewContent: reviewContent,
         requestId: _requestId(),
       );
       if (result is TaskItem) {
@@ -439,7 +441,7 @@ class WorkspaceSyncController extends ChangeNotifier
         fields: fields,
         fieldVersions: {
           for (final field in fields.keys)
-            field: task.fieldVersions[field] ?? 1,
+            if (field != 'transfer_note') field: task.fieldVersions[field] ?? 1,
         },
         requestId: _requestId(),
       );
@@ -456,6 +458,15 @@ class WorkspaceSyncController extends ChangeNotifier
       _setError(error);
       rethrow;
     }
+  }
+
+  /// Loads the append-only detail projection without changing the workspace
+  /// snapshot. A detail fetch must not make an otherwise usable task page
+  /// stale when the optional endpoint is unavailable.
+  Future<List<TaskActivity>> activity(String taskId) async {
+    final repository = _repository;
+    if (repository == null || _disposed) return const [];
+    return repository.activity(taskId);
   }
 
   Future<TaskApprovalRequest?> createApprovalRequest(

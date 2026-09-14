@@ -51,6 +51,7 @@ STATUS_CHANGE_FIELDS = {
     "resume_handler_id",
     "waiting_for_user_id",
     "review_rejection_reason",
+    "review_content",
     # Internal marker for the compound owner action.  The proposed target is
     # DONE because that is what approval applies, while the task has already
     # moved to REVIEW when this request is created.
@@ -361,6 +362,7 @@ class TaskApprovalService:
         *,
         base_lifecycle_version: int | None = None,
         operation_fingerprint: str | None = None,
+        review_content: str | None = None,
     ) -> TaskApprovalResult:
         """Submit a task for acceptance and create its acceptance request atomically.
 
@@ -376,6 +378,17 @@ class TaskApprovalService:
         if isinstance(base_status_version, bool) or int(base_status_version) < 1:
             raise TaskApprovalError("approval_not_allowed", "status version is required")
         base_status_version = int(base_status_version)
+        # A review is a handoff to the other member, so it must carry an
+        # explicit statement of what was delivered. Keep the public argument
+        # optional for source compatibility, but reject omission at the domain
+        # boundary so every client follows the same contract.
+        if not isinstance(review_content, str):
+            raise TaskApprovalError("invalid_request", "review_content must be a string")
+        review_content = review_content.strip()
+        if not review_content:
+            raise TaskApprovalError("invalid_request", "review_content cannot be blank")
+        if len(review_content) > 5000:
+            raise TaskApprovalError("invalid_request", "review_content is too long")
 
         self._require_active_principal(workspace_id, requester_id)
         # Lock membership rows before the task, matching ``create`` and
@@ -409,6 +422,7 @@ class TaskApprovalService:
                 or existing.request_type != TaskApprovalRequestType.STATUS_UPDATE
                 or (existing.proposed_changes or {}).get("target_status") != TaskStatus.DONE.value
                 or (existing.proposed_changes or {}).get("review_submission") is not True
+                or (existing.proposed_changes or {}).get("review_content") != review_content
             ):
                 raise TaskApprovalError(
                     "approval_request_reused",
@@ -475,6 +489,7 @@ class TaskApprovalService:
             {
                 "target_status": TaskStatus.DONE.value,
                 "review_submission": True,
+                **({"review_content": review_content} if review_content is not None else {}),
             },
             {"status_version": task.status_version},
             allow_review_acceptance=True,
@@ -851,6 +866,10 @@ class TaskApprovalService:
         if request_type == TaskApprovalRequestType.QUADRANT_UPDATE:
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
+            # ``transfer_note`` is immutable request context, not a task
+            # column. Keep it on the approval/activity payload while applying
+            # only the versioned handler change.
+            changes.pop("transfer_note", None)
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.STATUS_UPDATE:
             status_version = self._base_version(request, "status_version", "status")
@@ -966,6 +985,8 @@ class TaskApprovalService:
             return
         current_versions = dict(task.field_versions or {})
         for field in request.proposed_changes:
+            if field == "transfer_note":
+                continue
             expected = (request.base_field_versions or {}).get(field)
             if expected is None or int(current_versions.get(field, 1)) != int(expected):
                 self._mark_conflicted(request, task, comment, action_request_id, f"task field {field} changed")
@@ -1349,6 +1370,22 @@ class TaskApprovalService:
                 raise TaskApprovalError("approval_not_allowed", "unsupported target status")
             if "review_submission" in changes and changes["review_submission"] is not True:
                 raise TaskApprovalError("approval_not_allowed", "review_submission must be true")
+            if "review_submission" in changes and changes["target_status"] != TaskStatus.DONE.value:
+                raise TaskApprovalError("approval_not_allowed", "review_submission requires DONE")
+            if "review_content" in changes and changes["target_status"] not in {
+                TaskStatus.REVIEW.value,
+                TaskStatus.DONE.value,
+            }:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "review_content is only valid for review submission",
+                )
+            if "review_content" in changes:
+                if not isinstance(changes["review_content"], str) or not changes["review_content"].strip():
+                    raise TaskApprovalError("approval_not_allowed", "review_content cannot be blank")
+                changes["review_content"] = changes["review_content"].strip()
+                if len(changes["review_content"]) > 5000:
+                    raise TaskApprovalError("approval_not_allowed", "review_content is too long")
         elif request_type in {TaskApprovalRequestType.TASK_DELETE, TaskApprovalRequestType.TASK_RESTORE}:
             if changes or set(versions) not in ({"lifecycle_version"}, {"lifecycle"}):
                 raise TaskApprovalError("approval_not_allowed", "lifecycle approval fields are invalid")
@@ -1356,9 +1393,15 @@ class TaskApprovalService:
             if comment_id is None or changes or set(versions) not in ({"version"}, {"comment_version"}):
                 raise TaskApprovalError("approval_not_allowed", "comment deletion requires the comment version")
         elif request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
-            if set(changes) != {"current_handler_id"} or set(versions) != {"current_handler_id"}:
+            if set(changes) - {"current_handler_id", "transfer_note"} or "current_handler_id" not in changes or set(versions) != {"current_handler_id"}:
                 raise TaskApprovalError("approval_not_allowed", "handler transfer requires current_handler_id")
             self._uuid(changes["current_handler_id"], "current_handler_id")
+            if "transfer_note" in changes:
+                if not isinstance(changes["transfer_note"], str) or not changes["transfer_note"].strip():
+                    raise TaskApprovalError("approval_not_allowed", "transfer_note cannot be blank")
+                changes["transfer_note"] = changes["transfer_note"].strip()
+                if len(changes["transfer_note"]) > 2000:
+                    raise TaskApprovalError("approval_not_allowed", "transfer_note is too long")
         if request_type != TaskApprovalRequestType.COMMENT_DELETE and comment_id is not None:
             raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
 
@@ -1548,6 +1591,9 @@ class TaskApprovalService:
                 normalized["labels"] = normalize_task_labels(normalized["labels"])
             except TaskConflictError as error:
                 raise TaskApprovalError(error.code, str(error)) from error
+        for field in ("transfer_note", "review_content"):
+            if isinstance(normalized.get(field), str):
+                normalized[field] = normalized[field].strip()
         return normalized
 
     def _normalize_versions(self, value: Mapping[str, int]) -> dict[str, int]:

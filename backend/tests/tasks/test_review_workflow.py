@@ -127,6 +127,7 @@ def test_submit_review_creates_one_acceptance_request_and_replays_atomically(db_
             request_id,
             task.id,
             task.status_version,
+            review_content="已完成交付并核对结果",
         )
 
         assert result.task is task
@@ -137,6 +138,7 @@ def test_submit_review_creates_one_acceptance_request_and_replays_atomically(db_
         assert result.request.proposed_changes == {
             "target_status": "DONE",
             "review_submission": True,
+            "review_content": "已完成交付并核对结果",
         }
         assert result.request.request_id == request_id
         assert result.request.base_field_versions == {"status_version": task.status_version}
@@ -157,6 +159,7 @@ def test_submit_review_creates_one_acceptance_request_and_replays_atomically(db_
             request_id,
             task.id,
             task.status_version - 1,
+            review_content="已完成交付并核对结果",
         )
         assert replay.request.id == result.request.id
         assert replay.task.status == TaskStatus.REVIEW
@@ -165,6 +168,27 @@ def test_submit_review_creates_one_acceptance_request_and_replays_atomically(db_
         approved = service.approve(workspace.id, reviewer.id, result.request.id, uuid4())
         assert approved.request.status == TaskApprovalRequestStatus.APPROVED
         assert approved.task.status == TaskStatus.DONE
+
+
+def test_submit_review_requires_delivery_content_without_mutating_task(db_engine) -> None:
+    with Session(db_engine) as session:
+        owner, _reviewer, workspace = _workspace_with_two_users(session, phone_seed=36725)
+        task, _task_service = _in_progress_task(session, owner, workspace)
+        service = TaskApprovalService(session, now=lambda: NOW)
+
+        with pytest.raises(TaskApprovalError, match="review_content"):
+            service.submit_review(
+                workspace.id,
+                owner.id,
+                uuid4(),
+                task.id,
+                task.status_version,
+            )
+
+        assert task.status == TaskStatus.IN_PROGRESS
+        assert session.scalars(
+            select(TaskApprovalRequest).where(TaskApprovalRequest.task_id == task.id)
+        ).all() == []
 
 
 def test_review_rejection_requires_reason_and_returns_task_to_progress(db_engine) -> None:
@@ -178,6 +202,7 @@ def test_review_rejection_requires_reason_and_returns_task_to_progress(db_engine
             uuid4(),
             task.id,
             task.status_version,
+            review_content="已完成交付并核对结果",
         )
 
         with pytest.raises(TaskApprovalError, match="reason is required"):
@@ -228,6 +253,7 @@ def test_single_member_cannot_submit_review_or_create_acceptance_request(db_engi
                 uuid4(),
                 task.id,
                 task.status_version,
+                review_content="已完成交付并核对结果",
             )
 
         assert task.status == TaskStatus.IN_PROGRESS

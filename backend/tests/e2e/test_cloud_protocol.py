@@ -347,6 +347,7 @@ def test_two_user_task_workflow_postgresql(db_engine) -> None:
             "request_id": str(uuid4()),
             "target_status": "REVIEW",
             "base_status_version": started.json()["status_version"],
+            "review_content": "已完成任务核对",
         },
     )
     assert review.status_code == 202, review.text

@@ -19,10 +19,19 @@ export function ApprovalsPage({ sync }: ApprovalsPageProps): JSX.Element {
   const approvals = state.approvals ?? state.snapshot?.approval_requests ?? [];
   const tasks = state.snapshot?.tasks ?? [];
   const viewerId = state.snapshot?.viewer_user_id ?? '';
+  const members = state.snapshot?.members ?? [];
   const incoming = approvals.filter((request) => request.approver_id === viewerId);
   const outgoing = approvals.filter((request) => request.requester_id === viewerId);
   const pendingCount = incoming.filter((request) => request.status === 'PENDING').length;
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  const memberLabel = useCallback((userId: string): string => {
+    if (userId === viewerId) return '我';
+    const member = members.find((item) => item.user_id === userId);
+    const displayName = member?.display_name?.trim();
+    if (displayName) return displayName;
+    if (member?.member_slot) return `协作者 ${member.member_slot}`;
+    return '协作者';
+  }, [members, viewerId]);
   const busy = state.loading || state.stale || state.authRequired || busyRequestId !== null;
   const error = actionError ?? state.error;
 
@@ -60,10 +69,11 @@ export function ApprovalsPage({ sync }: ApprovalsPageProps): JSX.Element {
       </div>
 
       <ApprovalBox
-        heading="待我审批"
+        heading="需要我确认"
         headingId="approvals-incoming-heading"
         requests={incoming}
         tasksById={tasksById}
+        memberLabel={memberLabel}
         incoming
         pendingCount={pendingCount}
         busy={busy}
@@ -73,10 +83,11 @@ export function ApprovalsPage({ sync }: ApprovalsPageProps): JSX.Element {
       />
 
       <ApprovalBox
-        heading="我发起的请求"
+        heading="等待对方确认"
         headingId="approvals-outgoing-heading"
         requests={outgoing}
         tasksById={tasksById}
+        memberLabel={memberLabel}
         incoming={false}
         busy={busy}
         onApprove={(requestId) => runAction(requestId, 'approve')}
@@ -92,6 +103,7 @@ interface ApprovalBoxProps {
   headingId: string;
   requests: TaskApprovalRequest[];
   tasksById: Map<string, TaskItem>;
+  memberLabel: (userId: string) => string;
   incoming: boolean;
   pendingCount?: number;
   busy: boolean;
@@ -105,6 +117,7 @@ function ApprovalBox({
   headingId,
   requests,
   tasksById,
+  memberLabel,
   incoming,
   pendingCount,
   busy,
@@ -120,7 +133,7 @@ function ApprovalBox({
     >
       <div className="approvals-page__section-heading">
         <SectionHeading id={headingId}>{heading}</SectionHeading>
-        {pendingCount !== undefined ? <p className="approvals-page__pending-count">待处理审批：{pendingCount}</p> : null}
+        {pendingCount !== undefined ? <p className="approvals-page__pending-count">待确认：{pendingCount}</p> : null}
       </div>
 
       {requests.length === 0 ? (
@@ -132,6 +145,7 @@ function ApprovalBox({
               key={request.id}
               request={request}
               task={request.task_id ? tasksById.get(request.task_id) : undefined}
+              memberLabel={memberLabel}
               incoming={incoming}
               busy={busy}
               onApprove={onApprove}

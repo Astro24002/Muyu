@@ -69,10 +69,14 @@ class TaskListView extends StatefulWidget {
 
 class _TaskListViewState extends State<TaskListView> {
   final _collapsedGroups = <String>{'past'};
+  bool _showAllTasks = false;
 
   @override
   Widget build(BuildContext context) {
     final tasks = widget.state.snapshot?.tasks ?? const <TaskItem>[];
+    final home = widget.state.home;
+    final hasMomentProjection = home?.hasMomentProjection ?? false;
+    final showAllTasks = !hasMomentProjection || _showAllTasks;
     final groups = TaskView.listGroups(
       tasks,
       label: widget.selectedLabel,
@@ -115,37 +119,272 @@ class _TaskListViewState extends State<TaskListView> {
                 key: const Key('task-list-error'),
               ),
             ),
-          if (widget.state.home != null)
+          if (hasMomentProjection)
+            _MomentSummary(
+              home: home!,
+              state: widget.state,
+              onTaskTap: widget.onTaskTap,
+            ),
+          if (hasMomentProjection && !_showAllTasks)
+            Padding(
+              padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
+              child: TextButton.icon(
+                key: const Key('moment-view-all'),
+                onPressed: () => setState(() => _showAllTasks = true),
+                icon: const Icon(Icons.list_alt_outlined, size: 18),
+                label: const Text('查看全部事情'),
+              ),
+            ),
+          if (!hasMomentProjection && widget.state.home != null)
             _HomeActionSummary(
               home: widget.state.home!,
               state: widget.state,
               onTaskTap: widget.onTaskTap,
             ),
-          if (visibleTaskCount == 0)
+          if (showAllTasks && visibleTaskCount == 0)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xxl),
               child: Center(child: Text('还没有任务')),
             ),
-          for (final group in groups)
-            TaskListSection(
-              key: Key('task-section-${group.key}'),
-              headerKey: Key('task-section-header-${group.key}'),
-              group: group,
-              expanded: !_collapsedGroups.contains(group.key),
-              showSubtitle: widget.showSubtitle,
-              childrenByParent: childrenByParent,
-              state: widget.state,
-              onToggle: () => setState(() {
-                if (!_collapsedGroups.add(group.key)) {
-                  _collapsedGroups.remove(group.key);
-                }
-              }),
-              onTaskTap: widget.onTaskTap,
+          if (showAllTasks)
+            for (final group in groups)
+              TaskListSection(
+                key: Key('task-section-${group.key}'),
+                headerKey: Key('task-section-header-${group.key}'),
+                group: group,
+                expanded: !_collapsedGroups.contains(group.key),
+                showSubtitle: widget.showSubtitle,
+                childrenByParent: childrenByParent,
+                state: widget.state,
+                onToggle: () => setState(() {
+                  if (!_collapsedGroups.add(group.key)) {
+                    _collapsedGroups.remove(group.key);
+                  }
+                }),
+                onTaskTap: widget.onTaskTap,
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MomentSummary extends StatelessWidget {
+  const _MomentSummary({
+    required this.home,
+    required this.state,
+    required this.onTaskTap,
+  });
+
+  final HomeResponse home;
+  final WorkspaceSyncState state;
+  final TaskNavigationCallback onTaskTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final moment = home.moment;
+    return Padding(
+      key: const Key('moment-summary'),
+      padding: const EdgeInsets.only(bottom: MuyuSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _MomentMetrics(home: home),
+          const SizedBox(height: MuyuSpacing.sm),
+          _MomentTaskSection(
+            key: const Key('moment-section-blocked'),
+            sectionKey: 'blocked',
+            title: '卡住的事情',
+            section: moment.blockedTasks,
+            state: state,
+            onTaskTap: onTaskTap,
+          ),
+          _MomentTaskSection(
+            key: const Key('moment-section-mine'),
+            sectionKey: 'mine',
+            title: '我在推进',
+            section: moment.myTasks,
+            state: state,
+            onTaskTap: onTaskTap,
+          ),
+          _MomentTaskSection(
+            key: const Key('moment-section-other'),
+            sectionKey: 'other',
+            title: '对方在推进',
+            section: moment.otherTasks,
+            state: state,
+            onTaskTap: onTaskTap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MomentMetrics extends StatelessWidget {
+  const _MomentMetrics({required this.home});
+
+  final HomeResponse home;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final metrics = [
+      ('needs-action', '需要我处理', home.needsActionCount),
+      ('waiting-on-other', '等对方', home.waitingOnOtherCount),
+      ('week-due', '本周到期', home.weekDueCount),
+    ];
+    return DecoratedBox(
+      key: const Key('moment-metrics'),
+      decoration: BoxDecoration(
+        border: Border.symmetric(
+          horizontal: BorderSide(color: theme.colorScheme.outline),
+        ),
+      ),
+      child: Row(
+        children: [
+          for (var index = 0; index < metrics.length; index++)
+            Expanded(
+              child: _MomentMetric(
+                key: Key('moment-metric-${metrics[index].$1}'),
+                metricKey: metrics[index].$1,
+                label: metrics[index].$2,
+                count: metrics[index].$3,
+                showDivider: index < metrics.length - 1,
+              ),
             ),
         ],
       ),
     );
   }
+}
+
+class _MomentMetric extends StatelessWidget {
+  const _MomentMetric({
+    super.key,
+    required this.metricKey,
+    required this.label,
+    required this.count,
+    required this.showDivider,
+  });
+
+  final String metricKey;
+  final String label;
+  final int count;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(right: BorderSide(color: theme.colorScheme.outline))
+            : null,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: MuyuSpacing.xs,
+          vertical: MuyuSpacing.sm,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _taskCountLabel(count),
+              key: Key('moment-count-$metricKey'),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentTaskSection extends StatelessWidget {
+  const _MomentTaskSection({
+    super.key,
+    required this.sectionKey,
+    required this.title,
+    required this.section,
+    required this.state,
+    required this.onTaskTap,
+  });
+
+  final String sectionKey;
+  final String title;
+  final HomeTaskSection section;
+  final WorkspaceSyncState state;
+  final TaskNavigationCallback onTaskTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: MuyuSpacing.sm),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: MuyuSpacing.xs,
+            vertical: MuyuSpacing.xs,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  key: Key('moment-section-title-$sectionKey'),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _TaskCountBadge(
+                key: Key('moment-section-count-$sectionKey'),
+                count: _taskCountLabel(
+                  section.items.length,
+                  hasMore: section.hasMore,
+                ),
+                semanticLabel: '$title，${section.items.length}项',
+              ),
+            ],
+          ),
+        ),
+        if (section.items.isEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(
+              MuyuSpacing.xs,
+              MuyuSpacing.xs,
+              MuyuSpacing.xs,
+              MuyuSpacing.sm,
+            ),
+            child: Text('暂无'),
+          )
+        else
+          for (final task in section.items)
+            TaskSummaryCard(
+              key: ValueKey('moment-task-${task.id}'),
+              task: task,
+              state: state,
+              onTap: () => onTaskTap(task),
+              compact: true,
+            ),
+      ],
+    ),
+  );
 }
 
 class _HomeActionSummary extends StatelessWidget {

@@ -1,5 +1,5 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
-import type { ApprovalActionResult, HomeResponse, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceClassification, WorkspaceSnapshot } from '../api/types';
+import type { ApprovalActionResult, HomeApprovalItem, HomeApprovalSection, HomeEntries, HomeEntryCounts, HomeMoment, HomeResponse, HomeTaskSection, HomeWeek, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceClassification, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 import { classificationNames as approvedClassificationNames } from '../tasks/classification';
 import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskItem, parseTaskLabels, upsertTask } from '../tasks/task-model';
@@ -129,8 +129,11 @@ export class WorkspaceSyncController {
       const normalized = normalizeSnapshot(snapshot);
       const activeSnapshot = this.currentState.snapshot;
       if (activeSnapshot && normalized.cursor < this.currentState.cursor) return;
+      const previousHome = activeSnapshot?.workspace_id === normalized.workspace_id
+        ? this.currentState.home
+        : undefined;
       this.snapshotIdentity += 1;
-      this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), home: undefined, stale: false, error: null, authRequired: false });
+      this.setState({ snapshot: normalized, cursor: normalized.cursor, approvals: normalized.approval_requests, comments: normalized.comments, conflicts: normalizeConflicts(normalized.conflicts), home: previousHome, stale: false, error: null, authRequired: false });
       loaded = true;
     }, false, snapshotIsCurrent);
     if (outcome === 'completed' && loaded && snapshotIsCurrent()) await this.loadHome(snapshotIsCurrent);
@@ -150,7 +153,6 @@ export class WorkspaceSyncController {
   private async loadHome(parentIsCurrent?: IsCurrent): Promise<void> {
     const snapshot = this.currentState.snapshot;
     if (!snapshot || !this.api.getHome) {
-      if (snapshot) this.setState({ home: undefined });
       return;
     }
     const generation = this.generation;
@@ -171,7 +173,10 @@ export class WorkspaceSyncController {
     } catch (error) {
       if (!isCurrent()) return;
       this.setState({
-        home: undefined,
+        // Keep the last-known-good projection while the task snapshot remains
+        // usable. A failed derived read must not turn a populated page empty.
+        stale: true,
+        error: '无法加载首页，请检查网络后重试。',
         ...(error instanceof ApiError && error.status === 401 ? { authRequired: true } : {}),
       });
     }
@@ -566,7 +571,7 @@ export class WorkspaceSyncController {
       ),
       cursor: nextCursor,
     };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeApproval(approval: TaskApprovalRequest, cursor = this.currentState.cursor, updateCursor = false): void {
@@ -578,7 +583,7 @@ export class WorkspaceSyncController {
     approvals.push(normalizedApproval);
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, approval_requests: approvals, cursor: nextCursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeApprovals(approvals: TaskApprovalRequest[]): void {
@@ -592,7 +597,7 @@ export class WorkspaceSyncController {
       else merged[index] = normalizedApproval;
     }
     const nextSnapshot = { ...snapshot, approval_requests: merged };
-    this.setState({ snapshot: nextSnapshot, approvals: merged, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, approvals: merged, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeComment(comment: TaskComment, cursor = this.currentState.cursor, updateCursor = false, taskId?: string): void {
@@ -613,7 +618,7 @@ export class WorkspaceSyncController {
     const classifications = upsertClassification(snapshot.classifications ?? [], normalized);
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, classifications, cursor: nextCursor };
-    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private removeClassification(classificationId: string): void {
@@ -622,7 +627,7 @@ export class WorkspaceSyncController {
     const classifications = (snapshot.classifications ?? []).filter((item) => item.id !== classificationId);
     if (classifications.length === (snapshot.classifications ?? []).length) return;
     const nextSnapshot = { ...snapshot, classifications };
-    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, home: undefined, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
   private mergeConflict(conflict: TaskConflict, cursor = this.currentState.cursor, updateCursor = false): void {
@@ -669,7 +674,7 @@ export class WorkspaceSyncController {
       : snapshot.classifications;
     const cursor = updateCursor && typeof result.cursor === 'number' && result.cursor > snapshot.cursor ? result.cursor : snapshot.cursor;
     const nextSnapshot = { ...snapshot, tasks, comments, approval_requests: approvals, classifications, cursor };
-    this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, home: undefined, stale: false, error: null, authRequired: false });
+    this.setState({ snapshot: nextSnapshot, cursor, approvals, comments, stale: false, error: null, authRequired: false });
   }
 
   private async run(message: string, operation: (isCurrent: IsCurrent) => Promise<void>, nested = false, parentIsCurrent?: IsCurrent): Promise<RunOutcome> {
@@ -1037,34 +1042,86 @@ function normalizeHomeResponse(
   workspaceId: string,
   classifications?: WorkspaceClassification[],
 ): HomeResponse {
-  if (!isRecord(value) || !isNonNegativeSafeInteger(value.pending_approval_count)) {
+  if (!isRecord(value)) {
     throw new Error('home response is invalid');
   }
-  return {
-    current_tasks: normalizeHomeTaskSection(
-      value.current_tasks,
-      workspaceId,
-      classifications,
-    ),
-    blocked_tasks: normalizeHomeTaskSection(
-      value.blocked_tasks,
-      workspaceId,
-      classifications,
-    ),
-    review_tasks: normalizeHomeTaskSection(
-      value.review_tasks,
-      workspaceId,
-      classifications,
-    ),
-    pending_approval_count: value.pending_approval_count,
-  };
+
+  const hasLegacy = ['current_tasks', 'blocked_tasks', 'review_tasks', 'pending_approval_count']
+    .every((key) => hasOwn(value, key));
+  const hasCanonical = hasOwn(value, 'viewer_user_id')
+    || hasOwn(value, 'as_of')
+    || hasOwn(value, 'week')
+    || hasOwn(value, 'entry_counts')
+    || hasOwn(value, 'entries')
+    || hasCanonicalMoment(value.moment);
+  if (!hasLegacy && !hasCanonical) throw new Error('home response is invalid');
+
+  const canonicalKeys = ['viewer_user_id', 'as_of', 'week', 'entry_counts', 'moment', 'entries'];
+  if (hasCanonical && !canonicalKeys.every((key) => hasOwn(value, key))) {
+    throw new Error('home response is missing canonical fields');
+  }
+
+  const normalized = { ...value } as HomeResponse;
+  const currentTasks = hasOwn(value, 'current_tasks')
+    ? normalizeHomeTaskSection(value.current_tasks, workspaceId, classifications)
+    : undefined;
+  const blockedTasks = hasOwn(value, 'blocked_tasks')
+    ? normalizeHomeTaskSection(value.blocked_tasks, workspaceId, classifications)
+    : undefined;
+  const reviewTasks = hasOwn(value, 'review_tasks')
+    ? normalizeHomeTaskSection(value.review_tasks, workspaceId, classifications)
+    : undefined;
+  if (currentTasks) normalized.current_tasks = currentTasks;
+  if (blockedTasks) normalized.blocked_tasks = blockedTasks;
+  if (reviewTasks) normalized.review_tasks = reviewTasks;
+
+  const rawPending = value.pending_approval_count;
+  if (rawPending !== undefined && !isNonNegativeSafeInteger(rawPending)) {
+    throw new Error('home pending approval count is invalid');
+  }
+
+  let moment: HomeMoment | undefined;
+  let entries: HomeEntries | undefined;
+  let entryCounts: HomeEntryCounts | undefined;
+  if (hasCanonical) {
+    if (typeof value.viewer_user_id !== 'string' || value.viewer_user_id.trim().length === 0) {
+      throw new Error('home viewer is invalid');
+    }
+    if (!isIsoTimestamp(value.as_of)) throw new Error('home as_of is invalid');
+    if (!isRecord(value.week)) throw new Error('home week is invalid');
+    const week = normalizeHomeWeek(value.week);
+    entryCounts = normalizeHomeEntryCounts(value.entry_counts);
+    moment = normalizeHomeMoment(value.moment, workspaceId, classifications, true);
+    entries = normalizeHomeEntries(value.entries, workspaceId, classifications);
+    normalized.viewer_user_id = value.viewer_user_id;
+    normalized.as_of = value.as_of;
+    normalized.week = week;
+    normalized.entry_counts = entryCounts;
+    normalized.moment = moment;
+    normalized.entries = entries;
+  } else if (hasOwn(value, 'moment')) {
+    moment = normalizeHomeMoment(value.moment, workspaceId, classifications, false);
+    normalized.moment = moment;
+  }
+
+  if (rawPending !== undefined) {
+    normalized.pending_approval_count = rawPending;
+  } else if (entryCounts) {
+    normalized.pending_approval_count = entryCounts.needs_me;
+  }
+
+  normalizeOptionalHomeCount(value.needs_action_count, 'needs_action_count');
+  normalizeOptionalHomeCount(value.waiting_on_other_count, 'waiting_on_other_count');
+  normalizeOptionalHomeCount(value.week_due_count, 'week_due_count');
+  return normalized;
 }
 
 function normalizeHomeTaskSection(
   value: unknown,
   workspaceId: string,
   classifications?: WorkspaceClassification[],
-): HomeResponse['current_tasks'] {
+  allowedStatuses?: ReadonlySet<string>,
+): HomeTaskSection {
   if (!isRecord(value)
     || !Array.isArray(value.items)
     || typeof value.has_more !== 'boolean'
@@ -1072,8 +1129,180 @@ function normalizeHomeTaskSection(
     throw new Error('home task section is invalid');
   }
   const items = value.items.map(parseTaskItem);
+  if (allowedStatuses && !items.every((item) => allowedStatuses.has(item.status))) {
+    throw new Error('home task section status is invalid');
+  }
   ensureTaskClassificationsApproved(items, classifications);
   return { items, has_more: value.has_more };
+}
+
+function normalizeHomeMoment(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+  requireCanonical = false,
+): HomeMoment {
+  if (!isRecord(value)) throw new Error('home moment is invalid');
+  const hasBlocked = hasOwn(value, 'blocked');
+  const hasMine = hasOwn(value, 'mine');
+  const hasOther = hasOwn(value, 'other');
+  if (requireCanonical && (!hasBlocked || !hasMine || !hasOther)) {
+    throw new Error('home moment is missing canonical sections');
+  }
+
+  const normalized: HomeMoment = {};
+  if (hasBlocked) {
+    normalized.blocked = normalizeHomeTaskSection(
+      value.blocked,
+      workspaceId,
+      classifications,
+      new Set(['BLOCKED']),
+    );
+  } else if (hasOwn(value, 'blocked_tasks')) {
+    normalized.blocked_tasks = normalizeHomeTaskSection(value.blocked_tasks, workspaceId, classifications);
+  }
+  if (hasMine) {
+    normalized.mine = normalizeHomeTaskSection(
+      value.mine,
+      workspaceId,
+      classifications,
+      new Set(['TODO', 'IN_PROGRESS']),
+    );
+  } else if (hasOwn(value, 'my_tasks')) {
+    normalized.my_tasks = normalizeHomeTaskSection(value.my_tasks, workspaceId, classifications);
+  }
+  if (hasOther) {
+    normalized.other = normalizeHomeTaskSection(
+      value.other,
+      workspaceId,
+      classifications,
+      new Set(['TODO', 'IN_PROGRESS']),
+    );
+  } else if (hasOwn(value, 'other_tasks')) {
+    normalized.other_tasks = normalizeHomeTaskSection(value.other_tasks, workspaceId, classifications);
+  }
+  if (hasOwn(value, 'blocked_tasks') && hasBlocked) {
+    normalized.blocked_tasks = normalizeHomeTaskSection(value.blocked_tasks, workspaceId, classifications);
+  }
+  if (hasOwn(value, 'my_tasks') && hasMine) {
+    normalized.my_tasks = normalizeHomeTaskSection(value.my_tasks, workspaceId, classifications);
+  }
+  if (hasOwn(value, 'other_tasks') && hasOther) {
+    normalized.other_tasks = normalizeHomeTaskSection(value.other_tasks, workspaceId, classifications);
+  }
+  if (hasOwn(value, 'all_tasks_has_more')) {
+    if (typeof value.all_tasks_has_more !== 'boolean') throw new Error('home moment has_more is invalid');
+    normalized.all_tasks_has_more = value.all_tasks_has_more;
+  }
+  return normalized;
+}
+
+function normalizeHomeEntries(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+): HomeEntries {
+  if (!isRecord(value)
+    || !hasOwn(value, 'needs_me')
+    || !hasOwn(value, 'waiting_on_other')
+    || !hasOwn(value, 'due_this_week')) {
+    throw new Error('home entries are invalid');
+  }
+  return {
+    needs_me: normalizeHomeApprovalSection(value.needs_me, workspaceId, classifications),
+    waiting_on_other: normalizeHomeApprovalSection(value.waiting_on_other, workspaceId, classifications),
+    due_this_week: normalizeHomeTaskSection(
+      value.due_this_week,
+      workspaceId,
+      classifications,
+      new Set(['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW']),
+    ),
+  };
+}
+
+function normalizeHomeApprovalSection(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+): HomeApprovalSection {
+  if (!isRecord(value) || !Array.isArray(value.items) || typeof value.has_more !== 'boolean') {
+    throw new Error('home approval section is invalid');
+  }
+  return {
+    items: value.items.map((item) => normalizeHomeApprovalItem(item, workspaceId, classifications)),
+    has_more: value.has_more,
+  };
+}
+
+function normalizeHomeApprovalItem(
+  value: unknown,
+  workspaceId: string,
+  classifications?: WorkspaceClassification[],
+): HomeApprovalItem {
+  if (!isRecord(value) || !isRecord(value.approval_request)) {
+    throw new Error('home approval item is invalid');
+  }
+  const approval = value.approval_request;
+  if (!isApprovalRequest(approval)
+    || approval.workspace_id !== workspaceId
+    || approval.status !== 'PENDING') {
+    throw new Error('home approval request is invalid');
+  }
+  const rawTask = value.task;
+  if (rawTask === null || rawTask === undefined) {
+    if (approval.task_id !== null) {
+      throw new Error('home approval task is missing');
+    }
+    return { approval_request: approval, task: null };
+  }
+  if (!isTaskItem(rawTask)
+    || rawTask.workspace_id !== workspaceId
+    || rawTask.deleted_at !== null
+    || approval.task_id !== rawTask.id
+    || !isCanonicalTaskStatus(normalizeTaskStatus(rawTask.status))) {
+    throw new Error('home approval task is invalid');
+  }
+  const task = parseTaskItem(rawTask);
+  ensureTaskClassificationsApproved([task], classifications);
+  return { approval_request: approval, task };
+}
+
+function normalizeHomeWeek(value: Record<string, unknown>): HomeWeek {
+  if (value.timezone !== 'UTC' || !isIsoTimestamp(value.start) || !isIsoTimestamp(value.end)) {
+    throw new Error('home week is invalid');
+  }
+  if (Date.parse(value.end) <= Date.parse(value.start)) {
+    throw new Error('home week boundaries are invalid');
+  }
+  return { timezone: 'UTC', start: value.start, end: value.end };
+}
+
+function normalizeHomeEntryCounts(value: unknown): HomeEntryCounts {
+  if (!isRecord(value)
+    || !isNonNegativeSafeInteger(value.needs_me)
+    || !isNonNegativeSafeInteger(value.waiting_on_other)
+    || !isNonNegativeSafeInteger(value.due_this_week)) {
+    throw new Error('home entry counts are invalid');
+  }
+  return {
+    needs_me: value.needs_me,
+    waiting_on_other: value.waiting_on_other,
+    due_this_week: value.due_this_week,
+  };
+}
+
+function normalizeOptionalHomeCount(value: unknown, name: string): void {
+  if (value !== undefined && !isNonNegativeSafeInteger(value)) {
+    throw new Error(`home ${name} is invalid`);
+  }
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+}
+
+function hasCanonicalMoment(value: unknown): boolean {
+  return isRecord(value) && (hasOwn(value, 'blocked') || hasOwn(value, 'mine') || hasOwn(value, 'other'));
 }
 
 function normalizeTaskResource(
@@ -1283,6 +1512,10 @@ function isCompleteConflictProjection(value: unknown, workspaceId: string): bool
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {

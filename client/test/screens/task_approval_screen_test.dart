@@ -113,6 +113,7 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
     required String requestId,
   }) => throw UnimplementedError();
 

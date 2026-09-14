@@ -11,8 +11,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.service import _hash_token
-from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, Resolution, TaskApprovalRequestType, WebSessionStatus
-from app.db.models import AndroidDevice, ImportantDate, MobileSession, Task, TaskComment, TaskConflict, TaskOperation, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
+from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, Resolution, TaskApprovalRequestStatus, TaskApprovalRequestType, TaskStatus, WebSessionStatus
+from app.db.models import ActivityEvent, AndroidDevice, ImportantDate, MobileSession, Task, TaskApprovalRequest, TaskComment, TaskConflict, TaskOperation, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
 from app.httpapi.dependencies import get_db
 from app.httpapi.errors import ApiError
 from app.tasks.comments import add_comment, list_comments
@@ -208,9 +208,115 @@ def _patch_approval_type(changes: dict[str, object]) -> TaskApprovalRequestType:
     fields = set(changes)
     if fields == {"quadrant"}:
         return TaskApprovalRequestType.QUADRANT_UPDATE
-    if fields == {"current_handler_id"}:
+    if fields in ({"current_handler_id"}, {"current_handler_id", "transfer_note"}):
         return TaskApprovalRequestType.HANDLER_TRANSFER
     return TaskApprovalRequestType.TASK_UPDATE
+
+
+def _next_step(task: Task, actor: Actor, session: Session) -> dict[str, object]:
+    """Derive viewer-specific action context without persisting UI copy."""
+
+    pending_requests = session.scalars(
+        select(TaskApprovalRequest)
+        .where(
+            TaskApprovalRequest.workspace_id == actor.workspace_id,
+            TaskApprovalRequest.task_id == task.id,
+            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+        )
+        .order_by(TaskApprovalRequest.created_at.desc(), TaskApprovalRequest.id.desc())
+    ).all()
+    pending_transfer = next(
+        (
+            request
+            for request in pending_requests
+            if request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER
+        ),
+        None,
+    )
+    if pending_transfer is not None:
+        if pending_transfer.requester_id == actor.user_id:
+            return {
+                "kind": "WAITING_FOR_TRANSFER_ACCEPTANCE",
+                "label": "等待对方接受交接",
+                "request_id": str(pending_transfer.id),
+                "can_act": True,
+                "actions": ["CANCEL_TRANSFER"],
+            }
+        if pending_transfer.approver_id == actor.user_id:
+            return {
+                "kind": "ACCEPT_OR_REJECT_TRANSFER",
+                "label": "接受或拒绝交接",
+                "request_id": str(pending_transfer.id),
+                "can_act": True,
+                "actions": ["APPROVE_TRANSFER", "REJECT_TRANSFER"],
+            }
+    if task.status == TaskStatus.REVIEW:
+        pending_review = next(
+            (
+                request
+                for request in pending_requests
+                if _is_review_acceptance_request(request, task)
+            ),
+            None,
+        )
+        if pending_review is not None and pending_review.requester_id == actor.user_id:
+            return {
+                "kind": "WAITING_FOR_REVIEW",
+                "label": "等待对方验收",
+                "request_id": str(pending_review.id),
+                "can_act": False,
+                "actions": [],
+            }
+        if pending_review is not None and pending_review.approver_id == actor.user_id:
+            return {
+                "kind": "ACCEPT_OR_RETURN_REVIEW",
+                "label": "确认验收结果",
+                "request_id": str(pending_review.id),
+                "can_act": True,
+                "actions": ["APPROVE_REVIEW", "RETURN_REVIEW"],
+            }
+    if task.status == TaskStatus.BLOCKED:
+        return {
+            "kind": "SHOW_BLOCKED_FACT",
+            "label": task.blocked_reason or "当前任务处于阻塞中",
+            "can_act": task.current_handler_id == actor.user_id,
+            "actions": ["RESUME_TASK"] if task.current_handler_id == actor.user_id else [],
+        }
+    if task.status == TaskStatus.IN_PROGRESS and task.review_rejection_reason:
+        if task.current_handler_id == actor.user_id:
+            return {
+                "kind": "RESUBMIT_REVIEW",
+                "label": "修改后重新提交验收",
+                "can_act": True,
+                "actions": ["SUBMIT_REVIEW"],
+            }
+        return {
+            "kind": "NO_ACTION",
+            "label": "等待负责人修改",
+            "can_act": False,
+            "actions": [],
+        }
+    if task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+        is_owner = task.current_handler_id == actor.user_id
+        return {
+            "kind": "CONTINUE_TASK",
+            "label": "继续处理任务" if is_owner else "由负责人继续处理",
+            "can_act": is_owner,
+            "actions": ["SUBMIT_REVIEW", "START_TRANSFER"] if is_owner else [],
+        }
+    return {"kind": "NO_ACTION", "label": "暂无下一步", "can_act": False, "actions": []}
+
+
+def _is_review_acceptance_request(request: TaskApprovalRequest, task: Task) -> bool:
+    changes = request.proposed_changes or {}
+    return bool(
+        request.request_type == TaskApprovalRequestType.STATUS_UPDATE
+        and changes.get("target_status") == TaskStatus.DONE.value
+        and changes.get("review_submission") is True
+        and request.requester_id == task.current_handler_id
+        and request.approver_id == task.reviewer_user_id
+        and request.approver_id != request.requester_id
+    )
 
 
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
@@ -260,7 +366,7 @@ def get_task(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
     task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
     if task is None:
         raise ApiError(404, "not_found", "task not found")
-    return _task_json(TaskService(session), task)
+    return _task_json(TaskService(session), task) | {"next_step": _next_step(task, actor, session)}
 
 
 @router.patch("/tasks/{task_id}")
@@ -320,6 +426,7 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
                 target.id,
                 target.status_version,
                 base_lifecycle_version=body.base_lifecycle_version,
+                review_content=body.review_content,
             )
             session.commit()
             _queue_hint(background_tasks, request, actor.workspace_id, result.cursor)
@@ -335,6 +442,8 @@ def lifecycle_task(task_id: UUID, body: LifecycleRequest, request: Request, back
             elif action in {"complete", "completed", "reopen", "open"}:
                 approval_type = TaskApprovalRequestType.STATUS_UPDATE
                 changes = {"target_status": "REVIEW" if action in {"complete", "completed"} else "TODO"}
+                if action in {"complete", "completed"} and body.review_content is not None:
+                    changes["review_content"] = body.review_content
                 versions = {"status_version": target.status_version}
             else:
                 raise TaskConflictError("invalid_request", "unsupported lifecycle action")
@@ -380,6 +489,7 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
                 body.request_id,
                 target.id,
                 body.base_status_version,
+                review_content=body.review_content,
             )
             session.commit()
             _queue_hint(background_tasks, request, actor.workspace_id, result.cursor)
@@ -472,6 +582,8 @@ def transition_task(task_id: UUID, body: TransitionRequest, request: Request, ba
                 changes["waiting_for_user_id"] = body.waiting_for_user_id
             if body.review_rejection_reason is not None:
                 changes["review_rejection_reason"] = body.review_rejection_reason
+            if body.review_content is not None:
+                changes["review_content"] = body.review_content
             approval_service = TaskApprovalService(session)
             approval = approval_service.create(
                 actor.workspace_id,
@@ -670,10 +782,72 @@ def activity(task_id: UUID, actor: Actor = Depends(require_actor), session: Sess
     task = session.scalar(select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id))
     if task is None:
         raise ApiError(404, "not_found", "task not found")
-    operations = session.scalars(select(TaskOperation).where(TaskOperation.task_id == task_id).order_by(TaskOperation.created_at.asc())).all()
+    operations = session.scalars(
+        select(TaskOperation)
+        .where(TaskOperation.task_id == task_id)
+        .order_by(TaskOperation.created_at.asc(), TaskOperation.id.asc())
+    ).all()
+    activity_rows = session.scalars(
+        select(ActivityEvent)
+        .where(ActivityEvent.task_id == task_id)
+        .order_by(ActivityEvent.created_at.asc(), ActivityEvent.id.asc())
+    ).all()
+    activity_by_request: dict[str, list[ActivityEvent]] = {}
+    for row in activity_rows:
+        if row.request_id is not None:
+            activity_by_request.setdefault(str(row.request_id), []).append(row)
     comments_rows = list_comments(session, actor.workspace_id, task_id)
     delays_rows = list_delays(session, actor.workspace_id, task_id)
-    events = [{"kind": "operation", "id": str(row.id), "operation_type": row.operation_type.value, "created_at": row.created_at.isoformat(), "request_id": str(row.request_id)} for row in operations]
+    events = []
+    matched_activity_ids: set[str] = set()
+    for row in operations:
+        event = next(
+            (
+                candidate
+                for candidate in activity_by_request.get(str(row.request_id), [])
+                if str(candidate.id) not in matched_activity_ids
+            ),
+            None,
+        )
+        if event is None:
+            events.append(
+                {
+                    "kind": "operation",
+                    "id": str(row.id),
+                    "operation_type": row.operation_type.value,
+                    "created_at": row.created_at.isoformat(),
+                    "request_id": str(row.request_id),
+                }
+            )
+            continue
+        matched_activity_ids.add(str(event.id))
+        events.append(
+            {
+                "kind": "activity",
+                "id": str(event.id),
+                "event_type": event.event_type,
+                "actor_user_id": str(event.actor_user_id),
+                "request_id": str(event.request_id) if event.request_id is not None else None,
+                "payload": event.payload or {},
+                "created_at": event.created_at.isoformat(),
+                # Keep the legacy operation field for existing consumers while
+                # using the append-only activity row as the canonical event.
+                "operation_type": row.operation_type.value,
+            }
+        )
+    events.extend(
+        {
+            "kind": "activity",
+            "id": str(row.id),
+            "event_type": row.event_type,
+            "actor_user_id": str(row.actor_user_id),
+            "request_id": str(row.request_id) if row.request_id is not None else None,
+            "payload": row.payload or {},
+            "created_at": row.created_at.isoformat(),
+        }
+        for row in activity_rows
+        if str(row.id) not in matched_activity_ids
+    )
     events += [{"kind": "comment", "id": str(row.id), "body": row.body, "author_user_id": str(row.author_user_id), "created_at": row.created_at.isoformat()} for row in comments_rows]
     events += [{"kind": "delay", "id": str(row.id), "actor_user_id": str(row.actor_user_id), "reason": row.reason, "note": row.note, "new_due_at": row.new_due_at.isoformat(), "delay_duration_minutes": row.delay_duration_minutes, "created_at": row.created_at.isoformat()} for row in delays_rows]
     return sorted(events, key=lambda item: (item["created_at"], item["id"]))

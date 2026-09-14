@@ -166,6 +166,7 @@ void main() {
         targetStatus: 'IN_PROGRESS',
         baseStatusVersion: 3,
         reviewRejectionReason: '请补充验收材料',
+        reviewContent: '已完成清单并附上截图',
         requestId: 'request-1',
       );
 
@@ -173,7 +174,82 @@ void main() {
       expect(request.url.path, '/api/v1/tasks/task-1/transition');
       expect(body['target_status'], 'IN_PROGRESS');
       expect(body['review_rejection_reason'], '请补充验收材料');
+      expect(body['review_content'], '已完成清单并附上截图');
       expect(request.headers['x-request-id'], 'request-1');
+    },
+  );
+
+  test(
+    'activity parses operation, activity, comment, and delay events',
+    () async {
+      late http.Request request;
+      final repository = CloudTaskRepository(
+        ApiClient(
+          baseUrl: 'https://api.example',
+          httpClient: MockClient((incoming) async {
+            request = incoming;
+            return http.Response(
+              jsonEncode([
+                {
+                  'kind': 'operation',
+                  'id': 'operation-1',
+                  'operation_type': 'UPDATED',
+                  'request_id': 'request-1',
+                  'created_at': '2026-09-01T01:00:00Z',
+                },
+                {
+                  'kind': 'activity',
+                  'id': 'activity-1',
+                  'event_type': 'APPROVAL_REJECTED',
+                  'actor_user_id': 'user-2',
+                  'payload': {
+                    'approval_request': {
+                      'requester_id': 'user-1',
+                      'proposed_changes': {'review_content': '验收材料'},
+                      'rejection_reason': '请补充截图',
+                    },
+                  },
+                  'created_at': '2026-09-01T02:00:00Z',
+                },
+                {
+                  'kind': 'comment',
+                  'id': 'comment-1',
+                  'author_user_id': 'user-1',
+                  'body': '补充了截图',
+                  'created_at': '2026-09-01T03:00:00Z',
+                },
+                {
+                  'kind': 'delay',
+                  'id': 'delay-1',
+                  'actor_user_id': 'user-1',
+                  'reason': 'NO_TIME',
+                  'note': '明天继续',
+                  'new_due_at': '2026-09-02T00:00:00Z',
+                  'delay_duration_minutes': 1440,
+                  'created_at': '2026-09-01T04:00:00Z',
+                },
+              ]),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+
+      final activities = await repository.activity('task-1');
+
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/v1/tasks/task-1/activity');
+      expect(activities.map((item) => item.kind), [
+        'operation',
+        'activity',
+        'comment',
+        'delay',
+      ]);
+      expect(activities[1].reviewContent, '验收材料');
+      expect(activities[1].rejectionReason, '请补充截图');
+      expect(activities[2].body, '补充了截图');
+      expect(activities[3].delayDurationMinutes, 1440);
     },
   );
 

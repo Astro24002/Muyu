@@ -312,6 +312,8 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('task-save-button')));
     await tester.pumpAndSettle();
+    listState.position.jumpTo(listState.position.minScrollExtent);
+    await tester.pump();
 
     expect(repository.updatedFields?['quadrant'], 'Q2');
     expect(sync.state.snapshot!.tasks.single.quadrant, 'Q1');

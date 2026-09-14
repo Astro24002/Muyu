@@ -49,11 +49,62 @@ export interface HomeTaskSection {
   has_more: boolean;
 }
 
+export interface HomeApprovalItem {
+  approval_request: TaskApprovalRequest;
+  task: TaskItem | null;
+}
+
+export interface HomeApprovalSection {
+  items: HomeApprovalItem[];
+  has_more: boolean;
+}
+
+export interface HomeWeek {
+  timezone: string;
+  start: string;
+  end: string;
+}
+
+export interface HomeEntryCounts {
+  needs_me: number;
+  waiting_on_other: number;
+  due_this_week: number;
+}
+
+export interface HomeEntries {
+  needs_me: HomeApprovalSection;
+  waiting_on_other: HomeApprovalSection;
+  due_this_week: HomeTaskSection;
+}
+
+export interface HomeMoment {
+  /** Canonical section names. */
+  blocked?: HomeTaskSection;
+  mine?: HomeTaskSection;
+  other?: HomeTaskSection;
+  /** Deprecated names retained while older consumers migrate. */
+  blocked_tasks?: HomeTaskSection;
+  my_tasks?: HomeTaskSection;
+  other_tasks?: HomeTaskSection;
+  all_tasks_has_more?: boolean;
+}
+
 export interface HomeResponse {
-  current_tasks: HomeTaskSection;
-  blocked_tasks: HomeTaskSection;
-  review_tasks: HomeTaskSection;
-  pending_approval_count: number;
+  /** Canonical viewer-aware projection fields. */
+  viewer_user_id?: string | null;
+  as_of?: string | null;
+  week?: HomeWeek | null;
+  entry_counts?: HomeEntryCounts | null;
+  moment?: HomeMoment | null;
+  entries?: HomeEntries | null;
+  /** Deprecated compatibility projection fields. */
+  current_tasks?: HomeTaskSection;
+  blocked_tasks?: HomeTaskSection;
+  review_tasks?: HomeTaskSection;
+  pending_approval_count?: number;
+  needs_action_count?: number;
+  waiting_on_other_count?: number;
+  week_due_count?: number;
 }
 
 export interface TaskComment {

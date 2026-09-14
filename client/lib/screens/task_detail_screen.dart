@@ -40,6 +40,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   bool _editing = false;
   String? _pendingMessage;
   String? _formError;
+  List<TaskActivity> _activities = const [];
+  bool _activityLoading = false;
+  bool _activityLoaded = false;
 
   @override
   void initState() {
@@ -58,6 +61,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _selectedResumeHandlerId =
         widget.task.resumeHandlerId ?? widget.task.currentHandlerId;
     _selectedProgress = widget.task.progress;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadActivity();
+    });
   }
 
   @override
@@ -74,7 +80,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   TaskItem get _current {
     for (final task
         in widget.sync.state.snapshot?.tasks ?? const <TaskItem>[]) {
-      if (task.id == widget.task.id) return task;
+      if (task.id == widget.task.id) {
+        // Workspace snapshots predate the viewer-aware detail projection. Do
+        // not discard a next_step received by a newer detail response while
+        // the snapshot is being reconciled.
+        return task.nextStep == null && widget.task.nextStep != null
+            ? task.copyWith(nextStep: widget.task.nextStep)
+            : task;
+      }
     }
     return widget.task;
   }
@@ -220,6 +233,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     setState(() {
       _selectedLabels.remove(label);
     });
+  }
+
+  Future<void> _loadActivity() async {
+    if (_activityLoading || _activityLoaded) return;
+    _activityLoading = true;
+    try {
+      final activities = await widget.sync.activity(widget.task.id);
+      if (!mounted) return;
+      setState(() {
+        _activities = activities;
+        _activityLoaded = true;
+      });
+    } catch (_) {
+      // Activity is an optional projection. Keep the task page usable and
+      // retain any already-rendered local facts when it is unavailable.
+    } finally {
+      _activityLoading = false;
+      if (mounted && !_activityLoaded) setState(() {});
+    }
   }
 
   Future<void> _save() async {
@@ -417,6 +449,53 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
+  Future<String?> _requestReviewContent() async {
+    final content = TextEditingController();
+    String? errorText;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('提交验收'),
+          content: TextField(
+            key: const Key('review-content-input'),
+            controller: content,
+            autofocus: true,
+            maxLines: 5,
+            maxLength: 5000,
+            decoration: InputDecoration(
+              labelText: '验收内容',
+              hintText: '说明本次完成了什么',
+              errorText: errorText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('review-submit-cancel'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const Key('review-submit-confirm'),
+              onPressed: () {
+                final value = content.text.trim();
+                if (value.isEmpty) {
+                  setDialogState(() => errorText = '请填写验收内容');
+                  return;
+                }
+                Navigator.pop(context, value);
+              },
+              child: const Text('提交验收'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await waitForRouteDismissal();
+    content.dispose();
+    return result;
+  }
+
   Future<void> _transition(String status) async {
     if (!widget.canWrite) return;
     final task = _current;
@@ -490,6 +569,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (!mounted) return;
     }
     if (!mounted) return;
+    String? reviewContent;
+    if (normalizeTaskStatus(task.status) != 'REVIEW' && status == 'REVIEW') {
+      reviewContent = await _requestReviewContent();
+      if (reviewContent == null || !mounted) return;
+    }
     String? reviewRejectionReason;
     if (isReviewReturn) {
       final reason = TextEditingController();
@@ -548,6 +632,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ? selectedResumeHandlerId
             : null,
         reviewRejectionReason: reviewRejectionReason,
+        reviewContent: reviewContent,
       );
       if (result is PendingApproval && mounted) {
         final reviewSubmission =
@@ -569,11 +654,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       setState(() => _handlerError = '负责人已不可用，请选择有效成员');
       return;
     }
+    final transferNote = await _requestTransferNote();
+    if (transferNote == null || !mounted) return;
     setState(() => _handlerError = null);
     try {
       final result = await widget.sync.update(
         _current.id,
-        fields: {'current_handler_id': handlerId},
+        fields: {
+          'current_handler_id': handlerId,
+          'transfer_note': transferNote,
+        },
       );
       if (result is PendingApproval && mounted) {
         setState(() => _pendingMessage = '负责人变更已提交，等待对方审批');
@@ -581,6 +671,53 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     } catch (_) {
       // Keep the error in the sync banner.
     }
+  }
+
+  Future<String?> _requestTransferNote() async {
+    final note = TextEditingController();
+    String? errorText;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('发起交接'),
+          content: TextField(
+            key: const Key('transfer-note-input'),
+            controller: note,
+            autofocus: true,
+            maxLines: 4,
+            maxLength: 2000,
+            decoration: InputDecoration(
+              labelText: '交接说明',
+              hintText: '说明需要对方接手的原因或后续安排',
+              errorText: errorText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('transfer-note-cancel'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const Key('transfer-note-submit'),
+              onPressed: () {
+                final value = note.text.trim();
+                if (value.isEmpty) {
+                  setDialogState(() => errorText = '请填写交接说明');
+                  return;
+                }
+                Navigator.pop(context, value);
+              },
+              child: const Text('提交交接'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await waitForRouteDismissal();
+    note.dispose();
+    return result;
   }
 
   void _changeResumeHandler(String? handlerId) {
@@ -638,6 +775,151 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           sync: widget.sync,
           canWrite: widget.canWrite,
         ),
+      ),
+    );
+  }
+
+  MomentNextStep _deriveNextStep(
+    TaskItem task,
+    Iterable<TaskApprovalRequest> approvals,
+    String? viewerId,
+  ) {
+    final pending =
+        approvals
+            .where(
+              (request) =>
+                  request.taskId == task.id && request.status == 'PENDING',
+            )
+            .toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    final normalizedStatus = normalizeTaskStatus(task.status);
+    TaskApprovalRequest? transferRequest;
+    for (final candidate in pending) {
+      if (candidate.requestType == 'HANDLER_TRANSFER') {
+        transferRequest = candidate;
+        break;
+      }
+    }
+    if (transferRequest != null) {
+      if (transferRequest.isOutgoing(viewerId ?? '')) {
+        return MomentNextStep(
+          kind: 'WAITING_FOR_TRANSFER_ACCEPTANCE',
+          label: '等待对方接受交接',
+          requestId: transferRequest.id,
+          canAct: true,
+          actions: const ['CANCEL_TRANSFER'],
+        );
+      }
+      if (transferRequest.isIncoming(viewerId ?? '')) {
+        return MomentNextStep(
+          kind: 'ACCEPT_OR_REJECT_TRANSFER',
+          label: '接受或拒绝交接',
+          requestId: transferRequest.id,
+          canAct: true,
+          actions: const ['APPROVE_TRANSFER', 'REJECT_TRANSFER'],
+        );
+      }
+    }
+    TaskApprovalRequest? reviewRequest;
+    if (normalizedStatus == 'REVIEW') {
+      for (final candidate in pending) {
+        final changes = candidate.proposedChanges;
+        if (candidate.requestType == 'STATUS_UPDATE' &&
+            changes['target_status'] == 'DONE' &&
+            changes['review_submission'] == true &&
+            candidate.requesterId == task.currentHandlerId &&
+            candidate.approverId == task.reviewerUserId &&
+            candidate.approverId != candidate.requesterId) {
+          reviewRequest = candidate;
+          break;
+        }
+      }
+    }
+    if (reviewRequest != null) {
+      if (reviewRequest.isOutgoing(viewerId ?? '')) {
+        return MomentNextStep(
+          kind: 'WAITING_FOR_REVIEW',
+          label: '等待对方验收',
+          requestId: reviewRequest.id,
+          canAct: false,
+          actions: const [],
+        );
+      }
+      if (reviewRequest.isIncoming(viewerId ?? '')) {
+        return MomentNextStep(
+          kind: 'ACCEPT_OR_RETURN_REVIEW',
+          label: '确认验收结果',
+          requestId: reviewRequest.id,
+          canAct: true,
+          actions: const ['APPROVE_REVIEW', 'RETURN_REVIEW'],
+        );
+      }
+    }
+    if (normalizedStatus == 'BLOCKED') {
+      final canAct = task.currentHandlerId == viewerId;
+      return MomentNextStep(
+        kind: 'SHOW_BLOCKED_FACT',
+        label: task.blockedReason?.trim().isNotEmpty == true
+            ? task.blockedReason!.trim()
+            : '当前任务处于阻塞中',
+        canAct: canAct,
+        actions: canAct ? const ['RESUME_TASK'] : const [],
+      );
+    }
+    if (normalizedStatus == 'TODO' || normalizedStatus == 'IN_PROGRESS') {
+      final canAct = task.currentHandlerId == viewerId;
+      return MomentNextStep(
+        kind: 'CONTINUE_TASK',
+        label: canAct ? '继续处理任务' : '由负责人继续处理',
+        canAct: canAct,
+        actions: canAct ? const ['SUBMIT_REVIEW', 'START_TRANSFER'] : const [],
+      );
+    }
+    return const MomentNextStep(
+      kind: 'NO_ACTION',
+      label: '暂无下一步',
+      canAct: false,
+      actions: [],
+    );
+  }
+
+  Widget _buildNextStep(BuildContext context, MomentNextStep nextStep) {
+    final theme = Theme.of(context);
+    final color = nextStep.canAct
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
+    return Container(
+      key: const Key('task-next-step'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(MuyuSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withAlpha(65)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.arrow_forward_outlined, color: color, size: 20),
+          const SizedBox(width: MuyuSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('下一步', style: theme.textTheme.labelMedium),
+                const SizedBox(height: MuyuSpacing.xs),
+                Text(
+                  nextStep.label,
+                  key: const Key('task-next-step-label'),
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1284,6 +1566,143 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     );
   }
 
+  List<TaskActivity> _approvalActivityFallback(
+    String taskId,
+    Iterable<TaskApprovalRequest> approvals,
+  ) {
+    final result = <TaskActivity>[];
+    for (final request in approvals) {
+      if (request.taskId != taskId) continue;
+      final eventType = switch (request.status) {
+        'APPROVED' => 'APPROVAL_APPROVED',
+        'REJECTED' => 'APPROVAL_REJECTED',
+        'CANCELLED' => 'APPROVAL_CANCELLED',
+        _ => 'APPROVAL_REQUESTED',
+      };
+      result.add(
+        TaskActivity(
+          id: 'approval-${request.id}',
+          kind: 'activity',
+          action: eventType,
+          eventType: eventType,
+          actorUserId: request.reviewedBy ?? request.requesterId,
+          requestId: request.requestId,
+          before: null,
+          after: null,
+          payload: <String, dynamic>{
+            'approval_request': request.toJson(),
+            'reason': request.rejectionReason,
+          },
+          createdAt: request.reviewedAt ?? request.createdAt,
+        ),
+      );
+    }
+    result.sort((left, right) => left.createdAt.compareTo(right.createdAt));
+    return result;
+  }
+
+  String _activityTitle(TaskActivity activity) {
+    final type = (activity.eventType ?? activity.action).toUpperCase();
+    if (activity.kind == 'comment') return '评论';
+    if (activity.kind == 'delay' || type.contains('DELAY')) return '记录延期';
+    if (type.contains('HANDLER_TRANSFER') || activity.transferNote != null) {
+      if (type == 'APPROVAL_APPROVED') return '负责人变更已确认';
+      if (type == 'APPROVAL_REJECTED') return '负责人变更被拒绝';
+      if (type == 'APPROVAL_CANCELLED') return '负责人变更已取消';
+      return '发起负责人交接';
+    }
+    final isReview =
+        activity.reviewContent != null ||
+        activity.proposedChanges['review_submission'] == true ||
+        activity.proposedChanges['target_status'] == 'REVIEW';
+    if (isReview) {
+      if (type == 'TASK_REVIEW_SUBMITTED' || type == 'APPROVAL_REQUESTED') {
+        return '提交验收';
+      }
+      if (type == 'TASK_REVIEW_ACCEPTED' || type == 'APPROVAL_APPROVED') {
+        return '验收通过';
+      }
+      if (type == 'TASK_REVIEW_RETURNED' || type == 'APPROVAL_REJECTED') {
+        return '验收退回';
+      }
+    }
+    return switch (type) {
+      'TASK_BLOCKED' => '任务阻塞',
+      'TASK_UNBLOCKED' => '解除阻塞',
+      'APPROVAL_REQUESTED' => '发起审批',
+      'APPROVAL_APPROVED' => '审批通过',
+      'APPROVAL_REJECTED' => '审批退回',
+      'APPROVAL_CANCELLED' => '取消审批',
+      _ => activity.operationType ?? activity.action,
+    };
+  }
+
+  List<String> _activityDetails(TaskActivity activity) {
+    final details = <String>[];
+    final transferNote = activity.transferNote;
+    if (transferNote != null) details.add('交接说明：$transferNote');
+    final reviewContent = activity.reviewContent;
+    if (reviewContent != null) details.add('验收内容：$reviewContent');
+    final rejectionReason = activity.rejectionReason;
+    if (rejectionReason != null) details.add('退回原因：$rejectionReason');
+    if (activity.kind == 'comment' &&
+        activity.body?.trim().isNotEmpty == true) {
+      details.add(activity.body!.trim());
+    }
+    if (activity.kind == 'delay') {
+      final reason = activity.reason?.trim();
+      if (reason != null && reason.isNotEmpty) details.add('延期原因：$reason');
+      final note = activity.note?.trim();
+      if (note != null && note.isNotEmpty) details.add('延期说明：$note');
+      if (activity.newDueAt != null) {
+        details.add('新的截止时间：${_displayDate(activity.newDueAt)}');
+      }
+    }
+    return details;
+  }
+
+  Widget _buildActivity(
+    BuildContext context,
+    List<TaskActivity> activities,
+    Map<String, String> handlerLabels,
+  ) {
+    final theme = Theme.of(context);
+    return Column(
+      key: const Key('task-activity-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('活动记录', style: theme.textTheme.titleMedium),
+            const Spacer(),
+            Text('${activities.length}', style: theme.textTheme.bodySmall),
+          ],
+        ),
+        if (_activityLoading && !_activityLoaded)
+          const Padding(
+            padding: EdgeInsets.only(top: MuyuSpacing.sm),
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+        if (activities.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.md),
+            child: Text('暂无活动记录', style: theme.textTheme.bodySmall),
+          )
+        else
+          for (final activity in activities)
+            _ActivityRow(
+              activity: activity,
+              title: _activityTitle(activity),
+              actorLabel: activity.operatorId == null
+                  ? '系统'
+                  : handlerLabels[activity.operatorId] ?? '协作成员',
+              timeLabel: _displayDate(activity.createdAt),
+              details: _activityDetails(activity),
+            ),
+      ],
+    );
+  }
+
   Widget _buildComments(
     BuildContext context,
     List<TaskComment> comments,
@@ -1455,6 +1874,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           ? _subtasksFor(task)
           : const <TaskItem>[];
       final parent = _parentFor(task);
+      final nextStep =
+          task.nextStep ??
+          _deriveNextStep(task, widget.sync.state.approvalRequests, viewerId);
+      final activities = _activities.isNotEmpty
+          ? _activities
+          : _approvalActivityFallback(
+              task.id,
+              widget.sync.state.approvalRequests,
+            );
       return Scaffold(
         appBar: AppBar(
           title: const Text('任务详情'),
@@ -1535,6 +1963,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       )
                     else
                       _buildReadOnlyAttributes(context, task, handlerLabels),
+                    const SizedBox(height: MuyuSpacing.md),
+                    _buildNextStep(context, nextStep),
                     const Divider(height: MuyuSpacing.xxl),
                     _buildStatusActions(
                       context,
@@ -1552,6 +1982,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       parent,
                       handlerLabels,
                     ),
+                    const Divider(height: MuyuSpacing.xxl),
+                    _buildActivity(context, activities, handlerLabels),
                     const Divider(height: MuyuSpacing.xxl),
                     _buildComments(context, comments, handlerLabels),
                     if (conflicts.isNotEmpty) ...[
@@ -1921,6 +2353,67 @@ class _RelatedTaskRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({
+    required this.activity,
+    required this.title,
+    required this.actorLabel,
+    required this.timeLabel,
+    required this.details,
+  });
+
+  final TaskActivity activity;
+  final String title;
+  final String actorLabel;
+  final String timeLabel;
+  final List<String> details;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final icon = switch (activity.kind) {
+      'comment' => Icons.chat_bubble_outline,
+      'delay' => Icons.schedule_outlined,
+      'operation' => Icons.sync_alt_outlined,
+      _ => Icons.history_outlined,
+    };
+    return Padding(
+      key: Key('task-activity-${activity.id}'),
+      padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: MuyuSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(title, style: theme.textTheme.labelLarge),
+                    ),
+                    const SizedBox(width: MuyuSpacing.sm),
+                    Text(timeLabel, style: theme.textTheme.bodySmall),
+                  ],
+                ),
+                const SizedBox(height: MuyuSpacing.xs),
+                Text(actorLabel, style: theme.textTheme.bodySmall),
+                for (final detail in details) ...[
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Text(detail, style: theme.textTheme.bodyMedium),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

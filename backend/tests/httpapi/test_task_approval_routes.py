@@ -198,6 +198,7 @@ def test_lifecycle_complete_submits_review_and_rejection_returns_task_snapshot(d
             "request_id": str(uuid4()),
             "action": "complete",
             "base_lifecycle_version": started.json()["lifecycle_version"],
+            "review_content": "已完成生命周期交付并核对结果",
         },
     )
     assert submitted.status_code == 202, submitted.text
@@ -222,6 +223,412 @@ def test_lifecycle_complete_submits_review_and_rejection_returns_task_snapshot(d
     assert rejected.json()["approval_request"]["status"] == "REJECTED"
     assert rejected.json()["task"]["status"] == "IN_PROGRESS"
     assert rejected.json()["task"]["review_rejection_reason"] == "补充验收材料"
+
+
+def test_review_submission_preserves_content_and_viewer_next_step(db_engine) -> None:
+    client = _client(db_engine)
+    owner, reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    reviewer_headers = _headers(reviewer)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "验收内容",
+            "quadrant": "Q1",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    started = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": task["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+    content = "  已确认最终版本，附件与现场结果一致。  "
+    submit_body = {
+        "request_id": str(uuid4()),
+        "target_status": "REVIEW",
+        "base_status_version": started.json()["status_version"],
+        "review_content": content,
+    }
+    submitted = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json=submit_body,
+    )
+    assert submitted.status_code == 202, submitted.text
+    payload = submitted.json()
+    approval = payload["approval_request"]
+    assert approval["proposed_changes"]["review_content"] == content.strip()
+    replay = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json=submit_body,
+    )
+    assert replay.status_code == 202, replay.text
+    assert replay.json()["approval_request"]["id"] == approval["id"]
+
+    owner_view = client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers)
+    assert owner_view.status_code == 200, owner_view.text
+    assert owner_view.json()["next_step"] == {
+        "kind": "WAITING_FOR_REVIEW",
+        "label": "等待对方验收",
+        "request_id": approval["id"],
+        "can_act": False,
+        "actions": [],
+    }
+    reviewer_view = client.get(f"/api/v1/tasks/{task['id']}", headers=reviewer_headers)
+    assert reviewer_view.status_code == 200, reviewer_view.text
+    assert reviewer_view.json()["next_step"] == {
+        "kind": "ACCEPT_OR_RETURN_REVIEW",
+        "label": "确认验收结果",
+        "request_id": approval["id"],
+        "can_act": True,
+        "actions": ["APPROVE_REVIEW", "RETURN_REVIEW"],
+    }
+
+    timeline = client.get(f"/api/v1/tasks/{task['id']}/activity", headers=owner_headers)
+    assert timeline.status_code == 200, timeline.text
+    review_events = [
+        item
+        for item in timeline.json()
+        if item.get("kind") == "activity"
+        and item.get("event_type") == "APPROVAL_REQUESTED"
+        and item.get("payload", {}).get("approval_request", {}).get("id") == approval["id"]
+    ]
+    assert review_events
+    assert review_events[0]["payload"]["approval_request"]["proposed_changes"]["review_content"] == content.strip()
+
+
+def test_review_next_step_ignores_newer_unrelated_pending_task_update(db_engine) -> None:
+    client = _client(db_engine)
+    owner, reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    reviewer_headers = _headers(reviewer)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "验收请求优先级",
+            "quadrant": "Q1",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    started = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": task["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+    submitted = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started.json()["status_version"],
+            "review_content": "已完成验收材料整理",
+        },
+    )
+    assert submitted.status_code == 202, submitted.text
+    review_request = submitted.json()["approval_request"]
+
+    unrelated = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=reviewer_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "对方提出的标题建议"},
+            "base_field_versions": {
+                "title": task["field_versions"]["title"],
+            },
+        },
+    )
+    assert unrelated.status_code == 202, unrelated.text
+    assert unrelated.json()["approval_request"]["request_type"] == "TASK_UPDATE"
+
+    reviewer_view = client.get(f"/api/v1/tasks/{task['id']}", headers=reviewer_headers)
+    assert reviewer_view.status_code == 200, reviewer_view.text
+    assert reviewer_view.json()["next_step"] == {
+        "kind": "ACCEPT_OR_RETURN_REVIEW",
+        "label": "确认验收结果",
+        "request_id": review_request["id"],
+        "can_act": True,
+        "actions": ["APPROVE_REVIEW", "RETURN_REVIEW"],
+    }
+
+
+def test_review_submission_requires_content_over_http(db_engine) -> None:
+    client = _client(db_engine)
+    owner, _reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "验收内容必填",
+            "quadrant": "Q1",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    started = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": task["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+
+    submitted = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started.json()["status_version"],
+        },
+    )
+    assert submitted.status_code == 422, submitted.text
+    assert submitted.json()["code"] == "invalid_request"
+
+    current = client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers)
+    assert current.status_code == 200, current.text
+    assert current.json()["status"] == "IN_PROGRESS"
+
+    blank = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started.json()["status_version"],
+            "review_content": "   ",
+        },
+    )
+    assert blank.status_code == 422, blank.text
+    assert blank.json()["code"] == "invalid_request"
+
+
+def test_handler_transfer_preserves_transfer_note_in_approval_and_activity(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "交接说明",
+            "quadrant": "Q2",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    note = "后续继续跟进供应商合同并确认最终交付时间。"
+    pending = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {
+                "current_handler_id": partner["user"]["id"],
+                "transfer_note": note,
+            },
+            "base_field_versions": {
+                "current_handler_id": task["field_versions"]["current_handler_id"]
+            },
+        },
+    )
+    assert pending.status_code == 202, pending.text
+    approval = pending.json()["approval_request"]
+    assert approval["request_type"] == "HANDLER_TRANSFER"
+    assert approval["proposed_changes"]["transfer_note"] == note
+
+    timeline = client.get(f"/api/v1/tasks/{task['id']}/activity", headers=partner_headers)
+    assert timeline.status_code == 200, timeline.text
+    transfer_events = [
+        item
+        for item in timeline.json()
+        if item.get("kind") == "activity"
+        and item.get("event_type") == "APPROVAL_REQUESTED"
+        and item.get("payload", {}).get("approval_request", {}).get("id") == approval["id"]
+    ]
+    assert transfer_events
+    assert transfer_events[0]["payload"]["approval_request"]["proposed_changes"]["transfer_note"] == note
+
+
+def test_handler_transfer_trims_note_replays_and_applies_without_duplicate_activity(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "交接应用",
+            "quadrant": "Q2",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    request_id = str(uuid4())
+    note = "  请继续确认合同最终交付时间。  "
+    body = {
+        "request_id": request_id,
+        "changes": {
+            "current_handler_id": partner["user"]["id"],
+            "transfer_note": note,
+        },
+        "base_field_versions": {
+            "current_handler_id": task["field_versions"]["current_handler_id"]
+        },
+    }
+    pending = client.patch(f"/api/v1/tasks/{task['id']}", headers=owner_headers, json=body)
+    assert pending.status_code == 202, pending.text
+    approval = pending.json()["approval_request"]
+    assert approval["proposed_changes"]["transfer_note"] == note.strip()
+
+    replay = client.patch(f"/api/v1/tasks/{task['id']}", headers=owner_headers, json=body)
+    assert replay.status_code == 202, replay.text
+    assert replay.json()["approval_request"]["id"] == approval["id"]
+
+    approved = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4())},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["task"]["current_handler_id"] == partner["user"]["id"]
+
+    timeline = client.get(f"/api/v1/tasks/{task['id']}/activity", headers=owner_headers)
+    assert timeline.status_code == 200, timeline.text
+    events = timeline.json()
+    approval_events = [
+        item
+        for item in events
+        if item.get("kind") == "activity"
+        and item.get("event_type") == "APPROVAL_APPROVED"
+        and item.get("payload", {}).get("approval_request", {}).get("id") == approval["id"]
+    ]
+    assert len(approval_events) == 1
+    assert approval_events[0]["payload"]["approval_request"]["proposed_changes"]["transfer_note"] == note.strip()
+    assert len({item["id"] for item in events}) == len(events)
+
+
+def test_review_rejection_projects_resubmission_for_owner_only(db_engine) -> None:
+    client = _client(db_engine)
+    owner, reviewer = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    reviewer_headers = _headers(reviewer)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "退回验收",
+            "quadrant": "Q1",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    started = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "IN_PROGRESS",
+            "base_status_version": task["status_version"],
+        },
+    )
+    assert started.status_code == 200, started.text
+    submitted = client.post(
+        f"/api/v1/tasks/{task['id']}/transition",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "target_status": "REVIEW",
+            "base_status_version": started.json()["status_version"],
+            "review_content": "已完成首轮核对",
+        },
+    )
+    assert submitted.status_code == 202, submitted.text
+    approval = submitted.json()["approval_request"]
+    rejected = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/reject",
+        headers=reviewer_headers,
+        json={"request_id": str(uuid4()), "reason": "请补充最终交付时间"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["task"]["status"] == "IN_PROGRESS"
+
+    owner_view = client.get(f"/api/v1/tasks/{task['id']}", headers=owner_headers)
+    assert owner_view.status_code == 200, owner_view.text
+    assert owner_view.json()["next_step"] == {
+        "kind": "RESUBMIT_REVIEW",
+        "label": "修改后重新提交验收",
+        "can_act": True,
+        "actions": ["SUBMIT_REVIEW"],
+    }
+    reviewer_view = client.get(f"/api/v1/tasks/{task['id']}", headers=reviewer_headers)
+    assert reviewer_view.status_code == 200, reviewer_view.text
+    assert reviewer_view.json()["next_step"] == {
+        "kind": "NO_ACTION",
+        "label": "等待负责人修改",
+        "can_act": False,
+        "actions": [],
+    }
+
+
+def test_activity_returns_one_payload_event_per_operation(db_engine) -> None:
+    client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "活动去重",
+            "quadrant": "Q3",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+
+    timeline = client.get(f"/api/v1/tasks/{task['id']}/activity", headers=owner_headers)
+    assert timeline.status_code == 200, timeline.text
+    events = timeline.json()
+    assert len(events) == 1
+    assert events[0]["kind"] == "activity"
+    assert events[0]["payload"]["after"]["id"] == task["id"]
 
 
 def test_handler_transfer_is_rejected_while_task_is_in_review(db_engine) -> None:
@@ -254,6 +661,7 @@ def test_handler_transfer_is_rejected_while_task_is_in_review(db_engine) -> None
             "request_id": str(uuid4()),
             "target_status": "REVIEW",
             "base_status_version": started.json()["status_version"],
+            "review_content": "已完成任务核对",
         },
     )
     assert submitted.status_code == 202, submitted.text
@@ -302,6 +710,7 @@ def test_review_rejection_requires_acceptance_request_and_reason(db_engine) -> N
             "request_id": str(uuid4()),
             "target_status": "REVIEW",
             "base_status_version": started["status_version"],
+            "review_content": "已完成任务核对",
         },
     )
     assert submitted_response.status_code == 202, submitted_response.text

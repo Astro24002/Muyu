@@ -1,5 +1,9 @@
 # 设计文档索引
 
+## 产品核心价值
+
+> Muyu 帮助两个人把拖延变成可见的协作事实，把模糊责任变成明确的下一步，并通过双方确认完成任务闭环。
+
 本目录记录双人协作行动管理系统在进入工程开发前已经确认的产品和技术设计。
 
 ## 当前规格
@@ -24,6 +28,10 @@
    - 单人 Workspace 自动提供个人起步分类；
    - 第二位成员加入后切换到共享分类和双人协作；
    - 任务必须由另一位成员验收后才能完成。
+6. [Muyu「此刻」协作链浏览器原型设计](./superpowers/specs/2026-09-11-moment-collaboration-prototype-design.md)
+   - 将清单 Tab 定义为默认的「此刻」协作工作台；
+   - 冻结“需要我处理、等对方、本周到期”入口和“卡住、我在推进、对方在推进”主体分组；
+   - 明确交接、验收、退回和活动证据的双人协作闭环。
 
 ## 待执行实施计划
 
@@ -38,6 +46,10 @@
    - React + Vite 渐进迁移；
    - 今天、所有任务、审批、动态和任务详情页面；
    - 设计令牌、响应式、无障碍和 Playwright 视觉验收。
+4. [Muyu「此刻」协作闭环生产实施计划](./superpowers/plans/2026-09-11-moment-collaboration.md)
+   - 后端 Home 投影、交接/验收请求内容和活动证据；
+   - Android 此刻首页、任务详情下一步和双用户动作权限；
+   - cursor 同步、回归测试、双设备验收和发布回滚门禁。
 
 ## 关联资料
 
@@ -89,7 +101,7 @@
 
 ## 当前状态
 
-当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。Android 只构建 APK/AAB，独立 TypeScript + Vite 应用构建 `web/dist`，Caddy 负责静态文件和 API/WebSocket 反向代理。当前产品路线优先处理单人起步、双人加入、双人验收、同步可靠性和任务可发现性；路线文档见[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
+当前运行时设计已转为云端协调协作：PostgreSQL 是明文事实源，Android 和 Web 使用同一 FastAPI API、cursor 和冲突规则。Android 只构建 APK/AAB，独立 TypeScript + Vite 应用构建 `web/dist`，Caddy 负责静态文件和 API/WebSocket 反向代理。当前产品路线优先处理单人起步、双人加入、双人验收、同步可靠性和任务可发现性；最新的默认工作台是「清单 → 此刻」，其生产施工边界见[Muyu「此刻」协作闭环生产实施计划](./superpowers/plans/2026-09-11-moment-collaboration.md)。密码、验证码、令牌和 Cookie 等敏感信息不得写入文档或代码；部署 Secret 由环境注入。所有工程进度和设计变更记录在 [开发状态与变更记录](./05-development-status.md)。
 
 ## 历史基线验收
 

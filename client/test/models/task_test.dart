@@ -43,6 +43,48 @@ void main() {
     expect(task.totalDelayMinutes, 8640);
   });
 
+  test('TaskItem parses the optional viewer-aware next step projection', () {
+    final task = TaskItem.fromJson({
+      'id': 'task-next-step',
+      'parent_task_id': null,
+      'title': '等待验收',
+      'description': '',
+      'status': 'REVIEW',
+      'current_handler_id': 'user-a',
+      'quadrant': 'Q1',
+      'labels': const <String>[],
+      'next_step': {
+        'kind': 'ACCEPT_OR_RETURN_REVIEW',
+        'label': '确认验收结果',
+        'request_id': 'approval-1',
+        'can_act': true,
+        'actions': ['APPROVE_REVIEW', 'RETURN_REVIEW'],
+      },
+      'planned_start_at': null,
+      'due_at': null,
+      'estimated_minutes': null,
+      'completed_at': null,
+      'created_by': 'user-a',
+      'version': 1,
+      'status_version': 2,
+      'created_at': '2026-09-11T00:00:00Z',
+      'updated_at': '2026-09-11T00:00:00Z',
+    });
+
+    expect(task.nextStep?.kind, 'ACCEPT_OR_RETURN_REVIEW');
+    expect(task.nextStep?.label, '确认验收结果');
+    expect(task.nextStep?.requestId, 'approval-1');
+    expect(task.nextStep?.canAct, isTrue);
+    expect(task.nextStep?.actions, ['APPROVE_REVIEW', 'RETURN_REVIEW']);
+    expect(task.toJson()['next_step'], {
+      'kind': 'ACCEPT_OR_RETURN_REVIEW',
+      'label': '确认验收结果',
+      'request_id': 'approval-1',
+      'can_act': true,
+      'actions': ['APPROVE_REVIEW', 'RETURN_REVIEW'],
+    });
+  });
+
   test('TaskItem normalizes the legacy COMPLETED status to DONE', () {
     final task = TaskItem.fromJson({
       'id': 'task-legacy-completed',
@@ -219,5 +261,47 @@ void main() {
     expect(record.newDueAt, DateTime.utc(2026, 9, 4, 1));
     expect(record.delayDurationMinutes, 1440);
     expect(taskDelayReasonLabels[record.reason], '没有时间');
+  });
+
+  test('TaskActivity parses mixed activity evidence and legacy fields', () {
+    final activity = TaskActivity.fromJson({
+      'kind': 'activity',
+      'id': 'activity-1',
+      'event_type': 'APPROVAL_REJECTED',
+      'actor_user_id': 'user-reviewer',
+      'request_id': 'request-1',
+      'payload': {
+        'approval_request': {
+          'requester_id': 'user-owner',
+          'proposed_changes': {
+            'transfer_note': '请接手客户回访',
+            'review_content': '已完成验收清单',
+          },
+          'rejection_reason': '请补充截图',
+        },
+        'reason': '请补充截图',
+      },
+      'created_at': '2026-09-01T02:03:04Z',
+    });
+
+    expect(activity.kind, 'activity');
+    expect(activity.action, 'APPROVAL_REJECTED');
+    expect(activity.transferNote, '请接手客户回访');
+    expect(activity.reviewContent, '已完成验收清单');
+    expect(activity.rejectionReason, '请补充截图');
+    expect(activity.operatorId, 'user-reviewer');
+    expect(activity.createdAt, DateTime.utc(2026, 9, 1, 2, 3, 4));
+
+    final legacy = TaskActivity.fromJson({
+      'id': 'legacy-1',
+      'action': 'update',
+      'before_json': {'status': 'TODO'},
+      'after_json': {'status': 'IN_PROGRESS'},
+      'payload_json': {'activity': 'started'},
+      'created_at': '2026-09-01T03:00:00Z',
+    });
+    expect(legacy.before?['status'], 'TODO');
+    expect(legacy.after?['status'], 'IN_PROGRESS');
+    expect(legacy.payload['activity'], 'started');
   });
 }

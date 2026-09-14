@@ -37,6 +37,25 @@ Map<String, dynamic> taskJson(String id, String status) => {
   'deleted_at': null,
 };
 
+Map<String, dynamic> approvalJson({String? taskId}) => {
+  'id': 'approval-1',
+  'workspace_id': 'workspace-1',
+  'task_id': taskId,
+  'comment_id': null,
+  'requester_id': 'user-2',
+  'approver_id': 'user-1',
+  'request_type': 'TASK_UPDATE',
+  'proposed_changes': <String, dynamic>{'title': '提议'},
+  'base_field_versions': <String, dynamic>{'title': 1},
+  'request_id': 'request-1',
+  'status': 'PENDING',
+  'created_at': '2026-09-14T00:00:00Z',
+  'reviewed_at': null,
+  'reviewed_by': null,
+  'rejection_reason': null,
+  'resolved_cursor': null,
+};
+
 void main() {
   test('parses bounded action sections and validates their workspace', () {
     final home = HomeResponse.fromJson({
@@ -60,8 +79,54 @@ void main() {
     expect(home.blockedTasks.items.single.status, 'BLOCKED');
     expect(home.reviewTasks.items.single.status, 'REVIEW');
     expect(home.pendingApprovalCount, 2);
+    expect(home.needsActionCount, 2);
+    expect(home.waitingOnOtherCount, 0);
+    expect(home.weekDueCount, 0);
+    expect(home.hasMomentProjection, isFalse);
     expect(home.isValidForWorkspace('workspace-1'), isTrue);
     expect(home.isValidForWorkspace('workspace-other'), isFalse);
+  });
+
+  test('parses the additive moment projection and top counts', () {
+    final home = HomeResponse.fromJson({
+      'current_tasks': {
+        'items': [taskJson('current', 'TODO')],
+        'has_more': false,
+      },
+      'blocked_tasks': {'items': [], 'has_more': false},
+      'review_tasks': {'items': [], 'has_more': false},
+      'pending_approval_count': 4,
+      'moment': {
+        'blocked_tasks': {
+          'items': [taskJson('moment-blocked', 'BLOCKED')],
+          'has_more': false,
+        },
+        'my_tasks': {
+          'items': [taskJson('moment-mine', 'IN_PROGRESS')],
+          'has_more': false,
+        },
+        'other_tasks': {
+          'items': [taskJson('moment-other', 'TODO')],
+          'has_more': true,
+        },
+        'all_tasks_has_more': true,
+      },
+      'needs_action_count': 3,
+      'waiting_on_other_count': 2,
+      'week_due_count': 5,
+    });
+
+    expect(home.hasMomentProjection, isTrue);
+    expect(home.moment.blockedTasks.items.single.id, 'moment-blocked');
+    expect(home.moment.myTasks.items.single.status, 'IN_PROGRESS');
+    expect(home.moment.otherTasks.items.single.id, 'moment-other');
+    expect(home.moment.otherTasks.hasMore, isTrue);
+    expect(home.moment.allTasksHasMore, isTrue);
+    expect(home.needsActionCount, 3);
+    expect(home.waitingOnOtherCount, 2);
+    expect(home.weekDueCount, 5);
+    expect(home.isValidForWorkspace('workspace-1'), isTrue);
+    expect(home.allTasks.map((task) => task.id), contains('moment-other'));
   });
 
   test('rejects malformed action sections', () {
@@ -78,5 +143,199 @@ void main() {
       }),
       throwsFormatException,
     );
+  });
+
+  test('parses canonical moment metadata and taskless approval entries', () {
+    final home = HomeResponse.fromJson({
+      'viewer_user_id': 'user-1',
+      'as_of': '2026-09-14T10:00:00Z',
+      'week': {
+        'timezone': 'UTC',
+        'start': '2026-09-14T00:00:00Z',
+        'end': '2026-09-21T00:00:00Z',
+      },
+      'entry_counts': {
+        'needs_me': 1,
+        'waiting_on_other': 0,
+        'due_this_week': 2,
+      },
+      'current_tasks': {'items': [], 'has_more': false},
+      'blocked_tasks': {'items': [], 'has_more': false},
+      'review_tasks': {'items': [], 'has_more': false},
+      'pending_approval_count': 1,
+      'moment': {
+        'blocked': {'items': [], 'has_more': false},
+        'mine': {
+          'items': [taskJson('mine', 'IN_PROGRESS')],
+          'has_more': false,
+        },
+        'other': {'items': [], 'has_more': false},
+        'all_tasks_has_more': false,
+      },
+      'needs_action_count': 1,
+      'waiting_on_other_count': 0,
+      'week_due_count': 2,
+      'entries': {
+        'needs_me': {
+          'items': [
+            {'approval_request': approvalJson(), 'task': null},
+          ],
+          'has_more': false,
+        },
+        'waiting_on_other': {'items': [], 'has_more': false},
+        'due_this_week': {
+          'items': [taskJson('due', 'TODO')],
+          'has_more': false,
+        },
+      },
+    });
+
+    expect(home.viewerUserId, 'user-1');
+    expect(home.asOf, DateTime.parse('2026-09-14T10:00:00Z'));
+    expect(home.week?.timezone, 'UTC');
+    expect(home.entryCounts.needsMe, 1);
+    expect(home.entries.needsMe.items.single.task, isNull);
+    expect(home.moment.mine.items.single.id, 'mine');
+    expect(home.allTasks.map((task) => task.id), ['mine', 'due']);
+    expect(home.isValidForWorkspace('workspace-1'), isTrue);
+  });
+
+  test('falls back to legacy counts and moment aliases when canonical fields are absent', () {
+    final home = HomeResponse.fromJson({
+      'viewer_user_id': 'user-1',
+      'current_tasks': {'items': [], 'has_more': false},
+      'blocked_tasks': {'items': [], 'has_more': false},
+      'review_tasks': {'items': [], 'has_more': false},
+      'pending_approval_count': 2,
+      'needs_action_count': 3,
+      'waiting_on_other_count': 4,
+      'week_due_count': 5,
+      'moment': {
+        'blocked_tasks': {
+          'items': [taskJson('legacy-blocked', 'BLOCKED')],
+          'has_more': false,
+        },
+        'my_tasks': {'items': [], 'has_more': false},
+        'other_tasks': {'items': [], 'has_more': false},
+        'all_tasks_has_more': true,
+      },
+    });
+
+    expect(home.viewerUserId, 'user-1');
+    expect(home.asOf, isNull);
+    expect(home.week, isNull);
+    expect(home.entryCounts.needsMe, 3);
+    expect(home.entryCounts.waitingOnOther, 4);
+    expect(home.entryCounts.dueThisWeek, 5);
+    expect(home.entries.needsMe.items, isEmpty);
+    expect(home.moment.blocked.items.single.id, 'legacy-blocked');
+    expect(home.moment.blockedTasks.items.single.id, 'legacy-blocked');
+    expect(home.moment.hasCanonicalSections, isFalse);
+  });
+
+  test(
+    'rejects invalid canonical counts, week timezone, and approval task shape',
+    () {
+      final base = {
+        'viewer_user_id': 'user-1',
+        'as_of': '2026-09-14T10:00:00Z',
+        'week': {
+          'timezone': 'UTC',
+          'start': '2026-09-14T00:00:00Z',
+          'end': '2026-09-21T00:00:00Z',
+        },
+        'entry_counts': {
+          'needs_me': 0,
+          'waiting_on_other': 0,
+          'due_this_week': 0,
+        },
+        'current_tasks': {'items': [], 'has_more': false},
+        'blocked_tasks': {'items': [], 'has_more': false},
+        'review_tasks': {'items': [], 'has_more': false},
+        'pending_approval_count': 0,
+        'moment': {
+          'blocked': {'items': [], 'has_more': false},
+          'mine': {'items': [], 'has_more': false},
+          'other': {'items': [], 'has_more': false},
+          'all_tasks_has_more': false,
+        },
+        'needs_action_count': 0,
+        'waiting_on_other_count': 0,
+        'week_due_count': 0,
+        'entries': {
+          'needs_me': {'items': [], 'has_more': false},
+          'waiting_on_other': {'items': [], 'has_more': false},
+          'due_this_week': {'items': [], 'has_more': false},
+        },
+      };
+
+      final negativeCounts = Map<String, dynamic>.from(base);
+      negativeCounts['entry_counts'] = {
+        'needs_me': -1,
+        'waiting_on_other': 0,
+        'due_this_week': 0,
+      };
+      expect(
+        () => HomeResponse.fromJson(negativeCounts),
+        throwsFormatException,
+      );
+
+      final nonUtc = Map<String, dynamic>.from(base);
+      nonUtc['week'] = {
+        'timezone': 'Asia/Shanghai',
+        'start': '2026-09-14T00:00:00Z',
+        'end': '2026-09-21T00:00:00Z',
+      };
+      expect(() => HomeResponse.fromJson(nonUtc), throwsFormatException);
+
+      final reversedWeek = Map<String, dynamic>.from(base);
+      reversedWeek['week'] = {
+        'timezone': 'UTC',
+        'start': '2026-09-21T00:00:00Z',
+        'end': '2026-09-14T00:00:00Z',
+      };
+      expect(() => HomeResponse.fromJson(reversedWeek), throwsFormatException);
+
+      final invalidTask = Map<String, dynamic>.from(base);
+      invalidTask['entries'] = {
+        'needs_me': {
+          'items': [
+            {
+              'approval_request': approvalJson(taskId: 'task-1'),
+              'task': taskJson('different-task', 'TODO'),
+            },
+          ],
+          'has_more': false,
+        },
+        'waiting_on_other': {'items': [], 'has_more': false},
+        'due_this_week': {'items': [], 'has_more': false},
+      };
+      expect(() => HomeResponse.fromJson(invalidTask), throwsFormatException);
+
+      final taskIdWithoutSnapshot = Map<String, dynamic>.from(base);
+      taskIdWithoutSnapshot['entries'] = {
+        'needs_me': {
+          'items': [
+            {'approval_request': approvalJson(taskId: 'task-1'), 'task': null},
+          ],
+          'has_more': false,
+        },
+        'waiting_on_other': {'items': [], 'has_more': false},
+        'due_this_week': {'items': [], 'has_more': false},
+      };
+      expect(
+        () => HomeResponse.fromJson(taskIdWithoutSnapshot),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test('rejects non-map canonical fields', () {
+    expect(
+      () => HomeResponse.fromJson({'entry_counts': []}),
+      throwsFormatException,
+    );
+    expect(() => HomeWeek.fromJson([]), throwsFormatException);
+    expect(() => HomeApprovalItem.fromJson([]), throwsFormatException);
   });
 }

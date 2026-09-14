@@ -58,6 +58,7 @@ abstract class WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
     required String requestId,
   }) {
     throw UnimplementedError();
@@ -142,6 +143,10 @@ abstract class WorkspaceSyncRepository {
   }) {
     throw UnimplementedError();
   }
+
+  /// Activity is an optional detail projection. Older repository
+  /// implementations can return an empty list without blocking task details.
+  Future<List<TaskActivity>> activity(String taskId) async => const [];
 
   Stream<WorkspaceChanged> openWorkspaceHints();
 }
@@ -300,6 +305,7 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
     required String requestId,
   }) async {
     final value = await _api.request(
@@ -313,6 +319,7 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
         'resume_handler_id': resumeHandlerId,
         'waiting_for_user_id': waitingForUserId,
         'review_rejection_reason': reviewRejectionReason,
+        'review_content': reviewContent,
       },
       authenticated: true,
       headers: {'x-request-id': requestId},
@@ -490,6 +497,26 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
       return TaskComment.fromJson(json);
     }
     return null;
+  }
+
+  @override
+  Future<List<TaskActivity>> activity(String taskId) async {
+    final value = await _api.request(
+      'GET',
+      '/api/v1/tasks/$taskId/activity',
+      authenticated: true,
+    );
+    if (value is! List) {
+      throw const FormatException(
+        'server returned an invalid task activity list',
+      );
+    }
+    return value.map((item) {
+      if (item is! Map) {
+        throw const FormatException('task activity item must be an object');
+      }
+      return TaskActivity.fromJson(item.cast<String, dynamic>());
+    }).toList();
   }
 
   Future<ApprovalActionResult> _approvalAction(

@@ -319,6 +319,22 @@ class Task(Base):
         CheckConstraint("progress IS NULL OR progress IN (20, 40, 60, 80)", name="ck_tasks_progress_allowed"),
         CheckConstraint("jsonb_typeof(labels) = 'array'", name="ck_tasks_labels_array"),
         UniqueConstraint("task_number", name="uq_tasks_task_number"),
+        Index(
+            "ix_tasks_home_current_handler",
+            "workspace_id",
+            "deleted_at",
+            "status",
+            "current_handler_id",
+            "due_at",
+        ),
+        Index(
+            "ix_tasks_home_reviewer",
+            "workspace_id",
+            "deleted_at",
+            "status",
+            "reviewer_user_id",
+            "due_at",
+        ),
     )
 
     id = _id()

@@ -89,6 +89,7 @@ class ApprovalSyncFake implements WorkspaceSyncRepository {
     String? resumeHandlerId,
     String? waitingForUserId,
     String? reviewRejectionReason,
+    String? reviewContent,
     required String requestId,
   }) async => PendingApproval(approvalRequest: request);
 

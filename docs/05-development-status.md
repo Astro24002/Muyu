@@ -4,8 +4,9 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和 `v0.2.0` APK 发布完成。任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。下一阶段先按 R0-R4 产品路线补齐单人起步、双人验收、同步可靠性和任务可发现性，不开始提醒或重复任务扩展。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和 `v0.2.0` APK 发布完成。任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。当前进入“清单 → 此刻”协作工作台施工：后端 Home 投影、canonical 元数据与 `entries` 契约、`/home/entries/{entry}` 入口分页、`0014_moment_home_indexes` 查询索引、任务详情“下一步”、交接说明、验收内容、活动证据、snapshot/cursor 连续性校验、Web canonical Home 消费和双人协作自动化 E2E 已在本地完成并通过回归；Flutter 已完成 canonical Home 解析并保留旧字段兼容。线上部署、真实双设备验收和新 APK 发布仍未执行。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
+- 当前产品和运行时设计：[产品需求](./01-product.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[Muyu「此刻」协作链浏览器原型设计](./superpowers/specs/2026-09-11-moment-collaboration-prototype-design.md)、[Muyu「此刻」协作闭环生产实施计划](./superpowers/plans/2026-09-11-moment-collaboration.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
 - 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入普通字段，但负责人转交必须单独提交 `HANDLER_TRANSFER` 并由另一位成员审批；非当前负责人的成员写入受保护字段时继续提交给当前负责人审批；“我的任务”只按当前负责人筛选。
@@ -25,6 +26,33 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-14 - 「此刻」双人协作闭环自动化 E2E 完成
+
+- 类型：端到端契约验收 / 双人协作闭环 / cursor 同步。
+- 变更：新增后端 E2E 场景，使用两个 ACTIVE 成员和同一任务串联 `TODO → IN_PROGRESS`、负责人发起 `HANDLER_TRANSFER` 并由另一方批准、负责人变更、带 `review_content` 提交 `REVIEW`、另一方带原因退回、原负责人重新提交、另一方批准进入 `DONE`。每个关键节点都核对双方任务快照、viewer-aware `next_step`、Home 的 `needs_action_count`/`waiting_on_other_count`/`week_due_count` 和任务在 `moment` 分组中的唯一性。
+- 同步验收：通过每个 mutation 后的 snapshot 与 `changes?after_cursor=` 断言 cursor 严格递增、增量无缺口，最终从 cursor 0 重放到当前游标；交接说明、验收内容和退回原因同时保留在请求响应中。
+- Home 契约：`GET /api/v1/home` 现在在保留旧字段的同时提供 `viewer_user_id`、`as_of`、UTC `week`、`entry_counts`、`entries` 和 canonical `moment.blocked/mine/other`；请求条目允许 `task: null`，用于分类、设备等无任务审批。Flutter `HomeResponse` 已解析 canonical 字段并继续兼容旧 snapshot。
+- Home 入口：新增 `GET /api/v1/home/entries/{entry}`，支持 `needs_me`、`waiting_on_other`、`due_this_week` 的独立 count、keyset 分页和 opaque cursor；cursor 绑定 workspace、viewer 与入口，taskless 请求、foreign/deleted 目标均按 Home 可见性规则过滤。Web 已优先消费 canonical Home，并在旧字段缺失时继续支持 canonical-only 响应。
+- 验证：容器化 PostgreSQL E2E `tests/e2e/test_two_person_task_approval.py` 为 `2 passed, 1 warning`；`py_compile` 与 `git diff --check` 通过。临时数据库已清理。
+- 验证：Home focused HTTP 测试为 `13 passed, 1 warning`；Flutter `analyze` 通过、全量测试 `221 passed`；Web `npm run typecheck`、`npm test -- --run` 为 `267 passed`，Vite production build 通过。
+- 范围：本轮未部署线上 API、未构建/发布 APK、未执行真实 Android 双设备验收。
+
+### 2026-09-11 - 「此刻」协作工作台设计与 Home 投影第一阶段
+
+- 类型：产品基线冻结 / Home 读模型 / 双人协作入口。
+- 设计：清单 Tab 默认进入“此刻”；顶部使用“需要我处理、等对方、本周到期”三个独立问题入口；主体按“卡住的事情、我在推进、对方在推进”分组，同一任务只出现一次。任务状态与交接/验收请求保持分离，详情以“下一步”为主要行动信息。
+- 文档：[浏览器原型设计](./superpowers/specs/2026-09-11-moment-collaboration-prototype-design.md)、[生产实施计划](./superpowers/plans/2026-09-11-moment-collaboration.md)。
+- 后端第一阶段：`GET /api/v1/home` 保留旧字段，同时增加 `moment` 三分组、双方请求方向计数和本周未结束任务计数；服务端完成未删除过滤、六状态筛选、双人视角分组、组内排序和任务去重测试。
+- 验证：后端 Home 与审批 focused 测试先通过，随后 PostgreSQL 容器中的后端全量基线为 `264 passed, 3 skipped, 1 warning`；新增验收内容必填、Home 索引迁移、活动去重、并发待处理请求优先级和 snapshot/cursor 连续性后的协作定向回归已通过（审批/Review `36 passed`，同步/六状态/云协议 `10 passed, 2 skipped`，各 1 warning）；Python compileall、Flutter format、`flutter analyze` 和 Flutter 全量 `217 passed`，`git diff --check` 均通过。
+
+### 2026-09-11 - 「此刻」任务详情协作闭环本地施工完成
+
+- 类型：任务详情 / 双人协作事实 / Android 客户端契约。
+- 后端：`GET /api/v1/tasks/{id}` 增加按认证用户派生的 `next_step`，覆盖继续处理、阻塞事实、等待交接、接受/拒绝交接、等待验收和验收决策；`GET /api/v1/tasks/{id}/activity` 增加 `ActivityEvent.payload`、事件类型和操作者，保留评论、延期和操作记录。负责人转交审批支持 `transfer_note`，负责人提交验收支持 `review_content`，两者均经过长度/空白校验并写入审批请求及活动事实。
+- Android：任务详情加入紧凑“下一步”区块和活动记录；活动记录按事件类型显示操作者、时间、交接说明、验收内容、退回原因、评论和延期事实。负责人变更必须填写交接说明并随 `HANDLER_TRANSFER` 发送；进入 `REVIEW` 前必须填写验收内容，提交后显示等待另一位成员验收；旧 snapshot 无 `next_step` 时由任务与审批快照做本地降级投影，保持旧客户端和缓存兼容。
+- 测试：新增/扩展 HTTP 审批、活动 payload、viewer-aware next step、验收内容和交接说明测试；补充 `0014_moment_home_indexes` 可回滚迁移测试，后端全量 `264 passed, 3 skipped, 1 warning`，Flutter 全量 `217 passed`，`flutter analyze`、Dart format、Python compileall 与 `git diff --check` 通过。
+- 范围：本轮没有改写用户已有 Web 原型，也没有部署线上 API、构建或发布 APK；Web 适配和真实双设备验收是下一阶段。
 
 ### 2026-09-11 - 负责人转交审批绕过修复完成
 

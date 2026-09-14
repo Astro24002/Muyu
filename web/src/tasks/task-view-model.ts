@@ -1,4 +1,4 @@
-import type { CanonicalTaskStatus, HomeResponse, TaskApprovalRequest, TaskItem, TaskStatus } from '../api/types';
+import type { CanonicalTaskStatus, HomeEntries, HomeResponse, TaskApprovalRequest, TaskItem, TaskStatus } from '../api/types';
 import { isCanonicalTaskStatus, normalizeTaskStatus } from './task-model';
 
 export const TASK_STATUSES: CanonicalTaskStatus[] = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE', 'CANCELLED'];
@@ -86,22 +86,52 @@ export function deriveTodayModel(
 }
 
 function deriveAuthoritativeTodayModel(home: HomeResponse): TodayModel {
-  const current = home.current_tasks.items;
+  const currentSection = home.moment?.mine
+    ?? home.moment?.my_tasks
+    ?? home.current_tasks;
+  const blockedSection = home.moment?.blocked
+    ?? home.moment?.blocked_tasks
+    ?? home.blocked_tasks;
+  const canonicalReview = home.entries
+    ? reviewTasksFromEntries(home.entries.needs_me.items)
+    : undefined;
+  const current = currentSection?.items ?? [];
   const focus = current.find((task) => normalizeTaskStatus(task.status) === 'IN_PROGRESS') ?? null;
   const focusId = focus?.id;
+  const blocked = blockedSection?.items ?? [];
+  const review = canonicalReview ?? home.review_tasks?.items ?? [];
+  const pendingApprovals = home.entries?.needs_me.items.map((item) => item.approval_request) ?? [];
+  const pendingApprovalCount = home.entry_counts?.needs_me
+    ?? home.pending_approval_count
+    ?? home.needs_action_count
+    ?? pendingApprovals.length;
 
   return {
     current,
     focus,
     next: current.filter((task) => task.id !== focusId),
-    blocked: home.blocked_tasks.items,
-    review: home.review_tasks.items,
-    pendingApprovals: [],
-    pendingApprovalCount: home.pending_approval_count,
-    currentHasMore: home.current_tasks.has_more,
-    blockedHasMore: home.blocked_tasks.has_more,
-    reviewHasMore: home.review_tasks.has_more,
+    blocked,
+    review,
+    pendingApprovals,
+    pendingApprovalCount,
+    currentHasMore: currentSection?.has_more ?? false,
+    blockedHasMore: blockedSection?.has_more ?? false,
+    reviewHasMore: home.review_tasks?.has_more ?? false,
   };
+}
+
+function reviewTasksFromEntries(
+  entries: HomeEntries['needs_me']['items'],
+): TaskItem[] {
+  const seen = new Set<string>();
+  const tasks: TaskItem[] = [];
+  for (const entry of entries) {
+    const task = entry.task;
+    if (!task || normalizeTaskStatus(task.status) !== 'REVIEW' || seen.has(task.id)) continue;
+    seen.add(task.id);
+    tasks.push(task);
+  }
+  return tasks;
 }
 
 function belongsToViewer(task: TaskItem, viewerId: string): boolean {

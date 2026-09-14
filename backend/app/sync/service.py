@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
@@ -107,10 +107,45 @@ class SyncService:
         }
 
     def changes(self, workspace_id: UUID, after_cursor: int, limit: int = 100) -> dict[str, Any]:
-        oldest = self.session.scalar(select(WorkspaceChangeLog.cursor).where(WorkspaceChangeLog.workspace_id == workspace_id).order_by(WorkspaceChangeLog.created_at.asc()).limit(1))
-        if oldest is not None and after_cursor < oldest - 1:
+        retention_cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(self.retention_days)))
+        oldest_retained = self.session.scalar(
+            select(WorkspaceChangeLog.cursor)
+            .where(
+                WorkspaceChangeLog.workspace_id == workspace_id,
+                WorkspaceChangeLog.created_at >= retention_cutoff,
+            )
+            .order_by(WorkspaceChangeLog.cursor.asc())
+            .limit(1)
+        )
+        oldest_change = self.session.scalar(
+            select(WorkspaceChangeLog.cursor)
+            .where(WorkspaceChangeLog.workspace_id == workspace_id)
+            .order_by(WorkspaceChangeLog.cursor.asc())
+            .limit(1)
+        )
+        cursor_row = self.session.get(WorkspaceCursor, workspace_id)
+        allocated_head = (cursor_row.next_cursor - 1) if cursor_row else 0
+        logged_head = self.session.scalar(
+            select(func.max(WorkspaceChangeLog.cursor)).where(
+                WorkspaceChangeLog.workspace_id == workspace_id
+            )
+        ) or 0
+        head = max(allocated_head, logged_head)
+
+        if oldest_retained is None:
+            # A workspace with only expired history cannot service an older pull.
+            if oldest_change is not None and after_cursor < head:
+                raise SyncCursorExpired("sync cursor expired")
+        elif after_cursor < oldest_retained - 1:
             raise SyncCursorExpired("sync cursor expired")
         rows = self.session.scalars(select(WorkspaceChangeLog).where(WorkspaceChangeLog.workspace_id == workspace_id, WorkspaceChangeLog.cursor > after_cursor).order_by(WorkspaceChangeLog.cursor.asc()).limit(min(500, max(1, limit)))).all()
+        expected_cursor = after_cursor + 1
+        for item in rows:
+            if item.cursor != expected_cursor:
+                raise SyncCursorExpired("sync cursor expired")
+            expected_cursor += 1
+        if not rows and head > after_cursor:
+            raise SyncCursorExpired("sync cursor expired")
         changes = []
         for item in rows:
             resource = None

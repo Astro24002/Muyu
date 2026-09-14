@@ -33,7 +33,11 @@ class PatchTaskRequest(BaseModel):
     def versions_match_changed_fields(self) -> "PatchTaskRequest":
         if "assignee_ids" in self.changes:
             raise ValueError("assignee_ids is no longer supported")
-        if set(self.changes) != set(self.base_field_versions):
+        # A transfer note is request context, not a mutable task field. It is
+        # validated with the handler-transfer approval and does not have its
+        # own task field version.
+        versioned_changes = set(self.changes) - {"transfer_note"}
+        if versioned_changes != set(self.base_field_versions):
             raise ValueError("base versions must match changed fields")
         return self
 
@@ -44,6 +48,7 @@ class LifecycleRequest(BaseModel):
     request_id: UUID
     action: str
     base_lifecycle_version: int
+    review_content: str | None = Field(default=None, max_length=5000)
 
 
 PUBLIC_STATUSES = {
@@ -66,6 +71,7 @@ class TransitionRequest(BaseModel):
     resume_handler_id: UUID | None = None
     waiting_for_user_id: UUID | None = None
     review_rejection_reason: str | None = None
+    review_content: str | None = Field(default=None, max_length=5000)
 
     @model_validator(mode="after")
     def validate_status(self) -> "TransitionRequest":

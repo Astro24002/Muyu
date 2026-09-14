@@ -33,7 +33,10 @@ const outgoing: TaskApprovalRequest = {
 function makeSnapshot(approvalRequests: TaskApprovalRequest[] = [incoming, outgoing]): WorkspaceSnapshot {
   return {
     workspace_id: 'workspace-1', workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' },
-    members: [{ user_id: 'viewer', member_slot: 1 }, { user_id: 'partner', member_slot: 2 }],
+    members: [
+      { user_id: 'viewer', display_name: '林木', member_slot: 1 },
+      { user_id: 'partner', display_name: '溪岸', member_slot: 2 },
+    ],
     tasks: [task], conflicts: [], cursor: 8, viewer_user_id: 'viewer', comments: [],
     approval_requests: approvalRequests,
   };
@@ -82,10 +85,10 @@ describe('ApprovalsPage', () => {
     render(<ApprovalsPage sync={fake.sync} />);
 
     expect(screen.getByRole('heading', { name: '审批' })).toBeInTheDocument();
-    expect(screen.getByText('待我审批')).toBeInTheDocument();
-    expect(screen.getByText('我发起的请求')).toBeInTheDocument();
-    expect(screen.getByText('整理周末晚餐')).toBeInTheDocument();
-    expect(screen.getByText(/待处理审批.*1/)).toBeInTheDocument();
+    expect(screen.getByText('需要我确认')).toBeInTheDocument();
+    expect(screen.getByText('等待对方确认')).toBeInTheDocument();
+    expect(screen.getAllByText('整理周末晚餐')).toHaveLength(2);
+    expect(screen.getByText(/待确认.*1/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '批准' })).toHaveClass('ui-button--primary');
     expect(screen.getByRole('button', { name: '拒绝' })).toHaveClass('ui-button--danger');
     expect(screen.getByRole('button', { name: '取消请求' })).toHaveClass('ui-button--neutral');
@@ -104,6 +107,19 @@ describe('ApprovalsPage', () => {
     expect(screen.getByRole('button', { name: '拒绝' })).toBeDisabled();
     resolveApprove();
     await waitFor(() => expect(screen.getByRole('button', { name: '批准' })).not.toBeDisabled());
+  });
+
+  it('renders human-readable approval subject, requester, and changes', () => {
+    const fake = makeSync();
+    render(<ApprovalsPage sync={fake.sync} />);
+
+    expect(screen.getAllByText('审批事项')).toHaveLength(2);
+    expect(screen.getAllByText('协作关系')).toHaveLength(2);
+    expect(screen.getAllByText('变更内容')).toHaveLength(2);
+    expect(screen.getByText('溪岸提出 · 等待我确认')).toBeInTheDocument();
+    expect(screen.getAllByText('任务标题')).toHaveLength(1);
+    expect(screen.queryByText('partner')).not.toBeInTheDocument();
+    expect(screen.queryByText('viewer')).not.toBeInTheDocument();
   });
 
   it('keeps the rejection reason and request row when rejecting fails', async () => {

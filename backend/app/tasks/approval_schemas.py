@@ -37,11 +37,14 @@ class ApprovalRequestCreate(BaseModel):
             return self
         if self.task_id is None:
             raise ValueError("task_id is required for task approvals")
+        versioned_changes = set(self.proposed_changes)
+        if self.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
+            versioned_changes -= {"transfer_note"}
         if self.request_type in {
             TaskApprovalRequestType.TASK_UPDATE,
             TaskApprovalRequestType.QUADRANT_UPDATE,
             TaskApprovalRequestType.HANDLER_TRANSFER,
-        } and set(self.proposed_changes) != set(self.base_field_versions):
+        } and versioned_changes != set(self.base_field_versions):
             raise ValueError("base versions must match changed fields")
         return self
 

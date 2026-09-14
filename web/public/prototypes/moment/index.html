@@ -1,0 +1,1345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#123b2a">
+  <title>清单→此刻 · Moment prototype</title>
+  <style>
+    :root {
+      --ink: #16342a;
+      --ink-soft: #557066;
+      --green: #174b35;
+      --green-strong: #123b2a;
+      --green-pale: #dceee4;
+      --green-wash: #eef7f2;
+      --coral: #d96e5d;
+      --coral-pale: #fbe8e3;
+      --cream: #fffdf8;
+      --white: #ffffff;
+      --line: #d8e2dc;
+      --line-strong: #b8cbc0;
+      --muted: #74857e;
+      --shadow: 0 18px 42px rgba(18, 59, 42, .11);
+      --phone-shadow: 0 26px 80px rgba(15, 45, 33, .18);
+      --radius: 8px;
+      --radius-small: 6px;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: #e8f0eb; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      background: #e8f0eb;
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 3px solid rgba(217, 110, 93, .4);
+      outline-offset: 2px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .prototype-shell {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 24px;
+      width: min(100%, 940px);
+      margin: 0 auto;
+      padding: 42px 20px 56px;
+    }
+    .phone {
+      position: relative;
+      flex: 0 1 390px;
+      width: 390px;
+      max-width: 100%;
+      min-height: 780px;
+      padding: 10px;
+      border: 1px solid #c6d6cc;
+      border-radius: 31px;
+      background: #102f23;
+      box-shadow: var(--phone-shadow);
+    }
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      width: 96px;
+      height: 18px;
+      border-radius: 0 0 13px 13px;
+      background: #102f23;
+      transform: translateX(-50%);
+      z-index: 3;
+    }
+    .phone-screen {
+      position: relative;
+      min-height: 758px;
+      overflow: hidden;
+      border-radius: 23px;
+      background: var(--cream);
+    }
+    .statusbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 27px;
+      padding: 6px 17px 0;
+      color: #6d8077;
+      background: var(--cream);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .statusbar-right { display: flex; gap: 7px; align-items: center; }
+    .statusbar-dot { display: inline-flex; gap: 2px; align-items: center; }
+    .statusbar-dot i { display: block; width: 3px; height: 3px; border-radius: 50%; background: var(--green); }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 18px 10px;
+      background: var(--cream);
+    }
+    .brand-mark {
+      display: grid;
+      flex: 0 0 38px;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      color: var(--white);
+      background: var(--green);
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .eyebrow {
+      margin: 0 0 2px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    .app-header h1 {
+      margin: 0;
+      color: var(--green-strong);
+      font-size: 20px;
+      line-height: 1.1;
+      letter-spacing: -.02em;
+    }
+    .app-header h1 span { color: var(--coral); padding: 0 2px; }
+    .header-spacer { flex: 1; }
+    .icon-button {
+      display: inline-grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      color: var(--green);
+      background: var(--white);
+      font-size: 22px;
+      line-height: 1;
+    }
+    .icon-button:hover { border-color: var(--green); background: var(--green-wash); }
+    .back-button { font-size: 20px; }
+
+    .actor-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 16px 12px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-small);
+      color: var(--ink-soft);
+      background: #f4f8f5;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .actor-strip strong { color: var(--green-strong); }
+    .local-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      color: var(--green);
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .local-state::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #6bba87;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+      padding: 0 16px 14px;
+    }
+    .summary-button {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      min-height: 68px;
+      padding: 10px 10px 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      color: var(--ink);
+      text-align: left;
+      background: var(--white);
+    }
+    .summary-button:hover { border-color: var(--green); background: var(--green-wash); }
+    .summary-number { color: var(--green-strong); font-size: 20px; font-weight: 800; line-height: 1; }
+    .summary-label { margin-top: 5px; font-size: 11px; font-weight: 800; }
+    .summary-caption { margin-top: 1px; color: var(--muted); font-size: 9px; }
+
+    .tabbar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      margin: 0 16px 13px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #f1f6f3;
+    }
+    .tab-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-height: 31px;
+      padding: 5px 3px;
+      border: 0;
+      border-radius: 5px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .tab-button[aria-selected="true"] { color: var(--green-strong); background: var(--white); box-shadow: 0 2px 5px rgba(18, 59, 42, .08); }
+    .tab-icon { font-size: 13px; line-height: 1; }
+
+    .feed { padding: 0 16px 82px; }
+    .feed-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 14px 0 7px;
+    }
+    .feed-heading h2 {
+      margin: 0;
+      color: var(--green-strong);
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    .section-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 19px;
+      height: 19px;
+      margin-left: 4px;
+      padding: 0 5px;
+      border-radius: 999px;
+      color: var(--green);
+      background: var(--green-pale);
+      font-size: 10px;
+      vertical-align: 1px;
+    }
+    .section-note { margin: 0; color: var(--muted); font-size: 10px; }
+    .section-link {
+      padding: 3px 0;
+      border: 0;
+      color: var(--coral);
+      background: transparent;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .section-link:hover { color: var(--green); }
+    .task-list { display: grid; gap: 7px; }
+    .task-card {
+      padding: 11px 11px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--white);
+    }
+    .task-card.is-review { border-color: #e6bb8e; background: #fffaf2; }
+    .task-card.is-blocked { border-left: 3px solid var(--coral); padding-left: 9px; }
+    .task-card:hover { border-color: var(--line-strong); }
+    .task-topline { display: flex; align-items: flex-start; gap: 8px; }
+    .task-title {
+      flex: 1;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      color: var(--green-strong);
+      text-align: left;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+    .task-title:hover { color: var(--coral); }
+    .status-pill, .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 21px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      white-space: nowrap;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.1;
+      vertical-align: middle;
+    }
+    .status-pill.todo { color: #64736d; background: #edf1ef; }
+    .status-pill.progress { color: var(--green); background: var(--green-pale); }
+    .status-pill.blocked { color: #9b3e31; background: var(--coral-pale); }
+    .status-pill.review { color: #8a5a1d; background: #fcebcf; }
+    .status-pill.done { color: #386c51; background: #e7f4ea; }
+    .status-pill.cancelled { color: #7f8884; background: #eceeed; }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+      margin-top: 8px;
+    }
+    .meta-pill { min-height: 19px; color: var(--ink-soft); background: #f3f6f4; font-size: 9px; font-weight: 700; }
+    .meta-pill.overdue { color: #a34134; background: var(--coral-pale); }
+    .task-next {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px;
+      margin: 9px 0 0;
+      color: var(--ink-soft);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .task-next-label { color: var(--green); font-weight: 800; }
+    .task-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+    .static-mark { color: var(--muted); }
+    .task-owner { display: inline-flex; align-items: center; gap: 5px; }
+    .avatar {
+      display: inline-grid;
+      place-items: center;
+      width: 19px;
+      height: 19px;
+      border-radius: 50%;
+      color: var(--green-strong);
+      background: var(--green-pale);
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .avatar.partner { color: #874b2f; background: #fae5d6; }
+    .request-list { display: grid; gap: 7px; }
+    .request-card {
+      padding: 11px;
+      border: 1px solid #e6bb8e;
+      border-radius: var(--radius);
+      background: #fffaf2;
+    }
+    .request-card h3 { margin: 0 0 5px; color: var(--green-strong); font-size: 12px; line-height: 1.35; }
+    .request-card p { margin: 0; color: var(--ink-soft); font-size: 10px; line-height: 1.45; }
+    .request-note { margin-top: 7px !important; color: var(--ink) !important; }
+    .request-actions { display: flex; gap: 6px; margin-top: 10px; }
+    .small-button, .primary-button, .secondary-button, .danger-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 31px;
+      padding: 6px 10px;
+      border-radius: var(--radius-small);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.15;
+    }
+    .small-button { border: 1px solid var(--line); color: var(--ink-soft); background: var(--white); }
+    .small-button:hover { border-color: var(--green); color: var(--green); }
+    .primary-button { border: 1px solid var(--green); color: var(--white); background: var(--green); }
+    .primary-button:hover { background: var(--green-strong); }
+    .secondary-button { border: 1px solid var(--green); color: var(--green); background: var(--green-wash); }
+    .secondary-button:hover { background: var(--green-pale); }
+    .danger-button { border: 1px solid #e7b2a9; color: #9e4034; background: var(--coral-pale); }
+    .danger-button:hover { border-color: var(--coral); background: #f7d9d2; }
+    .full-width { width: 100%; }
+    .action-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+    .action-row .primary-button, .action-row .secondary-button, .action-row .danger-button { flex: 1 1 140px; }
+    .empty-state {
+      padding: 20px 12px;
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      color: var(--muted);
+      text-align: center;
+      background: #f9fbfa;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .empty-state strong { display: block; margin-bottom: 3px; color: var(--green); }
+
+    .placeholder {
+      display: grid;
+      place-items: center;
+      min-height: 350px;
+      padding: 22px 30px 100px;
+      text-align: center;
+    }
+    .placeholder-mark {
+      display: grid;
+      place-items: center;
+      width: 53px;
+      height: 53px;
+      margin-bottom: 13px;
+      border-radius: 50%;
+      color: var(--green);
+      background: var(--green-pale);
+      font-size: 21px;
+      font-weight: 800;
+    }
+    .placeholder h2 { margin: 0 0 7px; color: var(--green-strong); font-size: 17px; }
+    .placeholder p { max-width: 245px; margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
+    .placeholder .secondary-button { margin-top: 18px; }
+
+    .all-tasks-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 0 13px;
+    }
+    .all-tasks-header h2 { margin: 0; color: var(--green-strong); font-size: 17px; }
+    .all-tasks-header p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+    .all-task-list { display: grid; gap: 7px; }
+    .all-task-group { margin: 17px 0 7px; color: var(--green); font-size: 11px; font-weight: 800; }
+
+    .detail-screen { padding-bottom: 58px; }
+    .detail-header {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 13px 17px 9px;
+    }
+    .detail-header h1 { flex: 1; margin: 0; color: var(--green-strong); font-size: 16px; line-height: 1.25; }
+    .detail-content { padding: 0 16px; }
+    .detail-statusline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 14px; }
+    .detail-owner { color: var(--muted); font-size: 10px; }
+    .next-step-panel {
+      padding: 13px;
+      border: 1px solid #b8d6c4;
+      border-radius: var(--radius);
+      background: var(--green-wash);
+    }
+    .next-step-kicker { margin: 0 0 5px; color: var(--green); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+    .next-step-panel p { margin: 0; color: var(--green-strong); font-size: 14px; font-weight: 800; line-height: 1.42; }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+      margin: 12px 0;
+    }
+    .detail-field { padding: 8px 9px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--white); }
+    .detail-field-label { display: block; margin-bottom: 3px; color: var(--muted); font-size: 9px; }
+    .detail-field-value { color: var(--ink); font-size: 11px; font-weight: 800; }
+    .notice {
+      margin: 10px 0;
+      padding: 10px 11px;
+      border-left: 3px solid var(--coral);
+      border-radius: 0 var(--radius-small) var(--radius-small) 0;
+      color: var(--ink-soft);
+      background: var(--coral-pale);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+    .notice strong { display: block; margin-bottom: 2px; color: #913d31; }
+    .review-notice { border-left-color: #d49a4a; background: #fff4de; }
+    .review-notice strong { color: #8a5a1d; }
+    .activity-heading { display: flex; align-items: center; justify-content: space-between; margin: 17px 0 7px; }
+    .activity-heading h2 { margin: 0; color: var(--green-strong); font-size: 13px; }
+    .immutable-label { color: var(--muted); font-size: 9px; }
+    .activity-list { display: grid; gap: 0; }
+    .activity-item { position: relative; display: grid; grid-template-columns: 20px 1fr; gap: 8px; padding: 0 0 12px; }
+    .activity-item:not(:last-child)::before { content: ""; position: absolute; top: 20px; left: 9px; width: 1px; height: calc(100% - 10px); background: var(--line); }
+    .activity-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 19px; height: 19px; border: 3px solid var(--green-pale); border-radius: 50%; background: var(--green); }
+    .activity-copy { min-width: 0; }
+    .activity-copy p { margin: 0; color: var(--ink); font-size: 10px; line-height: 1.45; }
+    .activity-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+    .form-block { margin-top: 11px; padding: 11px; border: 1px solid var(--line); border-radius: var(--radius); background: #f8fbf9; }
+    .form-block label { display: block; margin-bottom: 6px; color: var(--green-strong); font-size: 11px; font-weight: 800; }
+    .form-block small { display: block; margin-top: 5px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    textarea, input, select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-small);
+      color: var(--ink);
+      background: var(--white);
+      font-size: 11px;
+    }
+    textarea { min-height: 74px; padding: 9px; resize: vertical; line-height: 1.45; }
+    input, select { min-height: 36px; padding: 7px 9px; }
+    .field-error { margin: 5px 0 0; color: #a34134; font-size: 10px; }
+    .form-block .action-row { margin-top: 9px; }
+
+    .bottom-nav {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+      padding: 9px 16px 14px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 253, 248, .97);
+    }
+    .bottom-nav button { min-height: 31px; border: 1px solid var(--line); border-radius: var(--radius-small); color: var(--green); background: var(--white); font-size: 10px; font-weight: 800; }
+    .bottom-nav button:hover { border-color: var(--green); background: var(--green-wash); }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      display: grid;
+      align-items: end;
+      background: rgba(18, 59, 42, .28);
+    }
+    .overlay-sheet {
+      max-height: 82%;
+      overflow: auto;
+      padding: 16px;
+      border-radius: 15px 15px 0 0;
+      background: var(--cream);
+      box-shadow: 0 -16px 38px rgba(18, 59, 42, .16);
+    }
+    .overlay-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
+    .overlay-head h2 { margin: 0; color: var(--green-strong); font-size: 16px; }
+    .overlay-head p { margin: 3px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .close-button { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; color: var(--green); background: var(--white); font-size: 17px; line-height: 1; }
+    .summary-items { display: grid; gap: 7px; }
+    .summary-item { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--white); }
+    .summary-item-body { flex: 1; min-width: 0; }
+    .summary-item-title { width: 100%; padding: 0; border: 0; color: var(--green-strong); text-align: left; background: transparent; font-size: 11px; font-weight: 800; line-height: 1.35; }
+    .summary-item-meta { margin-top: 3px; color: var(--muted); font-size: 9px; }
+
+    .sim-panel {
+      flex: 0 1 286px;
+      width: 286px;
+      padding: 18px;
+      border: 1px solid #cfddd4;
+      border-radius: var(--radius);
+      color: var(--ink);
+      background: #f8fbf9;
+      box-shadow: var(--shadow);
+    }
+    .sim-panel h2 { margin: 0; color: var(--green-strong); font-size: 16px; }
+    .sim-panel p { color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+    .sim-kicker { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .05em; }
+    .sim-live { display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-size: 9px; letter-spacing: 0; }
+    .sim-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #6bba87; }
+    .actor-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 11px 0 9px; }
+    .actor-button { min-height: 35px; border: 1px solid var(--line-strong); border-radius: var(--radius-small); color: var(--ink-soft); background: var(--white); font-size: 11px; font-weight: 800; }
+    .actor-button[aria-pressed="true"] { border-color: var(--green); color: var(--white); background: var(--green); }
+    .sim-reset { width: 100%; min-height: 31px; border: 1px solid var(--line); border-radius: var(--radius-small); color: var(--green); background: var(--white); font-size: 10px; font-weight: 800; }
+    .sim-reset:hover { border-color: var(--green); background: var(--green-wash); }
+    .sim-divider { height: 1px; margin: 18px 0 14px; background: var(--line); }
+    .sim-panel h3 { margin: 0 0 8px; color: var(--green-strong); font-size: 12px; }
+    .story-list { display: grid; gap: 8px; padding-left: 18px; margin: 0; color: var(--ink-soft); font-size: 10px; line-height: 1.45; }
+    .story-list li::marker { color: var(--coral); font-weight: 800; }
+    .sim-state { margin-top: 15px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--white); }
+    .sim-state-line { display: flex; justify-content: space-between; gap: 8px; margin-top: 5px; color: var(--ink-soft); font-size: 10px; }
+    .sim-state-line strong { color: var(--green-strong); }
+    .sim-note { margin: 13px 0 0; color: var(--muted); font-size: 9px !important; line-height: 1.45 !important; }
+
+    @media (max-width: 760px) {
+      .prototype-shell { display: block; width: 100%; padding: 0 0 30px; }
+      .phone { width: 100%; min-height: 100vh; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+      .phone::before { display: none; }
+      .phone-screen { min-height: 100vh; border-radius: 0; }
+      .sim-panel { width: auto; margin: 18px 14px 0; }
+    }
+    @media (min-width: 761px) {
+      .phone { position: sticky; top: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main id="moment-prototype" class="prototype-shell">
+    <section class="phone" aria-label="清单到此刻 Android 原型">
+      <div id="phone-screen" class="phone-screen"></div>
+    </section>
+    <aside id="simulation-panel" class="sim-panel" aria-label="原型模拟控制">
+      <div class="sim-kicker"><span>INTERACTION SANDBOX</span><span class="sim-live">本地状态</span></div>
+      <h2>一个任务，一个负责人</h2>
+      <p>切换视角，观察同一个任务与交接请求如何同步变化。</p>
+      <div class="actor-switch" role="group" aria-label="切换用户视角">
+        <button type="button" class="actor-button" data-sim-actor="bokang" data-testid="switch-bokang" aria-pressed="true">Bokang</button>
+        <button type="button" class="actor-button" data-sim-actor="xian" data-testid="switch-xian" aria-pressed="false">溪岸</button>
+      </div>
+      <button type="button" class="sim-reset" data-action="reset" data-testid="reset-simulation">↺ 重置这段故事</button>
+      <div class="sim-state" aria-live="polite">
+        <div class="sim-state-line"><span>当前视角</span><strong id="sim-actor-label">Bokang</strong></div>
+        <div class="sim-state-line"><span>需要我</span><strong id="sim-needs-count">0</strong></div>
+        <div class="sim-state-line"><span>交接请求</span><strong id="sim-request-count">0</strong></div>
+      </div>
+      <div class="sim-divider"></div>
+      <h3>故事路径</h3>
+      <ol class="story-list">
+        <li>Bokang 推进「确认婚礼酒店」并写下交接说明。</li>
+        <li>溪岸接受或拒绝；等待时负责人仍是 Bokang。</li>
+        <li>溪岸接手后提交验收结果，Bokang 验收。</li>
+        <li>验收被拒必须说明原因，任务回到进行中。</li>
+      </ol>
+      <p class="sim-note">数据只存在当前页面内。任务状态和请求状态是两条独立记录。</p>
+    </aside>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const TODAY = '2026-09-11';
+      const ACTORS = {
+        bokang: { name: 'Bokang', short: 'B', partner: 'xian' },
+        xian: { name: '溪岸', short: '溪', partner: 'bokang' }
+      };
+      const STATUS = {
+        todo: '待进行',
+        progress: '进行中',
+        blocked: '阻塞中',
+        review: '待验收',
+        done: '已完成',
+        cancelled: '已取消'
+      };
+
+      const coreActivity = [
+        { actor: 'bokang', text: '创建任务，并确认这是下一棒的唯一负责人。', time: '今天 08:40' },
+        { actor: 'bokang', text: '开始比较三家酒店的档期和报价。', time: '今天 09:12' }
+      ];
+
+      function initialState() {
+        return {
+          actor: 'bokang',
+          tab: 'list',
+          screen: 'home',
+          selectedTaskId: null,
+          overlay: null,
+          formError: '',
+          tasks: [
+            {
+              id: 'wedding-hotel',
+              title: '确认婚礼酒店',
+              status: STATUS.progress,
+              owner: 'bokang',
+              creator: 'bokang',
+              reviewer: 'bokang',
+              due: '2026-09-13',
+              category: '家庭',
+              quadrant: '重要且紧急',
+              nextStep: '拿到两家酒店的最终报价，并在周五前确认档期。',
+              activity: coreActivity.map((item) => ({ ...item })),
+              transferAccepted: false,
+              reviewResult: '',
+              reviewRequest: null,
+              reviewHistory: [],
+              rejectionReason: '',
+              staticOnly: false,
+              isCore: true
+            },
+            {
+              id: 'passport-materials',
+              title: '更新护照材料',
+              status: STATUS.blocked,
+              owner: 'bokang',
+              creator: 'bokang',
+              reviewer: 'bokang',
+              due: '2026-09-08',
+              category: '个人',
+              quadrant: '重要且紧急',
+              nextStep: '等待单位盖章后再提交申请。',
+              activity: [{ actor: 'bokang', text: '等待单位盖章，暂时无法继续。', time: '昨天 16:20' }],
+              reviewRequest: null,
+              reviewHistory: [],
+              staticOnly: true,
+              isCore: false
+            },
+            {
+              id: 'quarterly-report',
+              title: '整理季度报告',
+              status: STATUS.progress,
+              owner: 'xian',
+              creator: 'xian',
+              reviewer: 'bokang',
+              due: '2026-09-12',
+              category: '工作',
+              quadrant: '重要不紧急',
+              nextStep: '等销售表补齐后合并最后一页。',
+              activity: [{ actor: 'xian', text: '已经整理完报告骨架。', time: '今天 10:04' }],
+              reviewRequest: null,
+              reviewHistory: [],
+              staticOnly: true,
+              isCore: false
+            },
+            {
+              id: 'weekend-market',
+              title: '周末采购清单',
+              status: STATUS.todo,
+              owner: 'xian',
+              creator: 'xian',
+              reviewer: 'bokang',
+              due: '2026-09-14',
+              category: '生活',
+              quadrant: '不重要不紧急',
+              nextStep: '先列出早餐和清洁用品的缺口。',
+              activity: [],
+              reviewRequest: null,
+              reviewHistory: [],
+              staticOnly: true,
+              isCore: false
+            },
+            {
+              id: 'vendor-contract',
+              title: '归档礼盒供应商合同',
+              status: STATUS.done,
+              owner: 'bokang',
+              creator: 'bokang',
+              reviewer: 'xian',
+              due: '2026-09-01',
+              category: '婚礼',
+              quadrant: '重要不紧急',
+              nextStep: '已完成，无需下一步。',
+              activity: [
+                { actor: 'bokang', text: '提交了合同归档结果：文件已上传共享盘。', time: '9月 1日 14:30' },
+                { actor: 'xian', text: '验收通过，任务已完成。', time: '9月 1日 15:02' }
+              ],
+              reviewResult: '文件已上传共享盘，链接已发给相关人。',
+              reviewRequest: null,
+              reviewHistory: [],
+              rejectionReason: '',
+              staticOnly: true,
+              isCore: false
+            },
+            {
+              id: 'cancelled-invite',
+              title: '联系备用摄影师',
+              status: STATUS.cancelled,
+              owner: 'xian',
+              creator: 'xian',
+              reviewer: 'bokang',
+              due: '2026-08-30',
+              category: '婚礼',
+              quadrant: '不重要不紧急',
+              nextStep: '已取消。',
+              activity: [{ actor: 'xian', text: '因档期变化取消任务。', time: '8月 28日 11:10' }],
+              reviewRequest: null,
+              reviewHistory: [],
+              staticOnly: true,
+              isCore: false
+            }
+          ],
+          transferRequests: []
+        };
+      }
+
+      let state = initialState();
+      const root = document.querySelector('#phone-screen');
+
+      function escapeHtml(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function actorName(actor) { return ACTORS[actor] ? ACTORS[actor].name : actor; }
+      function actorShort(actor) { return ACTORS[actor] ? ACTORS[actor].short : '?'; }
+      function partnerOf(actor) { return ACTORS[actor].partner; }
+      function taskById(id) { return state.tasks.find((task) => task.id === id); }
+      function pendingRequestForTask(taskId) {
+        return state.transferRequests.find((request) => request.taskId === taskId && request.status === 'pending');
+      }
+      function pendingReviewRequestForTask(taskId) {
+        const task = taskById(taskId);
+        return task && task.reviewRequest && task.reviewRequest.status === 'pending' ? task.reviewRequest : null;
+      }
+      function dateValue(date) { return new Date(date + 'T12:00:00Z').getTime(); }
+      function isOverdue(task) { return task.status !== STATUS.done && task.status !== STATUS.cancelled && dateValue(task.due) < dateValue(TODAY); }
+      function dueLabel(task) {
+        if (isOverdue(task)) return '已逾期';
+        if (task.due === TODAY) return '今天到期';
+        const days = Math.round((dateValue(task.due) - dateValue(TODAY)) / 86400000);
+        if (days === 1) return '明天到期';
+        return task.due.slice(5).replace('-', '月') + '日';
+      }
+      function statusClass(status) {
+        if (status === STATUS.todo) return 'todo';
+        if (status === STATUS.progress) return 'progress';
+        if (status === STATUS.blocked) return 'blocked';
+        if (status === STATUS.review) return 'review';
+        if (status === STATUS.done) return 'done';
+        return 'cancelled';
+      }
+      function statusPill(status) { return `<span class="status-pill ${statusClass(status)}">${escapeHtml(status)}</span>`; }
+      function requestStatusText(status) {
+        return { pending: '待处理', approved: '已通过', rejected: '已拒绝', withdrawn: '已撤回' }[status] || status;
+      }
+      function ownerMeta(task) {
+        const partner = task.owner !== state.actor;
+        return `<span class="task-owner"><span class="avatar ${partner ? 'partner' : ''}">${escapeHtml(actorShort(task.owner))}</span>${escapeHtml(actorName(task.owner))}</span>`;
+      }
+      function sortedTasks(tasks) {
+        return [...tasks].sort((a, b) => dateValue(a.due) - dateValue(b.due));
+      }
+      function activeTasks() {
+        return state.tasks.filter((task) => task.status !== STATUS.done && task.status !== STATUS.cancelled);
+      }
+      function needsItems() {
+        const incoming = state.transferRequests.filter((request) => request.status === 'pending' && request.to === state.actor);
+        const reviews = state.tasks.filter((task) => task.reviewRequest && task.reviewRequest.status === 'pending' && task.reviewRequest.to === state.actor);
+        return { incoming, reviews };
+      }
+      function needsCount() {
+        const items = needsItems();
+        return items.incoming.length + items.reviews.length;
+      }
+      function outgoingCount() {
+        const transfers = state.transferRequests.filter((request) => request.status === 'pending' && request.from === state.actor).length;
+        const reviews = state.tasks.filter((task) => task.reviewRequest && task.reviewRequest.status === 'pending' && task.reviewRequest.from === state.actor).length;
+        return transfers + reviews;
+      }
+      function weekCount() {
+        const end = dateValue('2026-09-18');
+        return state.tasks.filter((task) => task.owner === state.actor && task.status !== STATUS.done && task.status !== STATUS.cancelled && dateValue(task.due) <= end).length;
+      }
+      function addActivity(task, actor, text) {
+        task.activity = [...(task.activity || []), { actor, text, time: '刚刚' }];
+      }
+
+      function renderShell(content, options = {}) {
+        const detail = options.detail;
+        const header = detail
+          ? `<div class="detail-header">
+              <button type="button" class="icon-button back-button" data-action="go-home" aria-label="返回清单">←</button>
+              <h1>${escapeHtml(detail.title)}</h1>
+              <button type="button" class="icon-button" data-action="open-new-task" aria-label="新建任务">＋</button>
+            </div>`
+          : `<header class="app-header">
+              <div class="brand-mark" aria-hidden="true">↗</div>
+              <div><p class="eyebrow">此刻的协作清单</p><h1>清单<span>→</span>此刻</h1></div>
+              <div class="header-spacer"></div>
+              <button type="button" class="icon-button" data-action="open-new-task" data-testid="new-task" aria-label="新建任务">＋</button>
+            </header>`;
+        const actorStrip = detail ? '' : `<div class="actor-strip"><span>正在以 <strong>${escapeHtml(actorName(state.actor))}</strong> 查看</span><span class="local-state">本地模拟</span></div>`;
+        const summaries = detail ? '' : `<section class="summary-grid" aria-label="任务摘要">
+          <button type="button" class="summary-button" data-action="open-summary" data-summary="action" data-testid="needs-count" aria-label="需要我处理">
+            <span id="needsCount" class="summary-number">${needsCount()}</span><span class="summary-label">需要我处理</span><span class="summary-caption">待处理请求</span>
+          </button>
+          <button type="button" class="summary-button" data-action="open-summary" data-summary="outgoing" data-testid="outgoing-count" aria-label="等对方">
+            <span id="outgoingCount" class="summary-number">${outgoingCount()}</span><span class="summary-label">等对方</span><span class="summary-caption">交接中</span>
+          </button>
+          <button type="button" class="summary-button" data-action="open-summary" data-summary="week" data-testid="week-count" aria-label="本周任务">
+            <span id="weekCount" class="summary-number">${weekCount()}</span><span class="summary-label">本周</span><span class="summary-caption">我的任务</span>
+          </button>
+        </section>`;
+        const tabs = detail ? '' : `<nav class="tabbar" aria-label="主导航">
+          ${tabButton('list', '▤', '清单')}
+          ${tabButton('quadrant', '⊞', '四象限')}
+          ${tabButton('schedule', '◷', '日程')}
+          ${tabButton('me', '○', '我的')}
+        </nav>`;
+        const bottom = detail ? '' : `<div class="bottom-nav"><button type="button" data-action="all-tasks" data-testid="all-tasks">所有任务</button><button type="button" data-action="open-summary" data-summary="action">打开需要我</button></div>`;
+        return `<div class="statusbar"><span>9:41</span><span class="statusbar-right"><span>▮▮▮</span><span class="statusbar-dot"><i></i><i></i><i></i></span><span>100%</span></span></div>${header}${actorStrip}${summaries}${tabs}${content}${bottom}`;
+      }
+
+      function tabButton(tab, icon, label) {
+        return `<button type="button" class="tab-button" data-tab="${tab}" aria-selected="${state.tab === tab ? 'true' : 'false'}"><span class="tab-icon" aria-hidden="true">${icon}</span>${label}</button>`;
+      }
+
+      function taskCard(task, extraClass = '') {
+        const request = pendingRequestForTask(task.id);
+        const review = task.status === STATUS.review;
+        const requestText = request
+          ? `<p class="task-next"><span class="task-next-label">交接中</span><span>等待 ${escapeHtml(actorName(request.to))} 接受，负责人仍是 ${escapeHtml(actorName(task.owner))}。</span></p>`
+          : `<p class="task-next"><span class="task-next-label">下一步</span><span>${escapeHtml(task.nextStep)}</span></p>`;
+        return `<article class="task-card ${review ? 'is-review' : ''} ${task.status === STATUS.blocked ? 'is-blocked' : ''} ${extraClass}" data-task-id="${escapeHtml(task.id)}">
+          <div class="task-topline"><button type="button" class="task-title" data-open-task="${escapeHtml(task.id)}">${escapeHtml(task.title)}</button>${statusPill(task.status)}</div>
+          <div class="task-meta"><span class="meta-pill ${isOverdue(task) ? 'overdue' : ''}">${escapeHtml(dueLabel(task))}</span><span class="meta-pill">${escapeHtml(task.category)}</span><span class="meta-pill">${escapeHtml(task.quadrant)}</span></div>
+          ${requestText}
+          <div class="task-foot"><span>${ownerMeta(task)}</span><span class="static-mark">${task.staticOnly ? '示例任务' : (review ? '等待验收' : '可协作')}</span></div>
+        </article>`;
+      }
+
+      function requestCard(request) {
+        const task = taskById(request.taskId);
+        if (!task) return '';
+        return `<article class="request-card" data-request-id="${escapeHtml(request.id)}">
+          <h3>${escapeHtml(task.title)} · ${escapeHtml(actorName(request.from))} 请求交给你</h3>
+          <p>负责人会在你接受后变更为 ${escapeHtml(actorName(request.to))}。</p>
+          <p class="request-note">“${escapeHtml(request.note)}”</p>
+          <div class="request-actions">
+            <button type="button" class="primary-button" data-action="accept-transfer" data-request-id="${escapeHtml(request.id)}" data-testid="accept-transfer">接受交接</button>
+            <button type="button" class="danger-button" data-action="reject-transfer" data-request-id="${escapeHtml(request.id)}" data-testid="reject-transfer">暂不接手</button>
+            <button type="button" class="small-button" data-open-task="${escapeHtml(task.id)}">查看任务</button>
+          </div>
+        </article>`;
+      }
+
+      function renderHome() {
+        if (state.tab !== 'list') return renderShell(renderPlaceholder(), {});
+        const incoming = state.transferRequests.filter((request) => request.status === 'pending' && request.to === state.actor);
+        const blocked = sortedTasks(state.tasks.filter((task) => task.status === STATUS.blocked));
+        const mine = sortedTasks(state.tasks.filter((task) => (task.status === STATUS.todo || task.status === STATUS.progress) && task.owner === state.actor));
+        const partner = sortedTasks(state.tasks.filter((task) => (task.status === STATUS.todo || task.status === STATUS.progress) && task.owner !== state.actor));
+        let body = '<div class="feed">';
+        body += `<section><div class="feed-heading"><h2>阻塞中 <span class="section-count">${blocked.length}</span></h2>${blocked.length ? '<p class="section-note">先看卡住的事</p>' : ''}</div>`;
+        body += blocked.length ? `<div class="task-list">${blocked.map((task) => taskCard(task)).join('')}</div>` : '<div class="empty-state"><strong>没有阻塞</strong>现在的路是通的。</div>';
+        body += '</section>';
+        body += `<section><div class="feed-heading"><h2>我的进行中 <span class="section-count">${mine.length}</span></h2><p class="section-note">我负责的下一步</p></div>`;
+        body += mine.length ? `<div class="task-list">${mine.map((task) => taskCard(task)).join('')}</div>` : '<div class="empty-state"><strong>手上没有进行中的事</strong>可以从所有任务里看看。</div>';
+        body += '</section>';
+        body += `<section><div class="feed-heading"><h2>伙伴进行中 <span class="section-count">${partner.length}</span></h2><p class="section-note">交给对方的进展</p></div>`;
+        body += partner.length ? `<div class="task-list">${partner.map((task) => taskCard(task)).join('')}</div>` : '<div class="empty-state"><strong>伙伴没有进行中的事</strong>下一棒会在这里出现。</div>';
+        body += '</section>';
+        if (incoming.length) {
+          body += `<section><div class="feed-heading"><h2>需要我处理 <span class="section-count">${incoming.length}</span></h2><p class="section-note">待处理的交接请求</p></div><div class="request-list">${incoming.map(requestCard).join('')}</div></section>`;
+        }
+        body += '</div>';
+        return renderShell(body, {});
+      }
+
+      function renderPlaceholder() {
+        const copy = {
+          quadrant: ['⊞', '四象限', '这里先保留判断优先级的空间。任务的负责人和下一步，仍以清单里的卡片为准。'],
+          schedule: ['◷', '日程', '这里先保留按日期推进的视图。打开本周摘要，可以看到当前视角下即将到期的任务。'],
+          me: ['○', '我的', `这里先保留个人设置。当前正在以 ${actorName(state.actor)} 的视角查看同一份协作清单。`]
+        }[state.tab];
+        return `<div class="placeholder"><div><div class="placeholder-mark" aria-hidden="true">${copy[0]}</div><h2>${copy[1]}</h2><p>${copy[2]}</p><button type="button" class="secondary-button" data-tab="list">回到清单</button></div></div>`;
+      }
+
+      function renderAllTasks() {
+        const order = [STATUS.blocked, STATUS.review, STATUS.progress, STATUS.todo, STATUS.done, STATUS.cancelled];
+        const groups = order.map((status) => {
+          const tasks = sortedTasks(state.tasks.filter((task) => task.status === status));
+          if (!tasks.length) return '';
+          return `<div class="all-task-group">${escapeHtml(status)} <span class="section-count">${tasks.length}</span></div><div class="all-task-list">${tasks.map((task) => taskCard(task)).join('')}</div>`;
+        }).join('');
+        const content = `<div class="feed"><div class="all-tasks-header"><div><h2>所有任务</h2><p>包含进行中、待验收与已完成的完整状态。</p></div><button type="button" class="small-button" data-action="go-home">返回清单</button></div>${groups || '<div class="empty-state">还没有任务。</div>'}</div>`;
+        return renderShell(content, {});
+      }
+
+      function renderDetail(task) {
+        if (!task) { state.screen = 'home'; return renderHome(); }
+        const pending = pendingRequestForTask(task.id);
+        const reviewRequest = task.reviewRequest;
+        const reviewPending = reviewRequest && reviewRequest.status === 'pending';
+        const ownerIsActor = task.owner === state.actor;
+        const reviewerIsActor = task.reviewer === state.actor;
+        let detailBody = `<div class="detail-screen"><div class="detail-content">
+          <div class="detail-statusline">${statusPill(task.status)}<span class="detail-owner">负责人：${escapeHtml(actorName(task.owner))}</span></div>
+          <section class="next-step-panel"><p class="next-step-kicker">下一步 · 唯一明确动作</p><p>${escapeHtml(task.nextStep)}</p></section>
+          <div class="detail-grid"><div class="detail-field"><span class="detail-field-label">截止时间</span><span class="detail-field-value ${isOverdue(task) ? 'overdue' : ''}">${escapeHtml(task.due)}${isOverdue(task) ? ' · 已逾期' : ''}</span></div><div class="detail-field"><span class="detail-field-label">分类</span><span class="detail-field-value">${escapeHtml(task.category)}</span></div><div class="detail-field"><span class="detail-field-label">象限</span><span class="detail-field-value">${escapeHtml(task.quadrant)}</span></div><div class="detail-field"><span class="detail-field-label">创建人</span><span class="detail-field-value">${escapeHtml(actorName(task.creator))}</span></div></div>`;
+
+        if (task.staticOnly) {
+          detailBody += `<div class="notice"><strong>示例任务</strong>这张卡片用于展示 ${escapeHtml(task.status)} 的样子，当前没有可执行的协作操作。</div>`;
+        }
+        if (pending) {
+          detailBody += `<div class="notice"><strong>交接请求待处理</strong>${escapeHtml(actorName(pending.from))} 想把任务交给 ${escapeHtml(actorName(pending.to))}。在请求结束前，负责人仍是 ${escapeHtml(actorName(task.owner))}，也不能同时提交验收。</div>`;
+          if (pending.from === state.actor) {
+            detailBody += `<div class="action-row"><button type="button" class="secondary-button" data-action="withdraw-transfer" data-request-id="${escapeHtml(pending.id)}" data-testid="withdraw-transfer">撤回交接申请</button></div>`;
+          } else if (pending.to === state.actor) {
+            detailBody += `<div class="action-row"><button type="button" class="primary-button" data-action="accept-transfer" data-request-id="${escapeHtml(pending.id)}" data-testid="accept-transfer">接受交接</button><button type="button" class="danger-button" data-action="reject-transfer" data-request-id="${escapeHtml(pending.id)}" data-testid="reject-transfer">暂不接手</button></div>`;
+          }
+        }
+        const requestHistory = state.transferRequests.filter((request) => request.taskId === task.id);
+        if (requestHistory.length) {
+          detailBody += `<div class="notice" data-request-history="${escapeHtml(task.id)}"><strong>交接记录</strong>${requestHistory.map((request) => `<span data-request-status="${escapeHtml(request.status)}">${escapeHtml(requestStatusText(request.status))} · ${escapeHtml(actorName(request.from))} → ${escapeHtml(actorName(request.to))}</span>`).join('<br>')}</div>`;
+        }
+        const reviewHistory = [...(task.reviewHistory || [])];
+        if (reviewRequest && reviewRequest.status === 'pending') reviewHistory.push(reviewRequest);
+        if (reviewHistory.length) {
+          detailBody += `<div class="notice" data-review-history="${escapeHtml(task.id)}"><strong>验收请求记录</strong>${reviewHistory.map((request) => `<span data-review-request-status="${escapeHtml(request.status)}">${escapeHtml(requestStatusText(request.status))} · ${escapeHtml(actorName(request.from))} → ${escapeHtml(actorName(request.to))}</span>`).join('<br>')}</div>`;
+        }
+        if (task.rejectionReason) {
+          detailBody += `<div class="notice"><strong>上次验收未通过</strong>${escapeHtml(task.rejectionReason)}<br>负责人可以补充结果后再次提交。</div>`;
+        }
+        if (task.status === STATUS.review) {
+          detailBody += `<div class="notice review-notice"><strong>待验收结果</strong>${escapeHtml(task.reviewResult || '提交人还没有补充结果。')}<br>${reviewerIsActor ? '你是验收人，请决定是否通过。' : `等待 ${escapeHtml(actorName(task.reviewer))} 验收。`}</div>`;
+          if (reviewPending && reviewerIsActor && !task.staticOnly) {
+            detailBody += `<div class="action-row"><button type="button" class="primary-button" data-action="approve-review" data-task-id="${escapeHtml(task.id)}" data-testid="approve-review">验收通过</button><button type="button" class="danger-button" data-action="start-review-reject" data-task-id="${escapeHtml(task.id)}" data-testid="reject-review">退回并说明原因</button></div>`;
+          }
+        }
+        if (task.status === STATUS.done && task.reviewResult) {
+          detailBody += `<div class="notice review-notice"><strong>验收结果已保留</strong>${escapeHtml(task.reviewResult)}</div>`;
+        }
+        if (ownerIsActor && !task.staticOnly && task.status === STATUS.todo) {
+          detailBody += `<div class="form-block"><label>开始推进</label><p style="margin:0;color:var(--ink-soft);font-size:10px;line-height:1.45">开始后会进入“进行中”，下一步仍由负责人明确。</p><div class="action-row"><button type="button" class="primary-button full-width" data-action="start-task" data-task-id="${escapeHtml(task.id)}" data-testid="start-task">开始推进</button></div></div>`;
+        }
+        if (ownerIsActor && !task.staticOnly && task.status === STATUS.progress && !pending) {
+          detailBody += `<div class="form-block"><label>继续推进</label><p style="margin:0;color:var(--ink-soft);font-size:10px;line-height:1.45">只记录当前进展，不改写已经确认的下一步。</p><div class="action-row"><button type="button" class="secondary-button" data-action="advance-task" data-task-id="${escapeHtml(task.id)}" data-testid="advance-task">记录已推进</button><button type="button" class="primary-button" data-action="start-transfer" data-task-id="${escapeHtml(task.id)}" data-testid="request-transfer">申请交接</button></div></div>`;
+          if (task.transferAccepted || !task.isCore) {
+            detailBody += `<div class="form-block"><label for="reviewResult">提交验收结果</label><textarea id="reviewResult" data-testid="review-result" placeholder="写下完成了什么，以及验收人需要确认什么。"></textarea><small>提交后任务进入“待验收”，只有验收人可以决定下一步。</small><div class="action-row"><button type="button" class="primary-button full-width" data-action="submit-review" data-task-id="${escapeHtml(task.id)}" data-testid="submit-review">提交验收结果</button></div></div>`;
+          }
+        }
+        if (task.status === STATUS.progress && ownerIsActor && pending) {
+          detailBody += `<p class="section-note" style="margin-top:12px">交接完成前不能同时提交验收。</p>`;
+        }
+        if (!ownerIsActor && task.status === STATUS.progress && !pending && !task.staticOnly) {
+          detailBody += `<div class="notice"><strong>当前不是你的任务</strong>负责人 ${escapeHtml(actorName(task.owner))} 完成下一步后，才会把任务交给你验收。</div>`;
+        }
+        detailBody += `<div class="activity-heading"><h2>活动记录</h2><span class="immutable-label">不可编辑</span></div><div class="activity-list">${(task.activity || []).length ? task.activity.map(activityItem).join('') : '<div class="empty-state">还没有活动记录。</div>'}</div>`;
+        detailBody += '</div></div>';
+        return renderShell(detailBody, { detail: task });
+      }
+
+      function activityItem(item) {
+        return `<div class="activity-item" data-immutable-activity="true"><span class="activity-dot" aria-hidden="true"></span><div class="activity-copy"><p><strong>${escapeHtml(actorName(item.actor))}</strong> ${escapeHtml(item.text)}</p><small>${escapeHtml(item.time)}</small></div></div>`;
+      }
+
+      function renderSummaryOverlay(kind) {
+        let title = '需要我';
+        let description = '待处理的交接和验收，会随着视角变化。';
+        let items = [];
+        if (kind === 'action') {
+          const needs = needsItems();
+          items = [
+            ...needs.incoming.map((request) => ({ type: 'request', request, task: taskById(request.taskId), label: '交接请求' })),
+            ...needs.reviews.map((task) => ({ type: 'review', request: task.reviewRequest, task, label: '待验收' }))
+          ];
+        } else if (kind === 'outgoing') {
+          title = '等对方';
+          description = '仍在等待对方回应的交接或验收请求。';
+          items = [
+            ...state.transferRequests.filter((request) => request.status === 'pending' && request.from === state.actor).map((request) => ({ type: 'request', request, task: taskById(request.taskId), label: '等待回应' })),
+            ...state.tasks.filter((task) => task.reviewRequest && task.reviewRequest.status === 'pending' && task.reviewRequest.from === state.actor).map((task) => ({ type: 'review', request: task.reviewRequest, task, label: '等待验收' }))
+          ];
+        } else {
+          title = '本周';
+          description = '当前视角下，未来七天需要留意的任务。';
+          items = sortedTasks(state.tasks.filter((task) => task.owner === state.actor && task.status !== STATUS.done && task.status !== STATUS.cancelled && dateValue(task.due) <= dateValue('2026-09-18'))).map((task) => ({ type: 'task', task, label: dueLabel(task) }));
+        }
+        const list = items.length ? items.map((item) => `<div class="summary-item"><div class="summary-item-body"><button type="button" class="summary-item-title" data-open-task="${escapeHtml(item.task.id)}">${escapeHtml(item.task.title)}</button><div class="summary-item-meta">${escapeHtml(item.label)} · ${escapeHtml(item.task.status)} · ${escapeHtml(actorName(item.task.owner))}</div></div>${item.type === 'request' && item.request.to === state.actor && item.request.status === 'pending' ? `<button type="button" class="primary-button" data-action="accept-transfer" data-request-id="${escapeHtml(item.request.id)}" data-testid="accept-transfer">接受</button>` : ''}${item.type === 'request' && item.request.from === state.actor && item.request.status === 'pending' ? `<button type="button" class="small-button" data-action="withdraw-transfer" data-request-id="${escapeHtml(item.request.id)}" data-testid="withdraw-transfer">撤回</button>` : ''}</div>`).join('') : '<div class="empty-state"><strong>现在没有待处理项</strong>切换另一位负责人，或回到清单继续推进。</div>';
+        state.overlay = state.overlay || {};
+        return `<div class="overlay" role="dialog" aria-modal="true" aria-labelledby="overlay-title"><div class="overlay-sheet"><div class="overlay-head"><div><h2 id="overlay-title">${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p></div><button type="button" class="close-button" data-action="close-overlay" aria-label="关闭">×</button></div><div class="summary-items">${list}</div></div></div>`;
+      }
+
+      function renderNewTaskOverlay() {
+        return `<div class="overlay" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div class="overlay-sheet"><div class="overlay-head"><div><h2 id="new-task-title">新建任务</h2><p>负责人会默认设为当前视角的 ${escapeHtml(actorName(state.actor))}。</p></div><button type="button" class="close-button" data-action="close-overlay" aria-label="关闭">×</button></div><form id="newTaskForm" data-form="new-task" novalidate><div class="form-block" style="margin-top:0"><label for="newTaskTitle">任务标题 <span aria-hidden="true">*</span></label><input id="newTaskTitle" name="title" required placeholder="例如：确认宾客名单"><label for="newTaskDue" style="margin-top:10px">截止日期 <span aria-hidden="true">*</span></label><input id="newTaskDue" name="due" type="date" min="2026-09-11" required><label for="newTaskCategory" style="margin-top:10px">分类 <span aria-hidden="true">*</span></label><select id="newTaskCategory" name="category" required><option value="">请选择分类</option><option>工作</option><option>家庭</option><option>个人</option><option>生活</option><option>婚礼</option></select><label for="newTaskQuadrant" style="margin-top:10px">四象限 <span aria-hidden="true">*</span></label><select id="newTaskQuadrant" name="quadrant" required><option value="">请选择象限</option><option>重要且紧急</option><option>重要不紧急</option><option>不重要但紧急</option><option>不重要不紧急</option></select>${state.formError ? `<p class="field-error">${escapeHtml(state.formError)}</p>` : ''}<div class="action-row"><button type="submit" class="primary-button full-width" data-testid="create-task">创建任务</button></div></div></form></div></div>`;
+      }
+
+      function renderReviewRejectOverlay(taskId) {
+        return `<div class="overlay" role="dialog" aria-modal="true" aria-labelledby="reject-title"><div class="overlay-sheet"><div class="overlay-head"><div><h2 id="reject-title">退回验收</h2><p>说明哪里还没有完成，负责人才能继续推进。</p></div><button type="button" class="close-button" data-action="close-overlay" aria-label="关闭">×</button></div><form data-form="review-reject" data-task-id="${escapeHtml(taskId)}" novalidate><div class="form-block" style="margin-top:0"><label for="reviewRejectReason">退回原因 <span aria-hidden="true">*</span></label><textarea id="reviewRejectReason" name="reason" data-testid="review-reject-reason" required placeholder="例如：请补上最终报价和可签约日期。"></textarea>${state.formError ? `<p class="field-error">${escapeHtml(state.formError)}</p>` : ''}<div class="action-row"><button type="submit" class="danger-button full-width" data-testid="confirm-reject">确认退回</button></div></div></form></div></div>`;
+      }
+
+      function render() {
+        let page;
+        if (state.screen === 'detail') page = renderDetail(taskById(state.selectedTaskId));
+        else if (state.screen === 'all') page = renderAllTasks();
+        else page = renderHome();
+        let overlay = '';
+        if (state.overlay && state.overlay.type === 'summary') overlay = renderSummaryOverlay(state.overlay.kind);
+        if (state.overlay && state.overlay.type === 'new-task') overlay = renderNewTaskOverlay();
+        if (state.overlay && state.overlay.type === 'review-reject') overlay = renderReviewRejectOverlay(state.overlay.taskId);
+        root.innerHTML = page + overlay;
+        updateSimulationPanel();
+      }
+
+      function updateSimulationPanel() {
+        const actorLabel = document.querySelector('#sim-actor-label');
+        const needsLabel = document.querySelector('#sim-needs-count');
+        const requestLabel = document.querySelector('#sim-request-count');
+        if (actorLabel) actorLabel.textContent = actorName(state.actor);
+        if (needsLabel) needsLabel.textContent = String(needsCount());
+        const pendingReviewCount = state.tasks.filter((task) => task.reviewRequest && task.reviewRequest.status === 'pending').length;
+        if (requestLabel) requestLabel.textContent = String(state.transferRequests.filter((request) => request.status === 'pending').length + pendingReviewCount);
+        document.querySelectorAll('[data-sim-actor]').forEach((button) => {
+          button.setAttribute('aria-pressed', button.dataset.simActor === state.actor ? 'true' : 'false');
+        });
+      }
+
+      function openTask(taskId) {
+        if (!taskById(taskId)) return;
+        state.screen = 'detail';
+        state.selectedTaskId = taskId;
+        state.overlay = null;
+        state.formError = '';
+        render();
+      }
+
+      function setActor(actor) {
+        if (!ACTORS[actor]) return;
+        state.actor = actor;
+        state.screen = 'home';
+        state.tab = 'list';
+        state.selectedTaskId = null;
+        state.overlay = null;
+        state.formError = '';
+        render();
+      }
+
+      function acceptTransfer(requestId) {
+        const request = state.transferRequests.find((item) => item.id === requestId);
+        if (!request || request.status !== 'pending' || request.to !== state.actor) return;
+        const task = taskById(request.taskId);
+        if (!task) return;
+        request.status = 'approved';
+        request.resolvedAt = '刚刚';
+        task.owner = request.to;
+        task.transferAccepted = true;
+        task.reviewer = request.from;
+        addActivity(task, state.actor, `接受了 ${actorName(request.from)} 的交接请求，下一棒由 ${actorName(task.owner)} 负责。`);
+        state.overlay = null;
+        render();
+      }
+
+      function rejectTransfer(requestId) {
+        const request = state.transferRequests.find((item) => item.id === requestId);
+        if (!request || request.status !== 'pending' || request.to !== state.actor) return;
+        const task = taskById(request.taskId);
+        request.status = 'rejected';
+        request.resolvedAt = '刚刚';
+        if (task) addActivity(task, state.actor, `暂不接受 ${actorName(request.from)} 的交接请求，负责人保持为 ${actorName(task.owner)}。`);
+        state.overlay = null;
+        render();
+      }
+
+      function withdrawTransfer(requestId) {
+        const request = state.transferRequests.find((item) => item.id === requestId);
+        if (!request || request.status !== 'pending' || request.from !== state.actor) return;
+        const task = taskById(request.taskId);
+        request.status = 'withdrawn';
+        request.resolvedAt = '刚刚';
+        if (task) addActivity(task, state.actor, '撤回了交接请求，负责人没有发生变化。');
+        state.overlay = null;
+        render();
+      }
+
+      function submitTransfer(taskId, note) {
+        const task = taskById(taskId);
+        if (!task || task.staticOnly || task.owner !== state.actor || pendingRequestForTask(taskId) || !note.trim()) return false;
+        const request = {
+          id: 'transfer-' + Date.now(),
+          taskId,
+          from: state.actor,
+          to: partnerOf(state.actor),
+          note: note.trim(),
+          status: 'pending',
+          createdAt: '刚刚'
+        };
+        state.transferRequests.push(request);
+        addActivity(task, state.actor, `发起交接给 ${actorName(request.to)}：${request.note}`);
+        state.overlay = null;
+        state.formError = '';
+        render();
+        return true;
+      }
+
+      function submitReview(taskId, result) {
+        const task = taskById(taskId);
+        if (!task || task.staticOnly || task.status !== STATUS.progress || task.owner !== state.actor || pendingRequestForTask(taskId) || pendingReviewRequestForTask(taskId) || !result.trim()) return false;
+        task.status = STATUS.review;
+        task.reviewResult = result.trim();
+        task.rejectionReason = '';
+        task.reviewRequest = {
+          id: 'review-' + Date.now(),
+          taskId,
+          from: task.owner,
+          to: task.reviewer,
+          result: task.reviewResult,
+          status: 'pending',
+          createdAt: '刚刚'
+        };
+        addActivity(task, state.actor, `提交验收结果：${task.reviewResult}`);
+        state.formError = '';
+        render();
+        return true;
+      }
+
+      function approveReview(taskId) {
+        const task = taskById(taskId);
+        const request = task && task.reviewRequest;
+        if (!task || task.staticOnly || task.status !== STATUS.review || task.reviewer !== state.actor || !request || request.status !== 'pending') return;
+        task.status = STATUS.done;
+        request.status = 'approved';
+        request.resolvedAt = '刚刚';
+        task.reviewHistory = [...(task.reviewHistory || []), { ...request }];
+        addActivity(task, state.actor, `验收通过，任务已完成。结果保留：${task.reviewResult}`);
+        state.overlay = null;
+        render();
+      }
+
+      function rejectReview(taskId, reason) {
+        const task = taskById(taskId);
+        const request = task && task.reviewRequest;
+        if (!task || task.staticOnly || task.status !== STATUS.review || task.reviewer !== state.actor || !request || request.status !== 'pending' || !reason.trim()) return false;
+        task.status = STATUS.progress;
+        task.rejectionReason = reason.trim();
+        request.status = 'rejected';
+        request.reason = task.rejectionReason;
+        request.resolvedAt = '刚刚';
+        task.reviewHistory = [...(task.reviewHistory || []), { ...request }];
+        addActivity(task, state.actor, `退回验收：${task.rejectionReason}`);
+        state.overlay = null;
+        state.formError = '';
+        render();
+        return true;
+      }
+
+      function handleClick(event) {
+        const actorButton = event.target.closest('[data-sim-actor]');
+        if (actorButton) { setActor(actorButton.dataset.simActor); return; }
+        const tabButton = event.target.closest('[data-tab]');
+        if (tabButton && !event.target.closest('[data-action]')) {
+          state.tab = tabButton.dataset.tab;
+          state.screen = 'home';
+          state.overlay = null;
+          render();
+          return;
+        }
+        const openButton = event.target.closest('[data-open-task]');
+        if (openButton) { openTask(openButton.dataset.openTask); return; }
+        const actionButton = event.target.closest('[data-action]');
+        if (!actionButton) return;
+        const action = actionButton.dataset.action;
+        if (action === 'reset') { state = initialState(); render(); return; }
+        if (action === 'open-new-task') { state.overlay = { type: 'new-task' }; state.formError = ''; render(); return; }
+        if (action === 'close-overlay') { state.overlay = null; state.formError = ''; render(); return; }
+        if (action === 'go-home') { state.screen = 'home'; state.selectedTaskId = null; state.overlay = null; render(); return; }
+        if (action === 'all-tasks') { state.screen = 'all'; state.tab = 'list'; state.overlay = null; render(); return; }
+        if (action === 'open-summary') { state.overlay = { type: 'summary', kind: actionButton.dataset.summary || 'action' }; render(); return; }
+        if (action === 'accept-transfer') { acceptTransfer(actionButton.dataset.requestId); return; }
+        if (action === 'reject-transfer') { rejectTransfer(actionButton.dataset.requestId); return; }
+        if (action === 'withdraw-transfer') { withdrawTransfer(actionButton.dataset.requestId); return; }
+        if (action === 'start-transfer') {
+          state.overlay = { type: 'transfer', taskId: actionButton.dataset.taskId };
+          state.formError = '';
+          render();
+          return;
+        }
+        if (action === 'advance-task') {
+          const task = taskById(actionButton.dataset.taskId);
+          if (task && task.owner === state.actor && task.status === STATUS.progress) {
+            addActivity(task, state.actor, '记录了当前推进，下一步保持不变。');
+            render();
+          }
+          return;
+        }
+        if (action === 'start-task') {
+          const task = taskById(actionButton.dataset.taskId);
+          if (task && task.owner === state.actor && task.status === STATUS.todo && !task.staticOnly) {
+            task.status = STATUS.progress;
+            addActivity(task, state.actor, '开始推进任务。');
+            render();
+          }
+          return;
+        }
+        if (action === 'submit-review') {
+          const taskId = actionButton.dataset.taskId;
+          const field = document.querySelector('#reviewResult');
+          if (!submitReview(taskId, field ? field.value : '')) { state.formError = '请先写下验收结果。'; if (field) { field.setAttribute('aria-invalid', 'true'); field.focus(); } render(); }
+          return;
+        }
+        if (action === 'approve-review') { approveReview(actionButton.dataset.taskId); return; }
+        if (action === 'start-review-reject') { state.overlay = { type: 'review-reject', taskId: actionButton.dataset.taskId }; state.formError = ''; render(); return; }
+      }
+
+      function handleSubmit(event) {
+        const form = event.target.closest('form[data-form]');
+        if (!form) return;
+        event.preventDefault();
+        const formType = form.dataset.form;
+        if (formType === 'transfer') {
+          const field = form.querySelector('[name="note"]');
+          if (!submitTransfer(form.dataset.taskId, field ? field.value : '')) {
+            state.formError = '请写一句交接说明，让下一棒知道从哪里接手。';
+            render();
+          }
+          return;
+        }
+        if (formType === 'review-reject') {
+          const field = form.querySelector('[name="reason"]');
+          if (!rejectReview(form.dataset.taskId, field ? field.value : '')) {
+            state.formError = '退回验收必须说明原因。';
+            render();
+          }
+          return;
+        }
+        if (formType === 'new-task') {
+          const data = new FormData(form);
+          const title = String(data.get('title') || '').trim();
+          const due = String(data.get('due') || '').trim();
+          const category = String(data.get('category') || '').trim();
+          const quadrant = String(data.get('quadrant') || '').trim();
+          if (!title || !due || !category || !quadrant) {
+            state.formError = '标题、截止日期、分类和四象限都需要填写。';
+            render();
+            return;
+          }
+          const task = {
+            id: 'task-' + Date.now(), title, status: STATUS.todo, owner: state.actor, creator: state.actor, reviewer: partnerOf(state.actor), due, category, quadrant,
+            nextStep: '待补充：开始推进时明确第一步。', activity: [{ actor: state.actor, text: '创建了任务。', time: '刚刚' }], transferAccepted: false, reviewResult: '', reviewRequest: null, reviewHistory: [], rejectionReason: '', staticOnly: false, isCore: false
+          };
+          state.tasks.push(task);
+          state.overlay = null;
+          state.formError = '';
+          state.screen = 'home';
+          render();
+        }
+      }
+
+      // The transfer form is opened separately so a request note is always explicit.
+      document.addEventListener('click', handleClick);
+      document.addEventListener('submit', (event) => {
+        if (event.target.matches('form[data-form="new-task"], form[data-form="review-reject"], form[data-form="transfer"]')) handleSubmit(event);
+      });
+
+      // Render the transfer form when the user asks for the next handoff.
+      const originalRenderDetail = renderDetail;
+      renderDetail = function patchedRenderDetail(task) {
+        const html = originalRenderDetail(task);
+        if (state.overlay && state.overlay.type === 'transfer' && task && state.selectedTaskId === task.id) {
+          return html + `<div class="overlay" role="dialog" aria-modal="true" aria-labelledby="transfer-title"><div class="overlay-sheet"><div class="overlay-head"><div><h2 id="transfer-title">申请交接给 ${escapeHtml(actorName(partnerOf(state.actor)))}</h2><p>负责人会在对方接受后才变化。</p></div><button type="button" class="close-button" data-action="close-overlay" aria-label="关闭">×</button></div><form data-form="transfer" data-task-id="${escapeHtml(task.id)}" novalidate><div class="form-block" style="margin-top:0"><label for="transferNote">交接说明 <span aria-hidden="true">*</span></label><textarea id="transferNote" name="note" data-testid="transfer-note" required placeholder="写下已经完成什么，以及对方从哪里接手。"></textarea>${state.formError ? `<p class="field-error">${escapeHtml(state.formError)}</p>` : ''}<div class="action-row"><button type="submit" class="primary-button full-width" data-testid="send-transfer">发出交接申请</button></div></div></form></div></div>`;
+        }
+        return html;
+      };
+
+      render();
+    })();
+  </script>
+</body>
+</html>

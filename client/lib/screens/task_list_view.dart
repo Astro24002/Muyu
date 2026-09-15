@@ -381,6 +381,7 @@ class _MomentTaskSection extends StatelessWidget {
               state: state,
               onTap: () => onTaskTap(task),
               compact: true,
+              momentLayout: true,
             ),
       ],
     ),
@@ -956,19 +957,21 @@ class TaskSummaryCard extends StatelessWidget {
     required this.state,
     this.onTap,
     this.compact = false,
+    this.momentLayout = false,
   });
 
   final TaskItem task;
   final WorkspaceSyncState state;
   final VoidCallback? onTap;
   final bool compact;
+  final bool momentLayout;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final subtitle = _subtitle(task, state);
     if (compact) {
-      return _buildCompact(theme);
+      return momentLayout ? _buildMomentCompact(theme) : _buildCompact(theme);
     }
     return Material(
       key: ValueKey('task-card-${task.id}'),
@@ -1153,6 +1156,197 @@ class TaskSummaryCard extends StatelessWidget {
     );
   }
 
+  Widget _buildMomentCompact(ThemeData theme) {
+    final extension = theme.extension<MuyuThemeExtension>();
+    final owner = _memberDisplayName(state, task.currentHandlerId);
+    final status = taskStatusLabel(task.status);
+    final classification = task.labels.isEmpty ? null : task.labels.first;
+    final due = _momentDueLabel(task);
+    final dueIsOverdue = _momentDueIsOverdue(task);
+    final quadrantColor = _quadrantColor(theme, extension);
+    final focusSurface =
+        extension?.focusSurface ?? theme.colorScheme.secondaryContainer;
+    final metadata = <Widget>[
+      _MetadataPill(
+        key: ValueKey('task-card-status-${task.id}'),
+        label: status,
+        semanticLabel: '状态$status',
+        background: _compactStatusBackground(theme, extension),
+        foreground: _compactStatusForeground(theme, extension),
+        compact: true,
+      ),
+      _MetadataPill(
+        key: ValueKey('task-card-due-${task.id}'),
+        label: due,
+        semanticLabel: '截止$due',
+        background: dueIsOverdue
+            ? extension?.coralSurface ?? theme.colorScheme.errorContainer
+            : focusSurface,
+        foreground: dueIsOverdue
+            ? extension?.coral ?? theme.colorScheme.onErrorContainer
+            : theme.colorScheme.primary,
+        compact: true,
+      ),
+      if (classification != null)
+        _MetadataPill(
+          key: ValueKey('task-card-label-${task.id}'),
+          label: classification,
+          semanticLabel: '分类$classification',
+          background: theme.colorScheme.surfaceContainerHighest,
+          foreground: theme.colorScheme.onSurfaceVariant,
+          compact: true,
+        ),
+      _MetadataPill(
+        key: ValueKey('task-card-quadrant-${task.id}'),
+        label: task.quadrant,
+        semanticLabel: '象限${task.quadrant}',
+        background: quadrantColor.withValues(alpha: 0.12),
+        foreground: quadrantColor,
+        compact: true,
+      ),
+      _MetadataPill(
+        key: ValueKey('task-card-owner-${task.id}'),
+        label: owner,
+        semanticLabel: '负责人$owner',
+        background: focusSurface,
+        foreground: theme.colorScheme.primary,
+        compact: true,
+      ),
+    ];
+    final blockedReason = _nonEmpty(task.blockedReason);
+    final nextStep = _nonEmpty(task.nextStep?.label);
+    final contextLabel = <String>[
+      if (blockedReason != null) '阻塞原因$blockedReason',
+      if (nextStep != null) '下一步$nextStep',
+    ].join('，');
+    final cardLabel = [
+      task.title,
+      '状态$status',
+      '截止$due',
+      if (classification != null) '分类$classification',
+      '象限${task.quadrant}',
+      '负责人$owner',
+      if (contextLabel.isNotEmpty) contextLabel,
+    ].join('，');
+    final normalizedStatus = normalizeTaskStatus(task.status);
+    final coral = extension?.coral ?? theme.colorScheme.error;
+    final border = Border.all(
+      color: normalizedStatus == 'BLOCKED'
+          ? coral.withValues(alpha: 0.45)
+          : theme.colorScheme.outline,
+    );
+
+    return Semantics(
+      button: onTap != null,
+      label: cardLabel,
+      child: Material(
+        key: ValueKey('task-card-${task.id}'),
+        color: theme.colorScheme.surface,
+        elevation: 0,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(
+              horizontal: MuyuSpacing.sm,
+              vertical: MuyuSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              border: border,
+              borderRadius: const BorderRadius.all(Radius.circular(6)),
+              color: normalizedStatus == 'BLOCKED'
+                  ? Color.alphaBlend(
+                      coral.withValues(alpha: 0.025),
+                      theme.colorScheme.surface,
+                    )
+                  : theme.colorScheme.surface,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        key: ValueKey('task-card-title-${task.id}'),
+                        task.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: _isTerminal(task.status)
+                              ? theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.55,
+                                )
+                              : theme.colorScheme.onSurface,
+                          fontSize: 13,
+                          height: 18 / 13,
+                          fontWeight: FontWeight.w700,
+                          decoration: normalizedStatus == 'DONE'
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: MuyuSpacing.xs),
+                SizedBox(
+                  key: ValueKey('task-card-metadata-${task.id}'),
+                  height: 20,
+                  child: Row(
+                    children: [
+                      for (var index = 0; index < metadata.length; index++) ...[
+                        if (index > 0) const SizedBox(width: MuyuSpacing.xs),
+                        Flexible(child: metadata[index]),
+                      ],
+                    ],
+                  ),
+                ),
+                if (blockedReason != null || nextStep != null) ...[
+                  const SizedBox(height: MuyuSpacing.xs),
+                  _MomentContextLine(
+                    taskId: task.id,
+                    blockedReason: blockedReason,
+                    nextStep: nextStep,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _quadrantColor(ThemeData theme, MuyuThemeExtension? extension) =>
+      switch (task.quadrant) {
+        'Q1' => extension?.quadrantQ1 ?? theme.colorScheme.error,
+        'Q2' => extension?.quadrantQ2 ?? theme.colorScheme.primary,
+        'Q3' => extension?.quadrantQ3 ?? theme.colorScheme.secondary,
+        'Q4' => extension?.quadrantQ4 ?? theme.colorScheme.onSurfaceVariant,
+        _ => theme.colorScheme.onSurfaceVariant,
+      };
+
+  static String _momentDueLabel(TaskItem task) {
+    final due = task.dueAt;
+    if (due == null) return '未设截止';
+    if (_momentDueIsOverdue(task)) return '已逾期';
+    return '截止 ${_dateText(due)}';
+  }
+
+  static bool _momentDueIsOverdue(TaskItem task) {
+    final due = task.dueAt;
+    if (due == null || _isTerminal(task.status)) return false;
+    return due.isBefore(DateTime.now());
+  }
+
+  static String? _nonEmpty(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
   Color _compactStatusBackground(
     ThemeData theme,
     MuyuThemeExtension? extension,
@@ -1213,4 +1407,84 @@ class TaskSummaryCard extends StatelessWidget {
   static bool _isTerminal(String status) =>
       normalizeTaskStatus(status) == 'DONE' ||
       normalizeTaskStatus(status) == 'CANCELLED';
+}
+
+class _MomentContextLine extends StatelessWidget {
+  const _MomentContextLine({
+    required this.taskId,
+    required this.blockedReason,
+    required this.nextStep,
+  });
+
+  final String taskId;
+  final String? blockedReason;
+  final String? nextStep;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textStyle = theme.textTheme.labelMedium?.copyWith(
+      fontSize: 10,
+      height: 14 / 10,
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return SizedBox(
+      key: ValueKey('task-card-context-$taskId'),
+      height: 14,
+      child: Row(
+        children: [
+          if (blockedReason != null)
+            _buildItem(
+              label: '阻塞原因',
+              value: blockedReason!,
+              valueKey: ValueKey('task-card-blocked-reason-$taskId'),
+              style: textStyle,
+              labelColor: theme.colorScheme.error,
+            ),
+          if (blockedReason != null && nextStep != null)
+            const SizedBox(width: MuyuSpacing.sm),
+          if (nextStep != null)
+            _buildItem(
+              label: '下一步',
+              value: nextStep!,
+              valueKey: ValueKey('task-card-next-step-$taskId'),
+              style: textStyle,
+              labelColor: theme.colorScheme.primary,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItem({
+    required String label,
+    required String value,
+    required Key valueKey,
+    required TextStyle? style,
+    required Color labelColor,
+  }) => Flexible(
+    child: Row(
+      children: [
+        Text(
+          '$label：',
+          maxLines: 1,
+          overflow: TextOverflow.clip,
+          style: style?.copyWith(
+            color: labelColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: MuyuSpacing.xs / 2),
+        Expanded(
+          child: Text(
+            value,
+            key: valueKey,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ),
+      ],
+    ),
+  );
 }

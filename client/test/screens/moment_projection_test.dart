@@ -10,6 +10,10 @@ TaskItem momentTask(
   String id, {
   required String status,
   required String handler,
+  List<String> labels = const [],
+  DateTime? dueAt,
+  String? blockedReason,
+  MomentNextStep? nextStep,
 }) => TaskItem(
   id: id,
   workspaceId: 'workspace-1',
@@ -19,9 +23,12 @@ TaskItem momentTask(
   status: status,
   currentHandlerId: handler,
   quadrant: 'Q1',
+  labels: labels,
   progress: status == 'IN_PROGRESS' ? 35 : null,
+  blockedReason: blockedReason,
+  nextStep: nextStep,
   plannedStartAt: null,
-  dueAt: null,
+  dueAt: dueAt,
   estimatedMinutes: null,
   completedAt: null,
   createdBy: 'user-1',
@@ -35,9 +42,33 @@ void main() {
   testWidgets('renders the server moment counts and compact task groups', (
     tester,
   ) async {
-    final blocked = momentTask('blocked', status: 'BLOCKED', handler: 'user-2');
-    final mine = momentTask('mine', status: 'IN_PROGRESS', handler: 'user-1');
-    final other = momentTask('other', status: 'TODO', handler: 'user-2');
+    final blocked = momentTask(
+      'blocked',
+      status: 'BLOCKED',
+      handler: 'user-2',
+      labels: const ['酒店'],
+      dueAt: DateTime.utc(2026, 9, 20),
+      blockedReason: '等待伙伴确认',
+      nextStep: const MomentNextStep(
+        kind: 'RESUME_TASK',
+        label: '收到确认后继续处理',
+        canAct: false,
+        actions: [],
+      ),
+    );
+    final mine = momentTask(
+      'mine',
+      status: 'IN_PROGRESS',
+      handler: 'user-1',
+      labels: const ['工作'],
+      dueAt: DateTime.utc(2026, 9, 18),
+    );
+    final other = momentTask(
+      'other',
+      status: 'TODO',
+      handler: 'user-2',
+      dueAt: DateTime.utc(2026, 9, 21),
+    );
     final state = WorkspaceSyncState(
       snapshot: WorkspaceSnapshot(
         workspaceId: 'workspace-1',
@@ -102,6 +133,16 @@ void main() {
     expect(find.byKey(const Key('moment-summary')), findsOneWidget);
     expect(find.byKey(const Key('moment-view-all')), findsOneWidget);
     expect(find.byKey(const ValueKey('task-card-mine')), findsOneWidget);
+    expect(find.byKey(const ValueKey('task-card-status-mine')), findsOneWidget);
+    expect(find.byKey(const ValueKey('task-card-due-mine')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('task-card-quadrant-mine')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('task-card-owner-mine')), findsOneWidget);
+    expect(find.text('酒店'), findsOneWidget);
+    expect(find.text('等待伙伴确认'), findsOneWidget);
+    expect(find.text('收到确认后继续处理'), findsOneWidget);
     expect(find.byKey(const Key('task-section-header-upcoming')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('task-card-mine')));

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/api_client.dart';
 import '../auth/mobile_session_store.dart';
@@ -103,84 +104,57 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     animation: _sync,
     builder: (context, _) {
       final state = _sync.state;
-      return Scaffold(
-        key: _scaffoldKey,
-        drawer: Drawer(
-          key: const Key('task-list-drawer'),
-          child: SafeArea(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: const [
-                DrawerHeader(
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: Text('菜单'),
-                  ),
-                ),
-              ],
+      final theme = Theme.of(context);
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle(
+          statusBarColor: theme.colorScheme.surface,
+          statusBarIconBrightness: Brightness.dark,
+          systemNavigationBarColor: theme.colorScheme.surface,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+        child: Scaffold(
+          key: _scaffoldKey,
+          drawer: Drawer(
+            key: const Key('task-list-drawer'),
+            child: SafeArea(
+              child: _TaskWorkspaceDrawer(
+                onRefresh: () {
+                  Navigator.of(context).pop();
+                  _sync.refresh();
+                },
+              ),
             ),
           ),
+          appBar: _selectedDestination == 3
+              ? _buildProfileAppBar()
+              : _buildTaskSystemAppBar(state),
+          body: Column(
+            children: [
+              if (!widget.canWrite)
+                const MaterialBanner(
+                  key: Key('read-only-device-banner'),
+                  content: Text('当前设备尚未验证，仅可查看和刷新任务'),
+                  actions: [SizedBox.shrink()],
+                ),
+              if (widget.waitingForPartner)
+                const MaterialBanner(
+                  key: Key('waiting-for-partner-banner'),
+                  content: Text('共享空间已创建，等待对方加入，不影响当前使用'),
+                  actions: [SizedBox.shrink()],
+                ),
+              Expanded(child: _destinationBody(state)),
+            ],
+          ),
+          bottomNavigationBar: _buildBottomNavigationBar(),
+          floatingActionButton: _selectedDestination == 0
+              ? FloatingActionButton(
+                  key: const Key('create-task-fab'),
+                  tooltip: '新增任务',
+                  onPressed: widget.canWrite ? _openCreateTask : null,
+                  child: const Icon(Icons.add),
+                )
+              : null,
         ),
-        appBar: _selectedDestination == 3
-            ? _buildProfileAppBar()
-            : _buildTaskSystemAppBar(state),
-        body: Column(
-          children: [
-            if (!widget.canWrite)
-              const MaterialBanner(
-                key: Key('read-only-device-banner'),
-                content: Text('当前设备尚未验证，仅可查看和刷新任务'),
-                actions: [SizedBox.shrink()],
-              ),
-            if (widget.waitingForPartner)
-              const MaterialBanner(
-                key: Key('waiting-for-partner-banner'),
-                content: Text('共享空间已创建，等待对方加入，不影响当前使用'),
-                actions: [SizedBox.shrink()],
-              ),
-            Expanded(child: _destinationStack(state)),
-          ],
-        ),
-        bottomNavigationBar: NavigationBar(
-          key: const Key('workspace-navigation-bar'),
-          selectedIndex: _selectedDestination,
-          onDestinationSelected: (index) =>
-              setState(() => _selectedDestination = index),
-          destinations: const [
-            NavigationDestination(
-              key: ValueKey('task-list-destination'),
-              icon: Icon(Icons.list_alt_outlined),
-              selectedIcon: Icon(Icons.list_alt),
-              label: '清单',
-            ),
-            NavigationDestination(
-              key: ValueKey('task-quadrant-destination'),
-              icon: Icon(Icons.grid_view_outlined),
-              selectedIcon: Icon(Icons.grid_view),
-              label: '四象限',
-            ),
-            NavigationDestination(
-              key: ValueKey('task-schedule-destination'),
-              icon: Icon(Icons.event_outlined),
-              selectedIcon: Icon(Icons.event),
-              label: '日程',
-            ),
-            NavigationDestination(
-              key: ValueKey('task-profile-destination'),
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: '我的',
-            ),
-          ],
-        ),
-        floatingActionButton: _selectedDestination == 0
-            ? FloatingActionButton(
-                key: const Key('create-task-fab'),
-                tooltip: '新增任务',
-                onPressed: widget.canWrite ? _openCreateTask : null,
-                child: const Icon(Icons.add),
-              )
-            : null,
       );
     },
   );
@@ -209,7 +183,32 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   );
 
   PreferredSizeWidget _buildTaskSystemAppBar(WorkspaceSyncState state) {
-    if (_selectedDestination == 0 || _selectedDestination == 1) {
+    if (_selectedDestination == 0) {
+      return TaskSystemAppBar(
+        title: '清单→此刻',
+        showBrand: true,
+        leading: IconButton(
+          key: const Key('task-list-menu-button'),
+          tooltip: '菜单',
+          onPressed: _openTaskListDrawer,
+          icon: const Icon(Icons.menu),
+        ),
+        actions: [
+          _TaskCategorySelector(
+            categories: TaskView.listCategories(
+              state.snapshot?.tasks ?? const <TaskItem>[],
+              approvedClassifications: state.classifications.map(
+                (classification) => classification.name,
+              ),
+            ),
+            selectedLabel: _selectedTaskLabel,
+            onSelected: (label) => setState(() => _selectedTaskLabel = label),
+          ),
+          _buildTaskListMoreMenu(),
+        ],
+      );
+    }
+    if (_selectedDestination == 1) {
       return TaskSystemAppBar(
         title: _destinationTitles[_selectedDestination],
         leading: IconButton(
@@ -258,6 +257,116 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     return TaskSystemAppBar(
       title: _destinationTitles[_selectedDestination],
       actions: const [],
+    );
+  }
+
+  Widget _destinationBody(WorkspaceSyncState state) {
+    if (_selectedDestination != 0) return _destinationStack(state);
+    return Column(
+      children: [
+        _WorkspaceContextHeader(
+          state: state,
+          viewerName: _viewerName(state),
+          onSummaryTap: _openSummary,
+        ),
+        Expanded(child: _destinationStack(state)),
+      ],
+    );
+  }
+
+  Widget _buildBottomNavigationBar() {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      key: const Key('workspace-navigation-shell'),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(top: BorderSide(color: theme.colorScheme.outline)),
+      ),
+      child: NavigationBar(
+        key: const Key('workspace-navigation-bar'),
+        height: 68,
+        selectedIndex: _selectedDestination,
+        onDestinationSelected: (index) =>
+            setState(() => _selectedDestination = index),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+            key: ValueKey('task-list-destination'),
+            icon: Icon(Icons.list_alt_outlined),
+            selectedIcon: Icon(Icons.list_alt),
+            label: '清单',
+          ),
+          NavigationDestination(
+            key: ValueKey('task-quadrant-destination'),
+            icon: Icon(Icons.grid_view_outlined),
+            selectedIcon: Icon(Icons.grid_view),
+            label: '四象限',
+          ),
+          NavigationDestination(
+            key: ValueKey('task-schedule-destination'),
+            icon: Icon(Icons.event_outlined),
+            selectedIcon: Icon(Icons.event),
+            label: '日程',
+          ),
+          NavigationDestination(
+            key: ValueKey('task-profile-destination'),
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: '我的',
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _viewerName(WorkspaceSyncState state) {
+    final viewerId =
+        widget.session?.user.id ??
+        state.home?.viewerUserId ??
+        state.snapshot?.viewerUserId;
+    if (viewerId == null || viewerId.isEmpty) return '当前用户';
+    if (widget.session?.user.id == viewerId) {
+      final nickname = widget.session?.user.nickname.trim();
+      if (nickname != null && nickname.isNotEmpty) return nickname;
+    }
+    for (final member
+        in state.snapshot?.members ?? const <Map<String, dynamic>>[]) {
+      if (member['user_id'] != viewerId) continue;
+      final displayName = member['display_name'];
+      if (displayName is String && displayName.trim().isNotEmpty) {
+        return displayName.trim();
+      }
+    }
+    return viewerId;
+  }
+
+  void _openSummary(_WorkspaceSummaryKind kind) {
+    final home = _sync.state.home;
+    final details = switch (kind) {
+      _WorkspaceSummaryKind.needsAction => (
+        '需要我处理',
+        '待处理的交接和验收，会随着当前视角变化。',
+        home?.needsActionCount ?? 0,
+      ),
+      _WorkspaceSummaryKind.waitingOnOther => (
+        '等对方',
+        '仍在等待对方回应的交接或验收请求。',
+        home?.waitingOnOtherCount ?? 0,
+      ),
+      _WorkspaceSummaryKind.weekDue => (
+        '本周',
+        '当前视角下未来七天需要留意的任务。',
+        home?.weekDueCount ?? 0,
+      ),
+    };
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (_) => _WorkspaceSummarySheet(
+        title: details.$1,
+        description: details.$2,
+        count: details.$3,
+      ),
     );
   }
 
@@ -466,6 +575,352 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           canWrite: widget.canWrite,
         ),
       ),
+    );
+  }
+}
+
+enum _WorkspaceSummaryKind { needsAction, waitingOnOther, weekDue }
+
+class _WorkspaceContextHeader extends StatelessWidget {
+  const _WorkspaceContextHeader({
+    required this.state,
+    required this.viewerName,
+    required this.onSummaryTap,
+  });
+
+  final WorkspaceSyncState state;
+  final String viewerName;
+  final ValueChanged<_WorkspaceSummaryKind> onSummaryTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final home = state.home;
+    final extension = theme.extension<MuyuThemeExtension>();
+    final status = state.loading
+        ? '同步中'
+        : state.isStale || state.errorMessage != null
+        ? '可能不是最新'
+        : '已同步';
+    final statusColor =
+        state.loading || state.isStale || state.errorMessage != null
+        ? theme.colorScheme.onSurfaceVariant
+        : extension?.sync ?? theme.colorScheme.secondary;
+    final metrics = [
+      (
+        _WorkspaceSummaryKind.needsAction,
+        'needs-action',
+        home?.needsActionCount ?? 0,
+        '需要我处理',
+        '待处理请求',
+      ),
+      (
+        _WorkspaceSummaryKind.waitingOnOther,
+        'waiting-on-other',
+        home?.waitingOnOtherCount ?? 0,
+        '等对方',
+        '交接中',
+      ),
+      (
+        _WorkspaceSummaryKind.weekDue,
+        'week-due',
+        home?.weekDueCount ?? 0,
+        '本周',
+        '我的任务',
+      ),
+    ];
+    return DecoratedBox(
+      key: const Key('workspace-context-header'),
+      decoration: BoxDecoration(color: theme.scaffoldBackgroundColor),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              MuyuSpacing.lg,
+              MuyuSpacing.sm,
+              MuyuSpacing.lg,
+              MuyuSpacing.md,
+            ),
+            child: DecoratedBox(
+              key: const Key('workspace-actor-strip'),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.55,
+                ),
+                border: Border.all(color: theme.colorScheme.outline),
+                borderRadius: const BorderRadius.all(Radius.circular(6)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MuyuSpacing.md,
+                  vertical: MuyuSpacing.sm,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text.rich(
+                        TextSpan(
+                          text: '正在以 ',
+                          children: [
+                            TextSpan(
+                              text: viewerName,
+                              style: TextStyle(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const TextSpan(text: ' 查看'),
+                          ],
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 16 / 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: MuyuSpacing.sm),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const SizedBox(width: 6, height: 6),
+                        ),
+                        const SizedBox(width: MuyuSpacing.xs),
+                        Text(
+                          status,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: statusColor,
+                            fontSize: 10,
+                            height: 14 / 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(
+              left: MuyuSpacing.lg,
+              right: MuyuSpacing.lg,
+              bottom: MuyuSpacing.md,
+            ),
+            child: Row(
+              key: const Key('workspace-summary-grid'),
+              children: [
+                for (var index = 0; index < metrics.length; index++) ...[
+                  if (index > 0) const SizedBox(width: MuyuSpacing.sm),
+                  Expanded(
+                    child: _WorkspaceSummaryCard(
+                      key: Key('workspace-summary-${metrics[index].$2}'),
+                      count: metrics[index].$3,
+                      label: metrics[index].$4,
+                      caption: metrics[index].$5,
+                      onTap: () => onSummaryTap(metrics[index].$1),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkspaceSummaryCard extends StatelessWidget {
+  const _WorkspaceSummaryCard({
+    super.key,
+    required this.count,
+    required this.label,
+    required this.caption,
+    required this.onTap,
+  });
+
+  final int count;
+  final String label;
+  final String caption;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      button: true,
+      label: '$label，$count项',
+      child: Material(
+        color: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          side: BorderSide(color: theme.colorScheme.outline),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 68),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$count',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontSize: 20,
+                      height: 20 / 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontSize: 11,
+                      height: 14 / 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    caption,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 9,
+                      height: 12 / 9,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkspaceSummarySheet extends StatelessWidget {
+  const _WorkspaceSummarySheet({
+    required this.title,
+    required this.description,
+    required this.count,
+  });
+
+  final String title;
+  final String description;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          MuyuSpacing.lg,
+          MuyuSpacing.md,
+          MuyuSpacing.lg,
+          MuyuSpacing.lg,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(title, style: theme.textTheme.titleLarge)),
+                IconButton(
+                  key: const Key('workspace-summary-close'),
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            Text(description, style: theme.textTheme.bodySmall),
+            const SizedBox(height: MuyuSpacing.md),
+            Text(
+              '$count 项',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: MuyuSpacing.sm),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskWorkspaceDrawer extends StatelessWidget {
+  const _TaskWorkspaceDrawer({required this.onRefresh});
+
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        DrawerHeader(
+          margin: EdgeInsets.zero,
+          decoration: BoxDecoration(color: theme.colorScheme.primary),
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: Row(
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onPrimary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: Icon(
+                      Icons.north_east,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: MuyuSpacing.sm),
+                Text(
+                  '清单→此刻',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: theme.colorScheme.onPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.list_alt_outlined),
+          title: const Text('全部任务'),
+          onTap: () => Navigator.of(context).pop(),
+        ),
+        ListTile(
+          leading: const Icon(Icons.refresh),
+          title: const Text('刷新'),
+          onTap: onRefresh,
+        ),
+      ],
     );
   }
 }

@@ -33,7 +33,7 @@
 - 变更：清单默认入口收敛为“清单→此刻”，补齐品牌标题、用户视角与同步状态条、三个问题入口摘要卡、紧凑任务卡片和底部四项导航；保留原有抽屉、分类下拉、更多菜单、下拉刷新、新建任务和任务详情跳转。此刻卡片显示状态、截止、分类、象限、负责人，并在需要时显示阻塞原因或下一步；所有新增视觉值继续通过 Muyu 主题令牌读取。
 - 视觉契约：新增 390×844 壳层与此刻页面 widget 测试，校验品牌标题、摘要入口、三组任务、胶囊元数据、四项导航、FAB 尺寸和 viewport 边界；未授权真实 Android 设备，尚未执行物理机截图对比。
 - 验证：Dart format、`flutter analyze` 和 Flutter 全量测试 `224 passed`；静态旧颜色扫描只保留主题令牌与胶囊圆角；`git diff --check` 通过。
-- 产物：提交 `98ebed6`；本地开发用 APK [Muyu-98ebed6.apk](../client/build/app/outputs/flutter-apk/Muyu-98ebed6.apk)，SHA-256 `91f96a347c8c71f21c8f863fe6f3d4269fb939f7026a4fe93bb962e2363acc1a`，已验证归档完整且内置生产 API 地址。
+- 产物：视觉实现提交 `98ebed6`，摘要去重修复提交 `d6815f7`；本地开发用 APK [Muyu-d6815f7.apk](../client/build/app/outputs/flutter-apk/Muyu-d6815f7.apk)，SHA-256 `3a5be50cff3408fced6c23136f1636a8a4f0b825d48017407ef0040d1b2a62cf`，已验证归档完整且内置生产 API 地址。
 - 范围：本轮未修改线上 API、Web 或数据库；release tag 仍使用独立版本命名流程。
 
 ### 2026-09-14 - 「此刻」双人协作闭环自动化 E2E 完成

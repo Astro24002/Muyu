@@ -195,6 +195,27 @@ describe('workspace sync six-state status boundary', () => {
     }));
   });
 
+  it('requires and trims review content when submitting in-progress work', async () => {
+    const inProgressTask = { ...task('IN_PROGRESS'), id: 'task-in-progress', reviewer_user_id: null } as TaskItem;
+    const api = {
+      getWorkspaceSnapshot: vi.fn().mockResolvedValue({ ...snapshot('IN_PROGRESS'), tasks: [inProgressTask], viewer_user_id: 'user-1' }),
+      getWorkspaceChanges: vi.fn().mockResolvedValue({ workspace_id: 'workspace-1', cursor: 5, changes: [] }),
+      transitionTask: vi.fn().mockResolvedValue({ ...inProgressTask, status: 'REVIEW', cursor: 5 }),
+    };
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.transitionTask(inProgressTask.id, 'REVIEW');
+    expect(api.transitionTask).not.toHaveBeenCalled();
+    expect(controller.state.error).toBe('提交验收任务需要填写验收说明。');
+
+    await controller.transitionTask(inProgressTask.id, 'REVIEW', { reviewContent: '  已完成交付并核对结果  ' });
+    expect(api.transitionTask).toHaveBeenCalledWith(inProgressTask.id, expect.objectContaining({
+      targetStatus: 'REVIEW',
+      reviewContent: '已完成交付并核对结果',
+    }));
+  });
+
   it('merges task conflicts from cursor changes and removes them when resolved', async () => {
     let pullCount = 0;
     const openConflict = {

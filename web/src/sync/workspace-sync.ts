@@ -262,7 +262,7 @@ export class WorkspaceSyncController {
     }));
   }
 
-  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string; reviewRejectionReason?: string } = {}): Promise<TaskWriteResult | undefined> {
+  async transitionTask(taskId: string, targetStatus: string, payload: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string; reviewRejectionReason?: string; reviewContent?: string } = {}): Promise<TaskWriteResult | undefined> {
     const snapshot = this.currentState.snapshot;
     const task = snapshot?.tasks.find((item) => item.id === taskId);
     if (!task) {
@@ -277,17 +277,25 @@ export class WorkspaceSyncController {
       this.setState({ error: '当前用户不能执行该状态操作。' });
       return undefined;
     }
+    const isReviewSubmission = normalizeTaskStatus(task.status) === 'IN_PROGRESS' && targetStatus === 'REVIEW';
     const isReviewReturn = normalizeTaskStatus(task.status) === 'REVIEW' && targetStatus === 'IN_PROGRESS';
+    const reviewContent = payload.reviewContent?.trim();
     const reviewRejectionReason = payload.reviewRejectionReason?.trim();
+    if (isReviewSubmission && !reviewContent) {
+      this.setState({ error: '提交验收任务需要填写验收说明。' });
+      return undefined;
+    }
     if (isReviewReturn && !reviewRejectionReason) {
       this.setState({ error: '退回待验收任务需要填写退回原因。' });
       return undefined;
     }
+    const { reviewContent: _reviewContent, reviewRejectionReason: _reviewRejectionReason, ...otherPayload } = payload;
     return this.write('无法更新任务状态，请检查网络后重试。', () => this.api.transitionTask(taskId, {
       requestId: this.requestIdFactory(),
       targetStatus,
       baseStatusVersion: task.status_version,
-      ...payload,
+      ...otherPayload,
+      ...(isReviewSubmission ? { reviewContent } : {}),
       ...(isReviewReturn ? { reviewRejectionReason } : {}),
     }));
   }

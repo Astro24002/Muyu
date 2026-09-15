@@ -69,6 +69,24 @@ describe('TaskEditForm review actions', () => {
     expect(screen.getByRole('button', { name: '提交验收' })).toBeTruthy();
   });
 
+  it('requires an acceptance note and sends it when submitting work for review', async () => {
+    const onTransition = vi.fn().mockResolvedValue({ ...reviewTask, status: 'REVIEW', cursor: 4 });
+    render(<TaskEditForm task={{ ...reviewTask, status: 'IN_PROGRESS', reviewer_user_id: null }} members={members} actions={actions(onTransition, 'owner')} />);
+
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'REVIEW' } });
+    expect(screen.getByLabelText('验收说明')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '提交验收' }));
+    expect(onTransition).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toContain('提交验收任务需要填写验收说明');
+
+    fireEvent.change(screen.getByLabelText('验收说明'), { target: { value: '  已完成交付并核对结果  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交验收' }));
+
+    await waitFor(() => {
+      expect(onTransition).toHaveBeenCalledWith('REVIEW', { reviewContent: '已完成交付并核对结果' });
+    });
+  });
+
   it('does not offer acceptance or return to the current handler', () => {
     render(<TaskEditForm task={reviewTask} members={members} actions={actions(undefined, 'owner')} />);
 

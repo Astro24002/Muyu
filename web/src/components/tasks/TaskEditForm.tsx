@@ -24,7 +24,7 @@ export interface TaskEditFormProps {
   classifications?: WorkspaceClassification[];
 }
 
-type DraftField = 'title' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'reviewRejectionReason' | 'progress';
+type DraftField = 'title' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'reviewRejectionReason' | 'reviewContent' | 'progress';
 
 interface TaskDraft {
   title: string;
@@ -37,6 +37,7 @@ interface TaskDraft {
   blockedReason: string;
   resumeHandler: string;
   reviewRejectionReason: string;
+  reviewContent: string;
   progress: string;
 }
 
@@ -167,6 +168,7 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
       return;
     }
     const isBlockedRecovery = taskStatus === 'BLOCKED' && draft.status === 'IN_PROGRESS';
+    const isReviewSubmission = taskStatus === 'IN_PROGRESS' && draft.status === 'REVIEW';
     const isReviewReturn = taskStatus === 'REVIEW' && draft.status === 'IN_PROGRESS';
     if (draft.status === 'BLOCKED' && (!draft.blockedReason.trim() || !draft.resumeHandler)) {
       setError('进入阻塞状态需要阻塞原因和恢复负责人。');
@@ -174,6 +176,10 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
     }
     if (isReviewReturn && !draft.reviewRejectionReason.trim()) {
       setError('退回待验收任务需要填写退回原因。');
+      return;
+    }
+    if (isReviewSubmission && !draft.reviewContent.trim()) {
+      setError('提交验收任务需要填写验收说明。');
       return;
     }
     if ((draft.status === 'BLOCKED' || isBlockedRecovery) && !activeHandlerIds.has(draft.resumeHandler)) {
@@ -186,12 +192,14 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
       ...(draft.resumeHandler && (draft.status === 'BLOCKED' || isBlockedRecovery)
         ? { resumeHandlerId: draft.resumeHandler }
         : {}),
+      ...(isReviewSubmission ? { reviewContent: draft.reviewContent.trim() } : {}),
       ...(isReviewReturn ? { reviewRejectionReason: draft.reviewRejectionReason.trim() } : {}),
     };
     const submittedDraft = draft;
     const submittedFields: DraftField[] = ['status'];
     if ('blockedReason' in payload) submittedFields.push('blockedReason');
     if ('resumeHandlerId' in payload) submittedFields.push('resumeHandler');
+    if ('reviewContent' in payload) submittedFields.push('reviewContent');
     if ('reviewRejectionReason' in payload) submittedFields.push('reviewRejectionReason');
     const dirtySubmittedFields = submittedFields.filter((field) => dirtyFields.current.has(field));
 
@@ -219,6 +227,7 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
   const transitionStatuses = taskTransitionTargets(task, viewerUserId);
   const transitionDisabled = !canWrite || busyAction !== null;
   const showBlockedFields = draft.status === 'BLOCKED' || taskStatus === 'BLOCKED';
+  const showReviewSubmissionContent = taskStatus === 'IN_PROGRESS' && draft.status === 'REVIEW';
   const showReviewReturnReason = taskStatus === 'REVIEW' && draft.status === 'IN_PROGRESS';
   const showProgress = draft.status === 'IN_PROGRESS' || task.status === 'IN_PROGRESS';
 
@@ -381,6 +390,19 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
             />
           </label>
         ) : null}
+
+        {showReviewSubmissionContent ? (
+          <label className="task-detail-field">
+            <span>验收说明（必填）</span>
+            <textarea
+              aria-label="验收说明"
+              maxLength={5000}
+              value={draft.reviewContent}
+              disabled={!canWrite}
+              onChange={(event) => updateDraft('reviewContent', event.target.value)}
+            />
+          </label>
+        ) : null}
       </div>
 
       <div className="task-edit-form__actions">
@@ -408,6 +430,7 @@ function createDraft(task: TaskItem): TaskDraft {
     blockedReason: task.blocked_reason ?? '',
     resumeHandler: task.resume_handler_id ?? task.current_handler_id,
     reviewRejectionReason: '',
+    reviewContent: '',
     progress: String(task.progress ?? 20),
   };
 }
@@ -423,6 +446,7 @@ function preserveDirtyFields(next: TaskDraft, current: TaskDraft, dirtyFields: S
   if (dirtyFields.has('blockedReason')) next.blockedReason = current.blockedReason;
   if (dirtyFields.has('resumeHandler')) next.resumeHandler = current.resumeHandler;
   if (dirtyFields.has('reviewRejectionReason')) next.reviewRejectionReason = current.reviewRejectionReason;
+  if (dirtyFields.has('reviewContent')) next.reviewContent = current.reviewContent;
   if (dirtyFields.has('progress')) next.progress = current.progress;
 }
 

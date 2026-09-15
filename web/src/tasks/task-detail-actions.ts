@@ -2,7 +2,7 @@ import type { TaskComment } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from './task-model';
 
 export interface TaskDetailActions {
-  onTransition: (status: string, payload?: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string; reviewRejectionReason?: string }) => Promise<unknown>;
+  onTransition: (status: string, payload?: { blockedReason?: string; resumeHandlerId?: string; waitingForUserId?: string; reviewRejectionReason?: string; reviewContent?: string }) => Promise<unknown>;
   onComment: (body: string) => Promise<unknown>;
   onDelay: (date: string, reason: string, note?: string) => Promise<unknown>;
   onSave: (changes: EditableTaskChanges) => Promise<unknown>;

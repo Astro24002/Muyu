@@ -135,4 +135,30 @@ describe('ApiClient', () => {
       }),
     }));
   });
+
+  it('sends review content when submitting a task for acceptance', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'task-1', cursor: 2 }), { status: 202 }),
+    );
+
+    await new ApiClient().transitionTask('task-1', {
+      requestId: 'request-1',
+      targetStatus: 'REVIEW',
+      baseStatusVersion: 3,
+      reviewContent: '已完成交付并核对结果',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks/task-1/transition', expect.objectContaining({
+      body: JSON.stringify({
+        request_id: 'request-1',
+        target_status: 'REVIEW',
+        base_status_version: 3,
+        blocked_reason: undefined,
+        resume_handler_id: undefined,
+        waiting_for_user_id: undefined,
+        review_rejection_reason: undefined,
+        review_content: '已完成交付并核对结果',
+      }),
+    }));
+  });
 });

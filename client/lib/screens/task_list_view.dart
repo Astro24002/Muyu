@@ -51,6 +51,7 @@ class TaskListView extends StatefulWidget {
     this.showSubtitle = true,
     this.showCompleted = false,
     this.showFailed = false,
+    this.showMomentMetrics = true,
   });
 
   final WorkspaceSyncController sync;
@@ -62,6 +63,7 @@ class TaskListView extends StatefulWidget {
   final bool showSubtitle;
   final bool showCompleted;
   final bool showFailed;
+  final bool showMomentMetrics;
 
   @override
   State<TaskListView> createState() => _TaskListViewState();
@@ -124,6 +126,7 @@ class _TaskListViewState extends State<TaskListView> {
               home: home!,
               state: widget.state,
               onTaskTap: widget.onTaskTap,
+              showMetrics: widget.showMomentMetrics,
             ),
           if (hasMomentProjection && !_showAllTasks)
             Padding(
@@ -174,11 +177,13 @@ class _MomentSummary extends StatelessWidget {
     required this.home,
     required this.state,
     required this.onTaskTap,
+    this.showMetrics = true,
   });
 
   final HomeResponse home;
   final WorkspaceSyncState state;
   final TaskNavigationCallback onTaskTap;
+  final bool showMetrics;
 
   @override
   Widget build(BuildContext context) {
@@ -189,7 +194,7 @@ class _MomentSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _MomentMetrics(home: home),
+          if (showMetrics) _MomentMetrics(home: home),
           const SizedBox(height: MuyuSpacing.sm),
           _MomentTaskSection(
             key: const Key('moment-section-blocked'),

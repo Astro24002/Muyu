@@ -526,6 +526,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           showSubtitle: _showTaskSubtitle,
           showCompleted: _showCompleted,
           showFailed: _showFailed,
+          showMomentMetrics: false,
           onTaskTap: _openTask,
         ),
         TaskQuadrantView(

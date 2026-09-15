@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和 `v0.2.0` APK 发布完成。任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。当前进入“清单 → 此刻”协作工作台施工：后端 Home 投影、canonical 元数据与 `entries` 契约、`/home/entries/{entry}` 入口分页、`0014_moment_home_indexes` 查询索引、任务详情“下一步”、交接说明、验收内容、活动证据、snapshot/cursor 连续性校验、Web canonical Home 消费和双人协作自动化 E2E 已在本地完成并通过回归；Flutter 已完成 canonical Home 解析并保留旧字段兼容。线上部署、真实双设备验收和新 APK 发布仍未执行。
-- 当前产品和运行时设计：[产品需求](./01-product.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和 `v0.2.0` APK 发布完成。任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。“清单 → 此刻”协作工作台的 Home 投影、canonical 元数据与 `entries` 契约、`/home/entries/{entry}` 入口分页、`0014_moment_home_indexes` 查询索引、任务详情“下一步”、交接说明、验收内容、活动证据、snapshot/cursor 连续性校验、Web canonical Home 消费和双人协作自动化 E2E 已完成；本轮 Android 严格视觉重构已完成本地代码和回归，APK 已按 commit 命名构建。线上 API/WEB 未因本轮 Android 视觉变更改动，真实 Android 设备截图验收仍待有授权设备后执行。
+- 当前产品和运行时设计：[产品需求](./01-product.md)、[Android 视觉方向](./superpowers/specs/2026-08-31-android-visual-direction-design.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前产品和运行时设计：[产品需求](./01-product.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[Muyu「此刻」协作链浏览器原型设计](./superpowers/specs/2026-09-11-moment-collaboration-prototype-design.md)、[Muyu「此刻」协作闭环生产实施计划](./superpowers/plans/2026-09-11-moment-collaboration.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
@@ -26,6 +26,15 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-15 - Android「此刻」严格视觉重构完成
+
+- 类型：Android 视觉系统 / 此刻工作台 / 回归验收。
+- 变更：清单默认入口收敛为“清单→此刻”，补齐品牌标题、用户视角与同步状态条、三个问题入口摘要卡、紧凑任务卡片和底部四项导航；保留原有抽屉、分类下拉、更多菜单、下拉刷新、新建任务和任务详情跳转。此刻卡片显示状态、截止、分类、象限、负责人，并在需要时显示阻塞原因或下一步；所有新增视觉值继续通过 Muyu 主题令牌读取。
+- 视觉契约：新增 390×844 壳层与此刻页面 widget 测试，校验品牌标题、摘要入口、三组任务、胶囊元数据、四项导航、FAB 尺寸和 viewport 边界；未授权真实 Android 设备，尚未执行物理机截图对比。
+- 验证：Dart format、`flutter analyze` 和 Flutter 全量测试 `224 passed`；静态旧颜色扫描只保留主题令牌与胶囊圆角；`git diff --check` 通过。
+- 产物：提交 `98ebed6`；本地开发用 APK [Muyu-98ebed6.apk](../client/build/app/outputs/flutter-apk/Muyu-98ebed6.apk)，SHA-256 `91f96a347c8c71f21c8f863fe6f3d4269fb939f7026a4fe93bb962e2363acc1a`，已验证归档完整且内置生产 API 地址。
+- 范围：本轮未修改线上 API、Web 或数据库；release tag 仍使用独立版本命名流程。
 
 ### 2026-09-14 - 「此刻」双人协作闭环自动化 E2E 完成
 

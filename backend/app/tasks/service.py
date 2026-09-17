@@ -32,13 +32,14 @@ from app.workspaces.classifications import (
 )
 
 
-MUTABLE_FIELDS = {"title", "description", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "quadrant", "progress", "labels"}
+MUTABLE_FIELDS = {"title", "description", "next_step_text", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "quadrant", "progress", "labels"}
 ALLOWED_PROGRESS = {20, 40, 60, 80}
 # The wire/storage field remains named ``labels`` for backwards compatibility,
 # but the product contract now allows exactly one classification per task.
 MAX_TASK_LABELS = 1
 MAX_TASK_LABEL_LENGTH = 5
 MAX_TASK_LABEL_CHARS = 320
+MAX_NEXT_STEP_TEXT_LENGTH = 90
 DEFAULT_TASK_DUE_DAYS = 14
 TRANSITIONS = {
     "TODO": {"IN_PROGRESS", "BLOCKED", "CANCELLED"},
@@ -105,18 +106,73 @@ def normalize_task_labels(value: object) -> list[str]:
     return labels
 
 
+def normalize_next_step_text(value: object, *, allow_none: bool = True) -> str | None:
+    if value is None:
+        if allow_none:
+            return None
+        raise TaskConflictError("invalid_request", "next_step_text is required")
+    if not isinstance(value, str):
+        raise TaskConflictError("invalid_request", "next_step_text must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise TaskConflictError("invalid_request", "next_step_text cannot be blank")
+    if len(normalized) > MAX_NEXT_STEP_TEXT_LENGTH:
+        raise TaskConflictError(
+            "invalid_request",
+            f"next_step_text can contain at most {MAX_NEXT_STEP_TEXT_LENGTH} characters",
+        )
+    return normalized
+
+
 class TaskService:
     def __init__(self, session: Session, *, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self.session = session
         self.now = now
         self.last_cursor: int | None = None
 
-    def create(self, workspace_id: UUID, actor_user_id: UUID, request_id: UUID, title: str, description: str = "", due_at: datetime | None = None, parent_task_id: UUID | None = None, planned_start_at: datetime | None = None, estimated_minutes: int | None = None, quadrant: str | None = None, labels: list[str] | None = None) -> Task:
+    def create(
+        self,
+        workspace_id: UUID,
+        actor_user_id: UUID,
+        request_id: UUID,
+        title: str,
+        description: str = "",
+        due_at: datetime | None = None,
+        parent_task_id: UUID | None = None,
+        planned_start_at: datetime | None = None,
+        estimated_minutes: int | None = None,
+        quadrant: str | None = None,
+        labels: list[str] | None = None,
+        next_step_text: str | None = None,
+        *,
+        source_key: str | None = None,
+        initial_status: TaskStatus = TaskStatus.TODO,
+    ) -> Task:
         title = title.strip()
         if not title:
             raise TaskConflictError("invalid_request", "title is required")
+        next_step_text = normalize_next_step_text(next_step_text)
         if quadrant not in {item.value for item in TaskQuadrant}:
             raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
+        if not isinstance(initial_status, TaskStatus):
+            try:
+                initial_status = TaskStatus(str(initial_status))
+            except ValueError as error:
+                raise TaskConflictError("invalid_request", "invalid initial task status") from error
+        if initial_status not in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            raise TaskConflictError("invalid_request", "new tasks may only start as TODO or IN_PROGRESS")
+        if source_key is not None:
+            source_key = source_key.strip()
+            if not source_key or len(source_key) > 255:
+                raise TaskConflictError("invalid_request", "source_key must contain 1-255 characters")
+            source_task = self.session.scalar(
+                select(Task).where(
+                    Task.workspace_id == workspace_id,
+                    Task.source_key == source_key,
+                )
+            )
+            if source_task is not None:
+                raise TaskConflictError("idempotency_replay", "source key already exists")
         self._validated_member(workspace_id, actor_user_id)
         normalized_labels = normalize_task_labels([] if labels is None else labels)
         try:
@@ -136,7 +192,7 @@ class TaskService:
                 raise TaskConflictError("nested_task_not_allowed", "subtasks cannot have subtasks")
         fingerprint = request_fingerprint(
             "/api/v1/tasks",
-            {"title": title, "description": description, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels},
+            {"title": title, "description": description, "next_step_text": next_step_text, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels, "source_key": source_key, "initial_status": initial_status.value},
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
@@ -151,6 +207,8 @@ class TaskService:
             task_number=TaskNumberAllocator().allocate(self.session, self.now()),
             title=title,
             description=description,
+            next_step_text=next_step_text,
+            source_key=source_key,
             due_at=due_at,
             parent_task_id=parent_task_id,
             planned_start_at=planned_start_at,
@@ -158,9 +216,9 @@ class TaskService:
             quadrant=TaskQuadrant(quadrant),
             labels=normalized_labels,
             current_handler_id=actor_user_id,
-            status=TaskStatus.TODO,
+            status=initial_status,
             created_by=actor_user_id,
-            field_versions={"title": 1, "description": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "quadrant": 1, "progress": 1, "labels": 1},
+            field_versions={"title": 1, "description": 1, "next_step_text": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "quadrant": 1, "progress": 1, "labels": 1},
         )
         self.session.add(task)
         self.session.flush()
@@ -190,6 +248,10 @@ class TaskService:
             or (isinstance(changes["due_at"], str) and not changes["due_at"].strip())
         ):
             raise TaskConflictError("invalid_request", "due_at cannot be cleared")
+        if "next_step_text" in changes:
+            changes["next_step_text"] = normalize_next_step_text(
+                changes["next_step_text"], allow_none=False
+            )
         for field in ("due_at", "planned_start_at"):
             value = changes.get(field)
             if value is None or isinstance(value, datetime):
@@ -752,6 +814,8 @@ class TaskService:
             "task_number": task.task_number,
             "title": task.title,
             "description": task.description,
+            "next_step_text": getattr(task, "next_step_text", None),
+            "source_key": getattr(task, "source_key", None),
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": public_status,
             "quadrant": task.quadrant.value if isinstance(task.quadrant, TaskQuadrant) else task.quadrant,

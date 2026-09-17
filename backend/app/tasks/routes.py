@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ from app.tasks.recurrence import create_rule
 from app.tasks.approval_schemas import approval_request_json, comment_json
 from app.tasks.approvals import TaskApprovalError, TaskApprovalResult, TaskApprovalService
 from app.tasks.schemas import CommentDeleteRequest, CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
-from app.tasks.search import search_tasks
+from app.tasks.search import query_tasks, search_tasks
 from app.tasks.service import TaskService
 
 
@@ -337,6 +337,7 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
             body.estimated_minutes,
             body.quadrant,
             body.labels,
+            body.next_step_text,
         )
         session.commit()
     except (ValueError, TaskConflictError) as error:
@@ -349,10 +350,40 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
 
 
 @router.get("/tasks")
-def list_tasks(actor: Actor = Depends(require_actor), session: Session = Depends(get_db)) -> list[dict[str, object]]:
+def list_tasks(
+    q: str | None = Query(default=None, max_length=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    handler_filter: str | None = Query(default=None, alias="handler"),
+    include_history: bool | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    after: str | None = Query(default=None),
+    actor: Actor = Depends(require_actor),
+    session: Session = Depends(get_db),
+) -> list[dict[str, object]] | dict[str, object]:
+    # Keep the original no-parameter list response for older Android clients.
+    if all(value is None for value in (q, status_filter, handler_filter, include_history, limit, after)):
+        service = TaskService(session)
+        tasks = session.scalars(select(Task).where(Task.workspace_id == actor.workspace_id, Task.deleted_at.is_(None)).order_by(Task.updated_at.desc())).all()
+        return [_task_json(service, task) for task in tasks]
+
+    page = query_tasks(
+        session,
+        actor.workspace_id,
+        actor.user_id,
+        q=q,
+        status=status_filter,
+        handler=handler_filter,
+        include_history=bool(include_history),
+        limit=limit or 50,
+        after=after,
+    )
     service = TaskService(session)
-    tasks = session.scalars(select(Task).where(Task.workspace_id == actor.workspace_id, Task.deleted_at.is_(None)).order_by(Task.updated_at.desc())).all()
-    return [_task_json(service, task) for task in tasks]
+    return {
+        "items": [_task_json(service, task) for task in page.tasks],
+        "has_more": page.has_more,
+        "next_cursor": page.next_cursor,
+        "query": page.query,
+    }
 
 
 @router.get("/tasks/search")

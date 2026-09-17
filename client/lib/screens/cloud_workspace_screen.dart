@@ -6,6 +6,8 @@ import '../auth/mobile_session_store.dart';
 import '../devices/device_management_repository.dart';
 import '../models/task.dart';
 import '../models/task_view.dart';
+import '../life/life_controller.dart';
+import '../life/life_repository.dart';
 import '../platform/device_signing_key.dart';
 import '../profile/profile_repository.dart';
 import '../sync/workspace_sync_controller.dart';
@@ -22,6 +24,8 @@ import 'my_profile_screen.dart';
 import 'task_list_view.dart';
 import 'task_quadrant_view.dart';
 import 'task_schedule_view.dart';
+import 'ledger_screen.dart';
+import 'checkins_screen.dart';
 import '../widgets/task_system_app_bar.dart';
 
 enum _TaskListMenuAction {
@@ -33,6 +37,8 @@ enum _TaskListMenuAction {
   toggleCompleted,
   toggleFailed,
 }
+
+enum _MatterView { moment, quadrant, schedule }
 
 class CloudWorkspaceScreen extends StatefulWidget {
   const CloudWorkspaceScreen({
@@ -49,6 +55,7 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.sessionStore,
     this.workspaceCache,
     this.workspaceId,
+    this.lifeController,
   });
 
   final ApiClient api;
@@ -63,17 +70,19 @@ class CloudWorkspaceScreen extends StatefulWidget {
   final MobileSessionStore? sessionStore;
   final WorkspaceCache? workspaceCache;
   final String? workspaceId;
+  final LifeController? lifeController;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
 }
 
 class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
-  static const _destinationTitles = <String>['清单', '四象限', '日程', '我的'];
+  static const _destinationTitles = <String>['事项', '记账', '打卡', '我的'];
 
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
   late final WorkspaceSyncController _sync;
+  late final LifeController _life;
   int _selectedDestination = 0;
+  _MatterView _selectedMatterView = _MatterView.moment;
   String? _selectedTaskLabel;
   TaskListSort _taskListSort = TaskListSort.dueAt;
   bool _showTaskSubtitle = true;
@@ -90,12 +99,15 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           cache: widget.workspaceCache,
           workspaceId: widget.workspaceId,
         );
+    _life =
+        widget.lifeController ?? LifeController(HttpLifeRepository(widget.api));
     if (widget.syncController == null) _sync.start();
   }
 
   @override
   void dispose() {
     if (widget.syncController == null) _sync.dispose();
+    if (widget.lifeController == null) _life.dispose();
     super.dispose();
   }
 
@@ -113,21 +125,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           systemNavigationBarIconBrightness: Brightness.dark,
         ),
         child: Scaffold(
-          key: _scaffoldKey,
-          drawer: Drawer(
-            key: const Key('task-list-drawer'),
-            child: SafeArea(
-              child: _TaskWorkspaceDrawer(
-                onRefresh: () {
-                  Navigator.of(context).pop();
-                  _sync.refresh();
-                },
-              ),
-            ),
-          ),
-          appBar: _selectedDestination == 3
-              ? _buildProfileAppBar()
-              : _buildTaskSystemAppBar(state),
+          appBar: _buildAppBar(state),
           body: Column(
             children: [
               if (!widget.canWrite)
@@ -146,7 +144,9 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
             ],
           ),
           bottomNavigationBar: _buildBottomNavigationBar(),
-          floatingActionButton: _selectedDestination == 0
+          floatingActionButton:
+              _selectedDestination == 0 &&
+                  _selectedMatterView == _MatterView.moment
               ? FloatingActionButton(
                   key: const Key('create-task-fab'),
                   tooltip: '新增任务',
@@ -182,97 +182,139 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     ],
   );
 
-  PreferredSizeWidget _buildTaskSystemAppBar(WorkspaceSyncState state) {
-    if (_selectedDestination == 0) {
-      return TaskSystemAppBar(
-        title: '清单→此刻',
-        showBrand: true,
-        leading: IconButton(
-          key: const Key('task-list-menu-button'),
-          tooltip: '菜单',
-          onPressed: _openTaskListDrawer,
-          icon: const Icon(Icons.menu),
+  PreferredSizeWidget _buildAppBar(WorkspaceSyncState state) {
+    if (_selectedDestination == 3) return _buildProfileAppBar();
+    if (_selectedDestination != 0) {
+      return AppBar(
+        key: Key(
+          'workspace-${_destinationTitles[_selectedDestination]}-app-bar',
         ),
-        actions: [
-          _TaskCategorySelector(
-            categories: TaskView.listCategories(
-              state.snapshot?.tasks ?? const <TaskItem>[],
-              approvedClassifications: state.classifications.map(
-                (classification) => classification.name,
-              ),
-            ),
-            selectedLabel: _selectedTaskLabel,
-            onSelected: (label) => setState(() => _selectedTaskLabel = label),
-          ),
-          _buildTaskListMoreMenu(),
-        ],
+        title: Text(_destinationTitles[_selectedDestination]),
       );
     }
-    if (_selectedDestination == 1) {
-      return TaskSystemAppBar(
-        title: _destinationTitles[_selectedDestination],
-        leading: IconButton(
-          key: const Key('task-list-menu-button'),
-          tooltip: '菜单',
-          onPressed: _openTaskListDrawer,
-          icon: const Icon(Icons.menu),
-        ),
-        titleContent: _TaskCategorySelector(
-          categories: TaskView.listCategories(
-            state.snapshot?.tasks ?? const <TaskItem>[],
-            approvedClassifications: state.classifications.map(
-              (classification) => classification.name,
-            ),
-          ),
-          selectedLabel: _selectedTaskLabel,
-          onSelected: (label) => setState(() => _selectedTaskLabel = label),
-        ),
-        actions: _selectedDestination == 0
-            ? [_buildTaskListMoreMenu()]
-            : const [],
-      );
-    }
-    if (_selectedDestination == 2) {
-      return TaskSystemAppBar(
-        title: _destinationTitles[_selectedDestination],
-        leading: IconButton(
-          key: const Key('task-list-menu-button'),
-          tooltip: '菜单',
-          onPressed: _openTaskListDrawer,
-          icon: const Icon(Icons.menu),
-        ),
-        titleContent: _TaskCategorySelector(
-          categories: TaskView.listCategories(
-            state.snapshot?.tasks ?? const <TaskItem>[],
-            approvedClassifications: state.classifications.map(
-              (classification) => classification.name,
-            ),
-          ),
-          selectedLabel: _selectedTaskLabel,
-          onSelected: (label) => setState(() => _selectedTaskLabel = label),
-        ),
-        actions: const [],
-      );
-    }
-    return TaskSystemAppBar(
-      title: _destinationTitles[_selectedDestination],
-      actions: const [],
+    final categories = TaskView.listCategories(
+      state.snapshot?.tasks ?? const <TaskItem>[],
+      approvedClassifications: state.classifications.map(
+        (classification) => classification.name,
+      ),
     );
-  }
-
-  Widget _destinationBody(WorkspaceSyncState state) {
-    if (_selectedDestination != 0) return _destinationStack(state);
-    return Column(
-      children: [
-        _WorkspaceContextHeader(
-          state: state,
-          viewerName: _viewerName(state),
-          onSummaryTap: _openSummary,
+    return TaskSystemAppBar(
+      title: _matterViewTitle,
+      titleContent: _MatterViewSelector(
+        value: _selectedMatterView,
+        onSelected: (view) => setState(() => _selectedMatterView = view),
+      ),
+      actions: [
+        _TaskCategorySelector(
+          categories: categories,
+          selectedLabel: _selectedTaskLabel,
+          onSelected: (label) => setState(() => _selectedTaskLabel = label),
         ),
-        Expanded(child: _destinationStack(state)),
+        if (_selectedMatterView == _MatterView.moment) _buildTaskListMoreMenu(),
       ],
     );
   }
+
+  String get _matterViewTitle => switch (_selectedMatterView) {
+    _MatterView.moment => '此刻',
+    _MatterView.quadrant => '四象限',
+    _MatterView.schedule => '日程',
+  };
+
+  Widget _destinationBody(WorkspaceSyncState state) => IndexedStack(
+    key: const Key('workspace-destination-stack'),
+    index: _selectedDestination,
+    children: [
+      _mattersBody(state),
+      LedgerScreen(
+        key: const PageStorageKey('ledger-domain-view'),
+        controller: _life,
+        members: state.snapshot?.members ?? const [],
+        viewerId: widget.session?.user.id ?? state.snapshot?.viewerUserId,
+        canWrite: widget.canWrite,
+      ),
+      CheckinsScreen(
+        key: const PageStorageKey('checkins-domain-view'),
+        controller: _life,
+        viewerId: widget.session?.user.id ?? state.snapshot?.viewerUserId,
+        canWrite: widget.canWrite,
+        onOpenTask: (id) async {
+          await _sync.refresh();
+          if (!mounted) return;
+          for (final task
+              in _sync.state.snapshot?.tasks ?? const <TaskItem>[]) {
+            if (task.id == id) {
+              _openTask(task);
+              break;
+            }
+          }
+        },
+      ),
+      if (widget.session != null)
+        MyProfileScreen(
+          key: const PageStorageKey('task-profile-view'),
+          session: widget.session!,
+          repository: HttpDeviceRepository(widget.api),
+          managementRepository: HttpDeviceManagementRepository(widget.api),
+          profileRepository:
+              widget.profileRepository ?? HttpProfileRepository(widget.api),
+          sessionStore: widget.sessionStore,
+          workspaceRepository: widget.workspaceBootstrapRepository,
+          sync: _sync,
+          canWrite: widget.canWrite,
+          showAppBar: false,
+        )
+      else
+        const _UnavailableProfileView(key: PageStorageKey('task-profile-view')),
+    ],
+  );
+
+  Widget _mattersBody(WorkspaceSyncState state) => Column(
+    children: [
+      _WorkspaceContextHeader(
+        state: state,
+        viewerName: _viewerName(state),
+        onSummaryTap: _openSummary,
+      ),
+      Expanded(child: _matterViewStack(state)),
+    ],
+  );
+
+  Widget _matterViewStack(WorkspaceSyncState state) => IndexedStack(
+    key: const Key('matter-view-stack'),
+    index: _selectedMatterView.index,
+    children: [
+      TaskListView(
+        key: const PageStorageKey('task-list-view'),
+        sync: _sync,
+        state: state,
+        canWrite: widget.canWrite,
+        selectedLabel: _selectedTaskLabel,
+        sort: _taskListSort,
+        showSubtitle: _showTaskSubtitle,
+        showCompleted: _showCompleted,
+        showFailed: _showFailed,
+        showMomentMetrics: false,
+        onTaskTap: _openTask,
+      ),
+      TaskQuadrantView(
+        key: const PageStorageKey('task-quadrant-view'),
+        sync: _sync,
+        state: state,
+        canWrite: widget.canWrite,
+        selectedLabel: _selectedTaskLabel,
+        onTaskTap: _openTask,
+      ),
+      TaskScheduleView(
+        key: const PageStorageKey('task-schedule-view'),
+        sync: _sync,
+        state: state,
+        canWrite: widget.canWrite,
+        selectedLabel: _selectedTaskLabel,
+        onTaskTap: _openTask,
+      ),
+    ],
+  );
 
   Widget _buildBottomNavigationBar() {
     final theme = Theme.of(context);
@@ -291,22 +333,22 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: const [
           NavigationDestination(
-            key: ValueKey('task-list-destination'),
-            icon: Icon(Icons.list_alt_outlined),
-            selectedIcon: Icon(Icons.list_alt),
-            label: '清单',
+            key: ValueKey('matters-destination'),
+            icon: Icon(Icons.checklist_outlined),
+            selectedIcon: Icon(Icons.checklist),
+            label: '事项',
           ),
           NavigationDestination(
-            key: ValueKey('task-quadrant-destination'),
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view),
-            label: '四象限',
+            key: ValueKey('ledger-destination'),
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet),
+            label: '记账',
           ),
           NavigationDestination(
-            key: ValueKey('task-schedule-destination'),
-            icon: Icon(Icons.event_outlined),
-            selectedIcon: Icon(Icons.event),
-            label: '日程',
+            key: ValueKey('checkins-destination'),
+            icon: Icon(Icons.check_circle_outline),
+            selectedIcon: Icon(Icons.check_circle),
+            label: '打卡',
           ),
           NavigationDestination(
             key: ValueKey('task-profile-destination'),
@@ -354,7 +396,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         home?.waitingOnOtherCount ?? 0,
       ),
       _WorkspaceSummaryKind.weekDue => (
-        '本周',
+        '本周到期',
         '当前视角下未来七天需要留意的任务。',
         home?.weekDueCount ?? 0,
       ),
@@ -461,10 +503,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     }
   }
 
-  void _openTaskListDrawer() {
-    _scaffoldKey.currentState?.openDrawer();
-  }
-
   void _openApprovals() {
     final snapshot = _sync.state.snapshot;
     if (snapshot == null) return;
@@ -508,62 +546,6 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _CreateTaskBar(sync: _sync, enabled: true),
-    );
-  }
-
-  Widget _destinationStack(WorkspaceSyncState state) {
-    return IndexedStack(
-      key: const Key('workspace-destination-stack'),
-      index: _selectedDestination,
-      children: [
-        TaskListView(
-          key: const PageStorageKey('task-list-view'),
-          sync: _sync,
-          state: state,
-          canWrite: widget.canWrite,
-          selectedLabel: _selectedTaskLabel,
-          sort: _taskListSort,
-          showSubtitle: _showTaskSubtitle,
-          showCompleted: _showCompleted,
-          showFailed: _showFailed,
-          showMomentMetrics: false,
-          onTaskTap: _openTask,
-        ),
-        TaskQuadrantView(
-          key: const PageStorageKey('task-quadrant-view'),
-          sync: _sync,
-          state: state,
-          canWrite: widget.canWrite,
-          selectedLabel: _selectedTaskLabel,
-          onTaskTap: _openTask,
-        ),
-        TaskScheduleView(
-          key: const PageStorageKey('task-schedule-view'),
-          sync: _sync,
-          state: state,
-          canWrite: widget.canWrite,
-          selectedLabel: _selectedTaskLabel,
-          onTaskTap: _openTask,
-        ),
-        if (widget.session != null)
-          MyProfileScreen(
-            key: const PageStorageKey('task-profile-view'),
-            session: widget.session!,
-            repository: HttpDeviceRepository(widget.api),
-            managementRepository: HttpDeviceManagementRepository(widget.api),
-            profileRepository:
-                widget.profileRepository ?? HttpProfileRepository(widget.api),
-            sessionStore: widget.sessionStore,
-            workspaceRepository: widget.workspaceBootstrapRepository,
-            sync: _sync,
-            canWrite: widget.canWrite,
-            showAppBar: false,
-          )
-        else
-          const _UnavailableProfileView(
-            key: PageStorageKey('task-profile-view'),
-          ),
-      ],
     );
   }
 
@@ -626,8 +608,8 @@ class _WorkspaceContextHeader extends StatelessWidget {
         _WorkspaceSummaryKind.weekDue,
         'week-due',
         home?.weekDueCount ?? 0,
-        '本周',
-        '我的任务',
+        '本周到期',
+        '未完成任务',
       ),
     ];
     return DecoratedBox(
@@ -867,63 +849,55 @@ class _WorkspaceSummarySheet extends StatelessWidget {
   }
 }
 
-class _TaskWorkspaceDrawer extends StatelessWidget {
-  const _TaskWorkspaceDrawer({required this.onRefresh});
+class _MatterViewSelector extends StatelessWidget {
+  const _MatterViewSelector({required this.value, required this.onSelected});
 
-  final VoidCallback onRefresh;
+  final _MatterView value;
+  final ValueChanged<_MatterView> onSelected;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        DrawerHeader(
-          margin: EdgeInsets.zero,
-          decoration: BoxDecoration(color: theme.colorScheme.primary),
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: Row(
-              children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.onPrimary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: Icon(
-                      Icons.north_east,
-                      size: 20,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: MuyuSpacing.sm),
-                Text(
-                  '清单→此刻',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onPrimary,
-                  ),
-                ),
-              ],
-            ),
+  Widget build(BuildContext context) => PopupMenuButton<_MatterView>(
+    key: const Key('matter-view-menu'),
+    tooltip: '切换事项视图',
+    initialValue: value,
+    onSelected: onSelected,
+    itemBuilder: (context) => [
+      for (final option in _MatterView.values)
+        CheckedPopupMenuItem<_MatterView>(
+          key: Key('matter-view-item-${option.name}'),
+          value: option,
+          checked: option == value,
+          child: Text(_menuTitle(option)),
+        ),
+    ],
+    child: Semantics(
+      button: true,
+      label: '事项视图：${_title(value)}，打开菜单',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _title(value),
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge,
           ),
-        ),
-        ListTile(
-          leading: const Icon(Icons.list_alt_outlined),
-          title: const Text('全部任务'),
-          onTap: () => Navigator.of(context).pop(),
-        ),
-        ListTile(
-          leading: const Icon(Icons.refresh),
-          title: const Text('刷新'),
-          onTap: onRefresh,
-        ),
-      ],
-    );
-  }
+          const Icon(Icons.keyboard_arrow_down, size: 20),
+        ],
+      ),
+    ),
+  );
+
+  static String _title(_MatterView view) => switch (view) {
+    _MatterView.moment => '此刻',
+    _MatterView.quadrant => '四象限',
+    _MatterView.schedule => '日程',
+  };
+
+  static String _menuTitle(_MatterView view) => switch (view) {
+    _MatterView.moment => '清单',
+    _MatterView.quadrant => '四象限',
+    _MatterView.schedule => '日程',
+  };
 }
 
 class _TaskCategorySelector extends StatelessWidget {
@@ -1011,6 +985,7 @@ class _CreateTaskBar extends StatefulWidget {
 
 class _CreateTaskBarState extends State<_CreateTaskBar> {
   final _title = TextEditingController();
+  final _nextStep = TextEditingController();
   final _labels = <String>[];
   DateTime? _dueAt;
   String? _selectedQuadrant;
@@ -1020,6 +995,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
   @override
   void dispose() {
     _title.dispose();
+    _nextStep.dispose();
     super.dispose();
   }
 
@@ -1110,8 +1086,17 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
 
   Future<void> _createTask() async {
     final title = _title.text.trim();
+    final nextStep = _nextStep.text.trim();
     final quadrant = _selectedQuadrant;
     if (title.isEmpty || quadrant == null || _creating || !widget.enabled) {
+      return;
+    }
+    if (nextStep.isEmpty) {
+      setState(() => _createError = '请填写明确下一步');
+      return;
+    }
+    if (nextStep.runes.length > 90) {
+      setState(() => _createError = '明确下一步不能超过 90 个字符');
       return;
     }
     if (_labels.length != 1) {
@@ -1124,10 +1109,12 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
         title,
         quadrant: quadrant,
         labels: List.unmodifiable(_labels),
+        nextStepText: nextStep,
         dueAt: _dueAt?.toUtc().toIso8601String(),
       );
       if (mounted) {
         _title.clear();
+        _nextStep.clear();
         _labels.clear();
         _dueAt = null;
         _selectedQuadrant = null;
@@ -1189,6 +1176,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                     widget.enabled &&
                         !_creating &&
                         _title.text.trim().isNotEmpty &&
+                        _nextStep.text.trim().isNotEmpty &&
                         _selectedQuadrant != null &&
                         _labels.length == 1
                     ? _createTask
@@ -1202,6 +1190,17 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                     : const Icon(Icons.add),
               ),
             ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: MuyuSpacing.sm),
+          TextField(
+            key: const Key('task-next-step-input'),
+            controller: _nextStep,
+            enabled: widget.enabled && !_creating,
+            maxLines: 2,
+            maxLength: 90,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: '明确下一步'),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: MuyuSpacing.sm),

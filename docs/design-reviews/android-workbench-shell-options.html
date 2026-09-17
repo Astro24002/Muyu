@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#225f50">
+  <title>Muyu Android 工作台 · 视觉方案</title>
+  <style>
+    :root {
+      --page: #edf3ef;
+      --phone: #102f23;
+      --canvas: #f8faf9;
+      --surface: #ffffff;
+      --ink: #1d2d29;
+      --body: #25312e;
+      --muted: #7c8783;
+      --brand: #225f50;
+      --brand-strong: #174b35;
+      --focus: #e7f0ed;
+      --coral: #b2573b;
+      --coral-surface: #f3dfd7;
+      --amber: #c47a20;
+      --line: #dce3e0;
+      --line-strong: #bdcbc5;
+      --sync: #52a083;
+      --shadow: 0 18px 42px rgba(18, 59, 42, .12);
+      --phone-shadow: 0 26px 80px rgba(15, 45, 33, .2);
+      --radius: 8px;
+      --small-radius: 6px;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--page); }
+    body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--page); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 3px solid rgba(178, 87, 59, .35); outline-offset: 2px; }
+    .review { width: min(1220px, 100%); margin: 0 auto; padding: 34px 22px 58px; }
+    .review-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+    .eyebrow { margin: 0 0 6px; color: var(--coral); font-size: 11px; font-weight: 800; letter-spacing: .1em; }
+    h1 { margin: 0; color: var(--brand-strong); font-size: 32px; line-height: 1.1; letter-spacing: 0; }
+    .intro { max-width: 500px; margin: 8px 0 0; color: #557066; font-size: 13px; line-height: 1.55; }
+    .review-note { max-width: 270px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); color: #557066; background: rgba(255, 255, 255, .72); font-size: 11px; line-height: 1.5; }
+    .review-note strong { display: block; margin-bottom: 3px; color: var(--brand-strong); font-size: 12px; }
+    .options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; align-items: start; }
+    .option { min-width: 0; }
+    .option-head { min-height: 82px; margin-bottom: 12px; }
+    .option-kicker { display: inline-flex; align-items: center; min-height: 21px; padding: 2px 8px; border-radius: 999px; color: var(--brand); background: var(--focus); font-size: 10px; font-weight: 800; }
+    .option h2 { margin: 8px 0 3px; color: var(--brand-strong); font-size: 18px; line-height: 1.2; }
+    .option p { margin: 0; color: #557066; font-size: 11px; line-height: 1.45; }
+    .phone { position: relative; width: 100%; max-width: 360px; margin: 0 auto; padding: 9px; border: 1px solid #c2d1c8; border-radius: 29px; background: var(--phone); box-shadow: var(--phone-shadow); }
+    .phone-screen { position: relative; min-height: 730px; overflow: hidden; border-radius: 22px; background: var(--canvas); }
+    .statusbar { display: flex; align-items: center; justify-content: space-between; height: 27px; padding: 6px 16px 0; color: #6d8077; background: var(--canvas); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+    .status-right { display: inline-flex; gap: 7px; align-items: center; }
+    .signal { display: inline-flex; gap: 2px; align-items: flex-end; height: 9px; }
+    .signal i { display: block; width: 3px; border-radius: 2px; background: var(--brand); }
+    .signal i:nth-child(1) { height: 3px; opacity: .45; }
+    .signal i:nth-child(2) { height: 5px; opacity: .65; }
+    .signal i:nth-child(3) { height: 7px; opacity: .82; }
+    .signal i:nth-child(4) { height: 9px; }
+    .appbar { display: flex; align-items: center; gap: 8px; padding: 13px 15px 9px; background: var(--canvas); }
+    .icon { display: inline-grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--brand); background: var(--surface); font-size: 18px; line-height: 1; }
+    .icon:hover { border-color: var(--brand); background: var(--focus); }
+    .brand-mark { display: inline-grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; color: var(--surface); background: var(--brand); font-size: 18px; font-weight: 800; }
+    .app-copy { min-width: 0; }
+    .app-copy small { display: block; margin-bottom: 1px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+    .app-copy h3 { overflow: hidden; margin: 0; color: var(--brand-strong); font-size: 17px; line-height: 1.12; text-overflow: ellipsis; white-space: nowrap; }
+    .app-copy h3 span { padding: 0 2px; color: var(--coral); }
+    .spacer { flex: 1; }
+    .avatar { display: inline-grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; border: 1px solid #b8d6c4; border-radius: 50%; color: var(--brand-strong); background: var(--focus); font-size: 10px; font-weight: 800; }
+    .viewbar { display: flex; gap: 4px; margin: 0 14px 10px; padding: 3px; border: 1px solid var(--line); border-radius: var(--small-radius); background: #eef4f1; }
+    .viewbar button { flex: 1 1 auto; min-width: 0; min-height: 29px; padding: 4px 3px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 800; }
+    .viewbar button[aria-selected="true"] { color: var(--brand-strong); background: var(--surface); box-shadow: 0 2px 5px rgba(18, 59, 42, .08); }
+    .actor { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 14px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--small-radius); color: var(--muted); background: #f1f6f3; font-size: 10px; line-height: 1.35; }
+    .actor strong { color: var(--brand-strong); }
+    .synced { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--brand); font-size: 9px; font-weight: 800; }
+    .synced::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--sync); }
+    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 14px 11px; }
+    .summary button { display: flex; flex-direction: column; align-items: flex-start; min-height: 61px; padding: 8px 9px 7px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); text-align: left; background: var(--surface); }
+    .summary button:hover { border-color: var(--brand); background: var(--focus); }
+    .summary-number { color: var(--brand-strong); font-size: 18px; font-weight: 800; line-height: 1; }
+    .summary-label { margin-top: 4px; font-size: 10px; font-weight: 800; }
+    .summary-caption { margin-top: 1px; color: var(--muted); font-size: 8px; }
+    .feed { padding: 0 14px 74px; }
+    .feed-heading { display: flex; align-items: center; justify-content: space-between; margin: 11px 0 6px; }
+    .feed-heading h4 { margin: 0; color: var(--brand-strong); font-size: 12px; line-height: 1.2; }
+    .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 4px; padding: 0 4px; border-radius: 999px; color: var(--brand); background: #dceee4; font-size: 9px; vertical-align: 1px; }
+    .feed-note { margin: 0; color: var(--muted); font-size: 8px; }
+    .task-list { display: grid; gap: 6px; }
+    .task { padding: 9px 9px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .task.blocked { border-left: 3px solid var(--coral); padding-left: 7px; background: #fffaf8; }
+    .task-top { display: flex; align-items: flex-start; gap: 6px; }
+    .task-title { overflow: hidden; flex: 1; min-width: 0; padding: 0; border: 0; color: var(--brand-strong); text-align: left; background: transparent; font-size: 12px; font-weight: 800; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+    .task-title:hover { color: var(--coral); }
+    .pill { display: inline-flex; align-items: center; justify-content: center; min-height: 19px; padding: 2px 6px; border-radius: 999px; white-space: nowrap; font-size: 9px; font-weight: 800; line-height: 1.1; }
+    .pill.progress { color: var(--brand); background: #dceee4; }
+    .pill.blocked { color: #9b3e31; background: var(--coral-surface); }
+    .pill.review { color: #8a5a1d; background: #fcebcf; }
+    .pill.todo { color: #64736d; background: #edf1ef; }
+    .meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .meta .pill { color: #557066; background: #f3f6f4; font-size: 8px; font-weight: 700; }
+    .meta .pill.overdue { color: #a34134; background: var(--coral-surface); }
+    .next { display: grid; grid-template-columns: auto 1fr; gap: 5px; margin: 7px 0 0; color: #557066; font-size: 9px; line-height: 1.35; }
+    .next strong { color: var(--brand); }
+    .foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 7px; color: var(--muted); font-size: 8px; }
+    .owner { display: inline-flex; align-items: center; gap: 4px; }
+    .owner-dot { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; color: var(--brand-strong); background: #dceee4; font-size: 8px; font-weight: 800; }
+    .owner-dot.partner { color: #874b2f; background: #fae5d6; }
+    .fab { position: absolute; right: 15px; bottom: 64px; display: inline-grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 50%; color: var(--surface); background: var(--brand); box-shadow: 0 8px 18px rgba(34, 95, 80, .26); font-size: 25px; line-height: 1; }
+    .fab:hover { background: var(--brand-strong); }
+    .bottom-safe { position: absolute; right: 0; bottom: 0; left: 0; height: 49px; border-top: 1px solid var(--line); background: rgba(248, 250, 249, .97); }
+    .drawer { position: absolute; inset: 0; z-index: 4; display: none; background: rgba(18, 59, 42, .23); }
+    .drawer.open { display: block; }
+    .drawer-panel { width: 79%; height: 100%; padding: 18px 14px; border-radius: 0 17px 17px 0; background: var(--canvas); box-shadow: 12px 0 28px rgba(18, 59, 42, .16); }
+    .drawer-head { display: flex; align-items: center; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+    .drawer-head strong { color: var(--brand-strong); font-size: 13px; }
+    .drawer-list { display: grid; gap: 4px; margin-top: 14px; }
+    .drawer-list button { min-height: 36px; padding: 7px 9px; border: 0; border-radius: var(--small-radius); color: #557066; text-align: left; background: transparent; font-size: 11px; font-weight: 700; }
+    .drawer-list button:hover, .drawer-list button.active { color: var(--brand-strong); background: var(--focus); }
+    .account-menu { position: absolute; top: 59px; right: 13px; z-index: 3; display: none; width: 144px; padding: 7px; border: 1px solid var(--line); border-radius: var(--small-radius); background: var(--surface); box-shadow: var(--shadow); }
+    .account-menu.open { display: grid; gap: 2px; }
+    .account-menu button { min-height: 31px; padding: 5px 7px; border: 0; border-radius: 4px; color: #557066; text-align: left; background: transparent; font-size: 10px; font-weight: 700; }
+    .account-menu button:hover { color: var(--brand-strong); background: var(--focus); }
+    .toast { position: absolute; right: 14px; bottom: 120px; left: 14px; z-index: 3; display: none; padding: 9px 10px; border: 1px solid #b8d6c4; border-radius: var(--small-radius); color: var(--brand-strong); background: #eef7f2; font-size: 10px; font-weight: 700; }
+    .toast.show { display: block; }
+    .dropdown-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 14px 10px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--small-radius); color: var(--brand-strong); background: var(--surface); font-size: 10px; font-weight: 800; }
+    .dropdown-line span:last-child { color: var(--muted); font-size: 9px; font-weight: 700; }
+    .compact-tools { display: flex; align-items: center; gap: 5px; margin: 0 14px 10px; }
+    .tool-button { min-height: 28px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface); font-size: 9px; font-weight: 800; }
+    .tool-button.active { color: var(--brand-strong); border-color: #b8d6c4; background: var(--focus); }
+    .tool-button:last-child { margin-left: auto; }
+    .option-note { margin: 12px auto 0; max-width: 360px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--small-radius); color: #557066; background: rgba(255, 255, 255, .58); font-size: 10px; line-height: 1.45; }
+    .option-note strong { color: var(--brand-strong); }
+    @media (max-width: 980px) {
+      .review-head { align-items: flex-start; flex-direction: column; }
+      .review-note { max-width: none; }
+      .options { grid-template-columns: repeat(2, minmax(280px, 1fr)); }
+      .option:last-child { grid-column: 1 / -1; }
+    }
+    @media (max-width: 680px) {
+      .review { padding: 24px 14px 42px; }
+      .options { grid-template-columns: 1fr; gap: 30px; }
+      .option:last-child { grid-column: auto; }
+      .phone { max-width: 390px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="review">
+    <header class="review-head">
+      <div>
+        <p class="eyebrow">ANDROID WORKBENCH · STRICT VISUAL REVIEW</p>
+        <h1>一个工作台，不再是四个 Tab</h1>
+        <p class="intro">三种方案只改变工作台视图的进入方式，任务、双人责任、下一步和审批规则保持不变。点击菜单、头像、视图和新增按钮可查看交互状态。</p>
+      </div>
+      <aside class="review-note"><strong>共同基线</strong>冷白背景、深绿主色、珊瑚提示、紧凑任务卡片；“我的”通过头像或菜单进入，不占用底部导航位置。</aside>
+    </header>
+
+    <section class="options" aria-label="工作台视觉方案">
+      <article class="option">
+        <div class="option-head">
+          <span class="option-kicker">方案 A · 推荐</span>
+          <h2>顶部视图栏</h2>
+          <p>视图始终可见，发现成本最低；适合每天频繁在此刻、全部任务、四象限和日程之间切换。</p>
+        </div>
+        <div class="phone" data-option="a">
+          <div class="phone-screen">
+            <div class="statusbar"><span>14:49</span><span class="status-right"><span>5G</span><span class="signal"><i></i><i></i><i></i><i></i></span><span>66%</span></span></div>
+            <header class="appbar">
+              <button class="icon menu-button" aria-label="打开菜单">☰</button>
+              <span class="brand-mark" aria-hidden="true">↗</span>
+              <div class="app-copy"><small>此刻的协作工作台</small><h3>此刻</h3></div>
+              <span class="spacer"></span>
+              <button class="avatar account-button" aria-label="打开我的菜单">B</button>
+            </header>
+            <nav class="viewbar" aria-label="工作台视图">
+              <button aria-selected="true" data-view="此刻">此刻</button><button data-view="全部任务">全部任务</button><button data-view="四象限">四象限</button><button data-view="日程">日程</button>
+            </nav>
+            <div class="actor"><span>正在以 <strong>Bokang</strong> 查看</span><span class="synced">已同步</span></div>
+            <div class="summary"><button><span class="summary-number">2</span><span class="summary-label">需要我处理</span><span class="summary-caption">待处理请求</span></button><button><span class="summary-number">3</span><span class="summary-label">等对方</span><span class="summary-caption">交接中</span></button><button><span class="summary-number">7</span><span class="summary-label">本周</span><span class="summary-caption">我的任务</span></button></div>
+            <div class="feed">
+              <section><div class="feed-heading"><h4>卡住的事情 <span class="count">2</span></h4><span class="feed-note">先看卡住的事</span></div><div class="task-list"><article class="task blocked"><div class="task-top"><button class="task-title">确认婚礼酒店</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill overdue">逾期 2d</span><span class="pill">婚礼</span><span class="pill">Q1</span></div><p class="next"><strong>下一步</strong><span>等待酒店补充合同</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>等待条件</span></div></article><article class="task blocked"><div class="task-top"><button class="task-title">确认印刷材质</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill">今天</span><span class="pill">工作</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>等供应商确认纸张</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>等待条件</span></div></article></div></section>
+              <section><div class="feed-heading"><h4>我在推进 <span class="count">2</span></h4><span class="feed-note">我负责的下一步</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">整理宾客名单</button><span class="pill progress">进行中</span></div><div class="meta"><span class="pill">周五</span><span class="pill">婚礼</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>合并最后一版联系方式</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>可协作</span></div></article></div></section>
+              <section><div class="feed-heading"><h4>对方在推进 <span class="count">1</span></h4><span class="feed-note">交给对方的进展</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">确认菜单</button><span class="pill todo">待进行</span></div><div class="meta"><span class="pill">周六</span><span class="pill">婚礼</span><span class="pill">Q3</span></div><p class="next"><strong>下一步</strong><span>由溪岸继续处理</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>可协作</span></div></article></div></section>
+            </div>
+            <button class="fab" aria-label="新增任务">＋</button><div class="bottom-safe"></div>
+            <div class="drawer"><div class="drawer-panel"><div class="drawer-head"><span class="brand-mark">↗</span><strong>工作台</strong></div><div class="drawer-list"><button class="active">此刻</button><button>全部任务</button><button>四象限</button><button>日程</button><button>审批与设备</button><button>个人资料</button></div></div></div>
+            <div class="account-menu"><button>我的资料</button><button>审批中心</button><button>设备管理</button><button>扫码登录 Web</button></div>
+            <div class="toast">已打开新增任务，先写下要推进的事情。</div>
+          </div>
+        </div>
+        <p class="option-note"><strong>特点：</strong>最像一个稳定的工作台，核心视图切换不藏在菜单里；代价是顶部多一行，占用约 34px。</p>
+      </article>
+
+      <article class="option">
+        <div class="option-head">
+          <span class="option-kicker">方案 B</span>
+          <h2>标题下拉</h2>
+          <p>把视图切换收进标题，页面最干净；适合绝大多数时间停留在“此刻”的使用方式。</p>
+        </div>
+        <div class="phone" data-option="b">
+          <div class="phone-screen">
+            <div class="statusbar"><span>14:49</span><span class="status-right"><span>5G</span><span class="signal"><i></i><i></i><i></i><i></i></span><span>66%</span></span></div>
+            <header class="appbar">
+              <button class="icon menu-button" aria-label="打开菜单">☰</button>
+              <span class="brand-mark" aria-hidden="true">↗</span>
+              <div class="app-copy"><small>此刻的协作工作台</small><h3>此刻⌄</h3></div>
+              <span class="spacer"></span>
+              <button class="avatar account-button" aria-label="打开我的菜单">B</button>
+            </header>
+            <div class="dropdown-line"><span>当前视图 · 此刻</span><span>点击标题切换</span></div>
+            <div class="actor"><span>正在以 <strong>Bokang</strong> 查看</span><span class="synced">已同步</span></div>
+            <div class="summary"><button><span class="summary-number">2</span><span class="summary-label">需要我处理</span><span class="summary-caption">待处理请求</span></button><button><span class="summary-number">3</span><span class="summary-label">等对方</span><span class="summary-caption">交接中</span></button><button><span class="summary-number">7</span><span class="summary-label">本周</span><span class="summary-caption">我的任务</span></button></div>
+            <div class="feed">
+              <section><div class="feed-heading"><h4>卡住的事情 <span class="count">2</span></h4><span class="feed-note">先看卡住的事</span></div><div class="task-list"><article class="task blocked"><div class="task-top"><button class="task-title">确认婚礼酒店</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill overdue">逾期 2d</span><span class="pill">婚礼</span><span class="pill">Q1</span></div><p class="next"><strong>下一步</strong><span>等待酒店补充合同</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>等待条件</span></div></article><article class="task blocked"><div class="task-top"><button class="task-title">确认印刷材质</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill">今天</span><span class="pill">工作</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>等供应商确认纸张</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>等待条件</span></div></article></div></section>
+              <section><div class="feed-heading"><h4>我在推进 <span class="count">2</span></h4><span class="feed-note">我负责的下一步</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">整理宾客名单</button><span class="pill progress">进行中</span></div><div class="meta"><span class="pill">周五</span><span class="pill">婚礼</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>合并最后一版联系方式</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>可协作</span></div></article></div></section>
+              <section><div class="feed-heading"><h4>对方在推进 <span class="count">1</span></h4><span class="feed-note">交给对方的进展</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">确认菜单</button><span class="pill todo">待进行</span></div><div class="meta"><span class="pill">周六</span><span class="pill">婚礼</span><span class="pill">Q3</span></div><p class="next"><strong>下一步</strong><span>由溪岸继续处理</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>可协作</span></div></article></div></section>
+            </div>
+            <button class="fab" aria-label="新增任务">＋</button><div class="bottom-safe"></div>
+            <div class="drawer"><div class="drawer-panel"><div class="drawer-head"><span class="brand-mark">↗</span><strong>工作台</strong></div><div class="drawer-list"><button class="active">此刻</button><button>全部任务</button><button>四象限</button><button>日程</button><button>审批与设备</button><button>个人资料</button></div></div></div>
+            <div class="account-menu"><button>我的资料</button><button>审批中心</button><button>设备管理</button><button>扫码登录 Web</button></div>
+            <div class="toast">已打开新增任务，先写下要推进的事情。</div>
+          </div>
+        </div>
+        <p class="option-note"><strong>特点：</strong>内容密度最高，顶部最轻；代价是视图入口需要记住标题下拉，发现性弱于方案 A。</p>
+      </article>
+
+      <article class="option">
+        <div class="option-head">
+          <span class="option-kicker">方案 C</span>
+          <h2>工作台工具条</h2>
+          <p>把当前视图和常用操作放在一条紧凑工具条中，适合希望少层级、快速切换的用户。</p>
+        </div>
+        <div class="phone" data-option="c">
+          <div class="phone-screen">
+            <div class="statusbar"><span>14:49</span><span class="status-right"><span>5G</span><span class="signal"><i></i><i></i><i></i><i></i></span><span>66%</span></span></div>
+            <header class="appbar">
+              <button class="icon menu-button" aria-label="打开菜单">☰</button>
+              <span class="brand-mark" aria-hidden="true">↗</span>
+              <div class="app-copy"><small>此刻的协作工作台</small><h3>此刻</h3></div>
+              <span class="spacer"></span>
+              <button class="icon" aria-label="更多">⋯</button><button class="avatar account-button" aria-label="打开我的菜单">B</button>
+            </header>
+            <div class="compact-tools"><button class="tool-button active" data-view="此刻">此刻</button><button class="tool-button" data-view="全部任务">全部任务</button><button class="tool-button" data-view="四象限">四象限</button><button class="tool-button" data-view="日程">日程</button><button class="tool-button">全部分类⌄</button></div>
+            <div class="actor"><span>正在以 <strong>Bokang</strong> 查看</span><span class="synced">已同步</span></div>
+            <div class="summary"><button><span class="summary-number">2</span><span class="summary-label">需要我处理</span><span class="summary-caption">待处理请求</span></button><button><span class="summary-number">3</span><span class="summary-label">等对方</span><span class="summary-caption">交接中</span></button><button><span class="summary-number">7</span><span class="summary-label">本周</span><span class="summary-caption">我的任务</span></button></div>
+            <div class="feed">
+              <section><div class="feed-heading"><h4>卡住的事情 <span class="count">2</span></h4><span class="feed-note">先看卡住的事</span></div><div class="task-list"><article class="task blocked"><div class="task-top"><button class="task-title">确认婚礼酒店</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill overdue">逾期 2d</span><span class="pill">婚礼</span><span class="pill">Q1</span></div><p class="next"><strong>下一步</strong><span>等待酒店补充合同</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>等待条件</span></div></article><article class="task blocked"><div class="task-top"><button class="task-title">确认印刷材质</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill">今天</span><span class="pill">工作</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>等供应商确认纸张</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>等待条件</span></div></article></div></section>
+              <section><div class="feed-heading"><h4>我在推进 <span class="count">2</span></h4><span class="feed-note">我负责的下一步</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">整理宾客名单</button><span class="pill progress">进行中</span></div><div class="meta"><span class="pill">周五</span><span class="pill">婚礼</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>合并最后一版联系方式</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>可协作</span></div></article></div></section>
+              <section><div class="feed-heading"><h4>对方在推进 <span class="count">1</span></h4><span class="feed-note">交给对方的进展</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">确认菜单</button><span class="pill todo">待进行</span></div><div class="meta"><span class="pill">周六</span><span class="pill">婚礼</span><span class="pill">Q3</span></div><p class="next"><strong>下一步</strong><span>由溪岸继续处理</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>可协作</span></div></article></div></section>
+            </div>
+            <button class="fab" aria-label="新增任务">＋</button><div class="bottom-safe"></div>
+            <div class="drawer"><div class="drawer-panel"><div class="drawer-head"><span class="brand-mark">↗</span><strong>工作台</strong></div><div class="drawer-list"><button class="active">此刻</button><button>全部任务</button><button>四象限</button><button>日程</button><button>审批与设备</button><button>个人资料</button></div></div></div>
+            <div class="account-menu"><button>我的资料</button><button>审批中心</button><button>设备管理</button><button>扫码登录 Web</button></div>
+            <div class="toast">已打开新增任务，先写下要推进的事情。</div>
+          </div>
+        </div>
+        <p class="option-note"><strong>特点：</strong>视图、分类和更多操作集中在内容上方；代价是工具条更容易拥挤，长分类名称需要横向滚动或进入更多。</p>
+      </article>
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll('.phone').forEach((phone) => {
+      const drawer = phone.querySelector('.drawer');
+      const account = phone.querySelector('.account-menu');
+      const toast = phone.querySelector('.toast');
+      phone.querySelector('.menu-button').addEventListener('click', () => {
+        account.classList.remove('open');
+        drawer.classList.toggle('open');
+      });
+      drawer.addEventListener('click', (event) => {
+        if (event.target === drawer) drawer.classList.remove('open');
+      });
+      phone.querySelector('.account-button').addEventListener('click', () => {
+        drawer.classList.remove('open');
+        account.classList.toggle('open');
+      });
+      phone.querySelector('.fab').addEventListener('click', () => {
+        toast.classList.add('show');
+        window.setTimeout(() => toast.classList.remove('show'), 2400);
+      });
+      phone.querySelectorAll('[data-view]').forEach((control) => {
+        control.addEventListener('click', () => {
+          const view = control.dataset.view;
+          phone.querySelectorAll('[data-view]').forEach((item) => item.classList.toggle('active', item === control));
+          phone.querySelectorAll('.viewbar button').forEach((item) => item.setAttribute('aria-selected', item === control ? 'true' : 'false'));
+          if (view) phone.querySelector('.app-copy h3').textContent = view === '此刻' ? '此刻' : view;
+        });
+      });
+      phone.querySelector('.app-copy h3').addEventListener('click', () => {
+        if (phone.dataset.option === 'b') {
+          const line = phone.querySelector('.dropdown-line');
+          line.firstElementChild.textContent = line.firstElementChild.textContent.includes('此刻') ? '当前视图 · 全部任务' : '当前视图 · 此刻';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

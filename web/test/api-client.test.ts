@@ -101,13 +101,13 @@ describe('ApiClient', () => {
     }));
   });
 
-  it('sends the required quadrant and single classification when creating a task', async () => {
+  it('sends the required quadrant, classification, and explicit next step when creating a task', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'task-1', cursor: 2 }), { status: 201 }),
     );
-    await new ApiClient().createTask({ requestId: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'] });
+    await new ApiClient().createTask({ requestId: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'], nextStepText: '先确认内容' });
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks', expect.objectContaining({
-      body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'] }),
+      body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'], next_step_text: '先确认内容' }),
     }));
   });
 

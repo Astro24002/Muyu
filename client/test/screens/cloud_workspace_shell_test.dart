@@ -12,8 +12,16 @@ ApiClient shellTestApi() => ApiClient(
   httpClient: MockClient((_) async => http.Response('{}', 200)),
 );
 
+Widget shell() => MaterialApp(
+  theme: muyuLightTheme(),
+  home: CloudWorkspaceScreen(
+    api: shellTestApi(),
+    syncController: WorkspaceSyncController.unavailable(),
+  ),
+);
+
 void main() {
-  testWidgets('renders the 390px list shell with stable Android chrome', (
+  testWidgets('renders the v1 four-tab shell at a narrow phone width', (
     tester,
   ) async {
     final view = tester.view;
@@ -24,66 +32,63 @@ void main() {
       view.resetDevicePixelRatio();
     });
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: muyuLightTheme(),
-        home: CloudWorkspaceScreen(
-          api: shellTestApi(),
-          syncController: WorkspaceSyncController.unavailable(),
-        ),
-      ),
-    );
+    await tester.pumpWidget(shell());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('task-system-app-bar')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-brand-mark')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-brand-title')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-actor-strip')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-summary-grid')), findsOneWidget);
-    expect(
-      find.byKey(const Key('workspace-summary-needs-action')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('workspace-summary-waiting-on-other')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const Key('workspace-summary-week-due')), findsOneWidget);
     expect(find.byKey(const Key('workspace-navigation-shell')), findsOneWidget);
-    expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
     expect(find.byType(NavigationDestination), findsNWidgets(4));
+    expect(find.text('事项'), findsWidgets);
+    expect(find.text('记账'), findsOneWidget);
+    expect(find.text('打卡'), findsOneWidget);
+    expect(find.text('我的'), findsOneWidget);
+    expect(find.byKey(const Key('matter-view-menu')), findsOneWidget);
+    expect(find.text('此刻'), findsWidgets);
+    expect(find.byKey(const Key('workspace-brand-mark')), findsNothing);
+    expect(find.byKey(const Key('task-list-drawer')), findsNothing);
+    expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
   });
 
-  testWidgets('summary cards and the drawer retain explicit actions', (
+  testWidgets(
+    'title menu switches the three matter views and keeps the shell',
+    (tester) async {
+      await tester.pumpWidget(shell());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('matter-view-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('清单'), findsOneWidget);
+      expect(find.text('四象限'), findsOneWidget);
+      expect(find.text('日程'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('matter-view-item-quadrant')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('task-quadrant-scroll')), findsOneWidget);
+      expect(find.byKey(const Key('create-task-fab')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('matter-view-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matter-view-item-schedule')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('task-schedule-scroll')), findsOneWidget);
+    },
+  );
+
+  testWidgets('ledger and checkins show their real domain controls', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: muyuLightTheme(),
-        home: CloudWorkspaceScreen(
-          api: shellTestApi(),
-          syncController: WorkspaceSyncController.unavailable(),
-        ),
-      ),
-    );
+    await tester.pumpWidget(shell());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('workspace-summary-needs-action')));
+    await tester.tap(find.byKey(const ValueKey('ledger-destination')));
     await tester.pumpAndSettle();
-    expect(find.text('待处理的交接和验收，会随着当前视角变化。'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('workspace-summary-close')));
-    await tester.pumpAndSettle();
+    expect(find.text('共同支出'), findsOneWidget);
+    expect(find.text('记一笔'), findsOneWidget);
+    expect(find.byKey(const Key('task-list-scroll')), findsNothing);
 
-    await tester.tap(find.byKey(const Key('task-list-menu-button')));
+    await tester.tap(find.byKey(const ValueKey('checkins-destination')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('task-list-drawer')), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('task-list-drawer')),
-        matching: find.text('清单→此刻'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('刷新'), findsOneWidget);
+    expect(find.text('日常打卡'), findsOneWidget);
+    expect(find.text('纪念日'), findsOneWidget);
+    expect(find.byKey(const Key('task-list-scroll')), findsNothing);
   });
 }

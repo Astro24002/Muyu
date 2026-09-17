@@ -28,6 +28,7 @@ from app.sync.routes import router as sync_router
 from app.web_login.routes import router as web_login_router, sessions_router as web_sessions_router
 from app.workspaces.routes import router as workspaces_router
 from app.workspaces.classification_routes import router as classifications_router
+from app.life.routes import router as life_router
 
 
 @asynccontextmanager
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(home_router)
     app.include_router(sync_router)
     app.include_router(realtime_router)
+    app.include_router(life_router)
 
     @app.get("/health/live")
     def health_live() -> dict[str, str]:

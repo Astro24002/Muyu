@@ -4,12 +4,28 @@
 
 ## 当前状态
 
-- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和 `v0.2.0` APK 发布完成。任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。“清单 → 此刻”协作工作台的 Home 投影、canonical 元数据与 `entries` 契约、`/home/entries/{entry}` 入口分页、`0014_moment_home_indexes` 查询索引、任务详情“下一步”、交接说明、验收内容、活动证据、snapshot/cursor 连续性校验、Web canonical Home 消费和双人协作自动化 E2E 已完成；本轮 Android 严格视觉重构已完成本地代码和回归，APK 已按 commit 命名构建。线上 API/WEB 未因本轮 Android 视觉变更改动，真实 Android 设备截图验收仍待有授权设备后执行。
-- 当前产品和运行时设计：[产品需求](./01-product.md)、[Android 视觉方向](./superpowers/specs/2026-08-31-android-visual-direction-design.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
-- 当前产品和运行时设计：[产品需求](./01-product.md)、[产品路线与单人起步、双人验收设计](./superpowers/specs/2026-09-10-product-roadmap-and-bootstrap-completion-design.md)、[Muyu「此刻」协作链浏览器原型设计](./superpowers/specs/2026-09-11-moment-collaboration-prototype-design.md)、[Muyu「此刻」协作闭环生产实施计划](./superpowers/plans/2026-09-11-moment-collaboration.md)、[移除任务参与人模型设计](./superpowers/specs/2026-09-01-remove-task-participants-design.md)、[我的页审批、设备管理与用户资料设计](./superpowers/specs/2026-09-02-my-tab-approval-device-profile-design.md)、[云端协调架构规格](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md)、[开发路线](./03-roadmap.md)、[已确认决策](./04-decisions.md)。
+- 2026-09-17（线上服务更新完成）：经 `root@116.62.106.128:27001` 密钥登录，生产主机备份 `/root/backups/muyu-pre-0016-20260917T0834Z.dump`（权限 600、大小 125343 字节、SHA-256 `84eec154bdbaf382272153ac1c1e18b7403ad769062b2a2b15a7ff74f14c60e6`）已在隔离 PostgreSQL 完整恢复；隔离库 `0014 -> 0016 -> 0014 -> 0016` 往返通过，任务 4 条和 Workspace 1 个保留。生产 Alembic 已从 `0014_moment_home_indexes` 升至 `0016_life_domains`；API、Web-session-cleanup、Caddy 使用本地构建镜像重建，远端脏工作树未覆盖。第一次 Caddy 重建受 Compose `--project-directory` 相对挂载解析影响未能启动，立即从 `/root/Muyu` 使用部署目录原路径重启成功。最终公网 `/health/live`、`/health/ready` 和首页均为 200，未登录的 `/api/v1/ledger`、`/api/v1/habits` 为预期 401；API 容器 healthy，Web 静态资源与本地镜像一致。生产库保留任务 4 条、Workspace 1 个，账目/习惯/纪念日当前各 0 条。保留回退镜像 `muyu-cloud-api:pre-0016-20260917`、`muyu-cloud-caddy:pre-0016-20260917`；隔离演练容器和网络已清理。尚未执行真实账户写入、Android 真机和双人端到端验收，本地 APK 为 debug 包，未公开发布。
+
+- 2026-09-17（线上更新预检与 Android 重建）：用户要求更新线上服务并构建 APK。公网 `GET /health/ready` 为 200、`GET /api/v1/ledger` 为 404；本机无生产 Compose 环境文件，SSH 至 `muyu.bkverse.space:22` 连接超时，无法读取线上 Alembic head、核验最新备份或部署新镜像。按部署手册和 AGENTS 迁移门禁，本轮未修改生产数据库/API/Web，不能认为线上已更新。`make check-deployment COMPOSE_ENV_FILE=deploy/.env.production.example`、`make boundary-check`、`make legacy-check`、`git diff --check` 通过；Web typecheck、Vitest `274 passed`、Vite build 通过。本地 `muyu-cloud-api:staged-26a51c9` 镜像构建成功，摘要 `sha256:49a4dca0c1c907b363ba79f3f10f898217fb4f0167d28ccbcf731425919caa3f`，镜像内 Alembic head 为 `0016_life_domains`，OpenAPI 包含记账/习惯/纪念日路由；未上传或启动到生产。`make client-build ANDROID_BUILD_ENV=production API_BASE_URL=https://muyu.bkverse.space` 成功，当前本地 debug APK [Muyu-26a51c9.apk](../client/build/app/outputs/flutter-apk/Muyu-26a51c9.apk) 大小 `203743476` 字节，SHA-256 `0a475acf4d4ce79cff073643a105488edb76417ebb5f1a29df5dc2a67275f7cd`；构建脚本已校验归档与包内 origin。仍无授权 Android 设备；此包使用 debug 签名，不是正式 release，新增记账/打卡页面连接当前线上 API 会失败。
+
+- 2026-09-17（生活领域施工中，未完成）：已补 [生活领域契约](./superpowers/specs/2026-09-17-life-domains-contract.md) 与 [实施计划](./superpowers/plans/2026-09-17-life-domains.md)。本地新增独立账目、习惯/打卡与纪念日表及 `0016_life_domains` 迁移、认证 REST 命令、活动/cursor/snapshot/changes；Android 记账和打卡 Tab 已接入真实 API 页面，含纪念日及准备事项入口，不再显示“未开放”。暂停习惯编辑修复后 PostgreSQL 后端全量 `285 passed, 3 skipped, 2 warnings`；生活领域专项 `5 passed, 2 warnings`（含 0015→0016→0015→head 迁移往返）。Flutter 全量 `227 passed`、壳层专项 `3 passed`、`flutter analyze` clean、Dart format 和 `git diff --check` 通过。此前 `make client-build API_BASE_URL=https://muyu.bkverse.space` 生成的同名 debug APK 大小 `203746431` 字节、SHA-256 `c001b1c147308f6f123e468b0ef9dbf1b592a47dec2253aa1c6c0b616c5d01a2`，现已被上条构建覆盖；未公开发布。线上 API 未部署 0016 或生活领域路由，因此当前指向线上 origin 的调试包不能端到端使用新增页面。Web 页面仍是占位，客户端 life 资源尚未并入统一 snapshot/changes 控制器；并发、防重复、时区边界、重启持久性和真实设备尚未完整验收。不可声称 v1 生活领域完成或发布。
+
+- 2026-09-17（此前施工）：按 [Muyu 设计交付 v1.0](../Muyu-Codex-Design-and-Implementation.md) 完成批次 1 的局部实现，并完成明确下一步字段/表单的局部施工。Android/Web 一级入口已收敛为 `事项 / 记账 / 打卡 / 我的`；事项默认此刻，标题内切换四象限/日程；Home 入口指标只统计待接棒/待验收；任务查询增加状态、负责人、历史、搜索和绑定 cursor。后续生活领域进度见上条；交接拟议下一步和创建给 TA 的原子流程仍未实现，批次 1/协作批次不标记整体完成。
+- 此前批次 1 验证：后端 PostgreSQL 全量 `280 passed, 3 skipped, 1 warning`；Flutter 全量 `227 passed`，Dart format 和 `flutter analyze` 通过；Web 全量 `274 passed`，`npm run typecheck` 和 Vite production build 通过；此前调试 APK 的 SHA-256 为 `5c60c1e41135587df930a436cc5dbe0755d07e617e24fbc4e8b19d781d12fe1a`，同名文件现已被本阶段构建替换，上条为当前文件校验值。
+- 验收限制：`adb devices` 没有授权设备，未执行真机安装、截图、键盘/安全区/大字体/读屏和双设备人工验收。浏览器工具尝试打开原型 URL 时返回安全策略拒绝，搜索也没有找到该站点，因此没有声称已查看或交互原型。没有线上部署或公开发布。
+- 本地视觉 smoke：使用仓库 Playwright 配置对 canonical `#/matters` 运行 Android 390×844 和 desktop 1280 视口 smoke，均通过标题“此刻”、视图入口、三段 Home 分组断言；截图归档为 [muyu-matters-mobile-390x844.png](./design-reviews/assets/muyu-matters-mobile-390x844.png) 和 [muyu-matters-desktop-1280x720.png](./design-reviews/assets/muyu-matters-desktop-1280x720.png)。容器缺少中文字体，截图文字呈方框，不能替代真实设备字体/触控/安全区验收。
+- 2026-09-17（接手基线）：按用户指定的最新 [Muyu 设计交付 v1.0](../Muyu-Codex-Design-and-Implementation.md) 同步产品需求、技术入口、路线、决策、AGENTS、v1 契约/计划/差异清单，并在旧 Android/Web 视觉和此刻原型规格标注替代范围。产品目标优先，运行时证据与兼容边界单列；保留已有未提交文件。
+- 施工前定点代码审计：`backend/app/tasks/schemas.py` 尚无用户下一步/新建目标成员字段，现有长度比 v1 大；本轮已新增可空用户填写 `next_step_text` 及 1-90 Unicode 校验；目标成员、业务时区、原子新建交接、契约 header、旧写入窗口与新领域同步仍是后续施工前置项。
+- 当前设计入口：[产品需求](./01-product.md)、[技术入口（含历史基线）](./02-technical-design.md)、[路线](./03-roadmap.md)、[决策](./04-decisions.md)、[v1 契约](./superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md)、[v1 计划](./superpowers/plans/2026-09-16-muyu-v1.md)。旧认证、单负责人、设备和单人起步规格仍作为未被替代的运行时兼容依据。
+- 接手时的文档验证记录：`git diff --check` 通过；本次代码施工后另外执行了后端、Flutter、Web 和 APK 验证，历史 APK 链接的缺失不修改过去的构建证据，也不当作本次构建成功。
+
+- 2026-09-16：收到《Muyu：产品设计理念、设计方案与实施方案 v1.0》。已完成接手审计，差异清单见 [Muyu v1 接手差异清单](./architecture/2026-09-16-muyu-v1-gap-assessment.md)。后续以该文档的四个底部 Tab、事项标题内视图切换、唯一负责人和验收闭环为产品基线；既有正式认证、Workspace、事务和同步能力继续复用。
+- 2026-09-16：接手检查未发现 `HANDOFF.md`；Flutter/Dart 工具可用，`adb devices` 当前没有授权设备，因此真实 Android 安装、截图和双设备人工验收仍为 pending。宿主机没有可用的 Alembic CLI/entrypoint，未执行迁移升级，仅依据 `0014_moment_home_indexes.py` 迁移链审计本地 head。已冻结 v1 契约与实施顺序，见 [v1 契约与交付设计](./superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md) 和 [v1 分阶段实施计划](./superpowers/plans/2026-09-16-muyu-v1.md)。本次只更新规格、计划和状态记录，未改动业务代码、API、数据库或客户端行为。
+
+- 当前阶段：云端协调架构 Tasks 1-15、Android/Web 客户端边界 Tasks 1-8 及 Android 任务导航与刷新交互已实现；四象限 2×2 展示施工和 `v0.2.0` APK 发布完成。任务参与人模型移除和单分类模型已完成本地代码、迁移、客户端和测试收口。线上 API 已升级至 `0013_remove_default_class`，不再生成系统“默认”分类。“清单 → 此刻”协作工作台的 Home 投影、canonical 元数据与 `entries` 契约、`/home/entries/{entry}` 入口分页、`0014_moment_home_indexes` 查询索引、任务详情行动投影、交接说明、验收内容、活动证据、snapshot/cursor 连续性校验、Web canonical Home 消费和双人协作自动化 E2E 已完成；`0015_task_next_step_text` 及用户填写下一步的跨端局部接入已完成本地代码和回归，交接拟议值/创建给 TA 仍待施工。本轮 Android 严格视觉重构已完成本地代码和回归，APK 已按 commit 命名构建。线上 API/WEB 未因本轮 Android 视觉变更改动，真实 Android 设备截图验收仍待有授权设备后执行。
 - 当前范围：只交付 Android 与 Web；Android 需要 APK/AAB，Web 由 TypeScript + Vite 构建静态文件；iOS 留作未来协议兼容，不进入本轮构建、发布或验收。
 - 当前数据与同步边界：PostgreSQL 是明文事实源；REST cursor 同步为正确性路径，WebSocket 仅为通知；不允许离线提交；首版不引入 Elasticsearch/OpenSearch。
-- 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入普通字段，但负责人转交必须单独提交 `HANDLER_TRANSFER` 并由另一位成员审批；非当前负责人的成员写入受保护字段时继续提交给当前负责人审批；“我的任务”只按当前负责人筛选。
+- 当前任务契约：每项任务只保留一个 `current_handler_id`；同一 Workspace 的两位 ACTIVE 成员可读取全部未删除父任务和子任务；当前负责人可直接写入普通字段（含已落地的 `next_step_text`），但负责人转交必须单独提交 `HANDLER_TRANSFER` 并由另一位成员审批；非当前负责人的成员写入受保护字段时继续提交给当前负责人审批；“我的任务”只按当前负责人筛选。
 - 当前分类契约：单人 Workspace 自动提供唯一的个人起步分类，允许第一位用户立即创建任务；第二位 ACTIVE 成员加入后，起步分类转为只读迁移分类。双人阶段新任务必须显式选择已批准共享分类，首个共享分类由一方发起 `CLASSIFICATION_CREATE` 并经另一位成员批准。
 - 当前完成契约：任务完成始终需要另一位成员验收。负责人一次提交验收会在同一事务内将任务改为 `REVIEW` 并自动创建唯一验收审批；批准后进入 `DONE`，驳回并填写原因后回到 `IN_PROGRESS`。单人阶段不能直接完成，也不创建没有审批人的验收请求。
 - 当前 Android 账户概览：从现有 Workspace snapshot 统计当前用户负责的全部未删除父任务和子任务，并显示任务、完成和延期汇总；匹配对象头像打开另一位 ACTIVE 成员的同口径概览。
@@ -26,6 +42,23 @@
 - 历史 P2P 架构规格：[Local-first P2P 双人同步架构设计](./superpowers/specs/2026-08-21-local-first-p2p-architecture-design.md)。
 - 历史 P2P 实施计划：[Local-first P2P Implementation Plan](./superpowers/plans/2026-08-21-local-first-p2p.md)。
 - Git：本地 `main` 已跟踪 GitHub `origin/main`；本轮云端替换直接在 `main` 完成，提交前保留完整验证记录。
+
+### 2026-09-17 - v1 批次 1 事项壳层与阅读查询施工
+
+- 类型：v1 导航收敛 / Home 回应指标 / 任务查询 / 跨端回归。
+- Android：`CloudWorkspaceScreen` 使用 `事项 / 记账 / 打卡 / 我的` 四 Tab；事项默认 `此刻`，标题内 PopupMenu 切换四象限和日程，三视图使用同一 `WorkspaceSyncController` 和 `PageStorageKey`；记账、打卡显示未开放状态，不读取任务数据。Home canonical `REVIEW` 任务按负责人归类，客户端渲染按任务 ID 去重，第三个指标显示“本周到期”。
+- Web：新增事项三视图、全部事情次级入口、我的入口、记账/打卡未开放路由；保留 `/today`、`/tasks`、审批、动态和任务详情旧 hash 解析，并在详情关闭时恢复来源路由。事项页使用 canonical Home 和共享 snapshot，不创建账目/打卡假数据。
+- API：`GET /api/v1/home` 的 `entry_counts`、canonical `entries` 和入口分页使用待接棒/待验收谓词；旧广义审批计数保留兼容。`GET /api/v1/tasks` 支持 `q/status/handler/include_history/limit/after`、软删除过滤、状态/负责人过滤和 workspace/viewer/query 绑定 keyset cursor；无参数仍返回旧列表。
+- 测试与产物：后端 `280 passed, 3 skipped, 1 warning`；Flutter `227 passed`、`flutter analyze`、Dart format 通过；Web `274 passed`、typecheck 和 Vite build 通过；debug APK `Muyu-26a51c9.apk` 归档及 API origin 检查通过。
+- 未完成与限制：`next_step_text` 已支持可空持久化、查询和 Android/Web 新建/编辑，但客户端契约 header 强制、`proposed_next_step`、创建给 TA、业务时区和完整来源筛选仍未完成；记账、打卡、纪念日和线上/发布验收未完成。原型 URL 被浏览器安全策略拒绝，未形成原型截图或交互证据；`adb devices` 无授权设备，真机截图和双设备人工验收保持 pending。
+
+### 2026-09-17 - 明确下一步字段与跨端表单局部施工
+
+- 类型：任务事实字段 / 迁移 / REST 与同步 / Android/Web 创建编辑。
+- 变更：Alembic `0015_task_next_step_text` 增加可空 `tasks.next_step_text`；TaskService、snapshot/changes、任务查询和任务变更校验接入 trim 后 1-90 Unicode code point。旧请求可省略字段并读取 `null`，不为历史任务补造事实。
+- 客户端：Android 与 Web 任务模型、Repository、同步控制器、创建/编辑表单和任务卡摘要接入独立“明确下一步”字段；新客户端创建要求填写，已有空字段的旧任务仍可编辑其他属性；失败时保留输入。
+- 验证：next-step HTTP 专项 `3 passed`、迁移可逆性专项 `1 passed`；后端 PostgreSQL 全量 `280 passed, 3 skipped, 1 warning`；Flutter 全量 `227 passed`、Dart format、`flutter analyze` 通过；Web 全量 `274 passed`、typecheck 和 Vite build 通过；`git diff --check` 与 Python compileall 通过。
+- 实际限制：`HANDLER_TRANSFER.proposed_next_step`、`X-Muyu-Client-Contract` 强制、创建给 TA 原子交接、业务时区和完整来源筛选尚未实现；本轮未部署线上服务或公开发布。原型 URL 仍被浏览器工具安全策略拒绝，未形成截图/交互证据；无授权 Android 设备，真机安装、截图、键盘/安全区/无障碍和双设备人工验收保持 pending。
 
 ### 2026-09-15 - Android「此刻」严格视觉重构完成
 

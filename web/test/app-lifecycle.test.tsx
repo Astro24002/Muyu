@@ -220,8 +220,10 @@ describe('React app lifecycle', () => {
     await settle();
     fireEvent.click(getByRole('button', { name: '记下一件事' }));
     const title = getByLabelText('任务标题') as HTMLInputElement;
+    const nextStep = getByLabelText('明确下一步') as HTMLInputElement;
     const quadrant = getByLabelText('四象限') as HTMLSelectElement;
     fireEvent.change(title, { target: { value: 'late task' } });
+    fireEvent.change(nextStep, { target: { value: '先确认交接内容' } });
     fireEvent.click(getByRole('radio', { name: '工作' }));
     fireEvent.change(quadrant, { target: { value: 'Q1' } });
     (getByRole('button', { name: '创建任务' }).closest('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));

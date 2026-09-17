@@ -189,6 +189,7 @@ function createFixtureState(options: VisualFixtureOptions = {}): FixtureState {
     approvals: [incomingApproval, outgoingApproval],
     comments: [{
       id: 'comment-focus',
+      workspace_id: 'workspace-visual',
       task_id: focusTask.id,
       author_user_id: 'viewer',
       body: '已经列出主要食材。',
@@ -465,6 +466,7 @@ async function fulfillApi(route: Route, state: FixtureState): Promise<void> {
     const body = postBody(route);
     const comment: TaskComment = {
       id: `comment-${state.comments.length + 1}`,
+      workspace_id: 'workspace-visual',
       task_id: taskId,
       author_user_id: 'viewer',
       body: typeof body.body === 'string' ? body.body : '',

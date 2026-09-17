@@ -129,7 +129,7 @@ void main() {
     );
     expect(find.text('卡住的事情'), findsOneWidget);
     expect(find.text('我在推进'), findsOneWidget);
-    expect(find.text('对方在推进'), findsOneWidget);
+    expect(find.text('TA 在推进'), findsOneWidget);
     expect(find.byKey(const Key('moment-summary')), findsOneWidget);
     expect(find.byKey(const Key('moment-view-all')), findsOneWidget);
     expect(find.byKey(const ValueKey('task-card-mine')), findsOneWidget);
@@ -154,5 +154,49 @@ void main() {
       find.byKey(const Key('task-section-header-upcoming')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('renders a projected task once when sections overlap', (
+    tester,
+  ) async {
+    final duplicate = momentTask(
+      'duplicate',
+      status: 'BLOCKED',
+      handler: 'user-2',
+    );
+    final state = WorkspaceSyncState(
+      snapshot: WorkspaceSnapshot(
+        workspaceId: 'workspace-1',
+        cursor: 1,
+        viewerUserId: 'user-1',
+        tasks: [duplicate],
+      ),
+      home: HomeResponse(
+        currentTasks: HomeTaskSection(items: const []),
+        blockedTasks: HomeTaskSection(items: [duplicate]),
+        reviewTasks: HomeTaskSection(items: const []),
+        pendingApprovalCount: 0,
+        moment: MomentProjection(
+          blocked: HomeTaskSection(items: [duplicate]),
+          mine: HomeTaskSection(items: [duplicate]),
+          other: HomeTaskSection(items: const []),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskListView(
+            sync: WorkspaceSyncController.unavailable(),
+            state: state,
+            canWrite: false,
+            onTaskTap: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('moment-task-duplicate')), findsOneWidget);
   });
 }

@@ -11,7 +11,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.enums import MembershipStatus, TaskApprovalRequestStatus, TaskStatus
+from app.db.enums import (
+    MembershipStatus,
+    TaskApprovalRequestStatus,
+    TaskApprovalRequestType,
+    TaskStatus,
+)
 from app.db.models import Task, TaskApprovalRequest, WorkspaceMembership
 from app.home.schemas import (
     HomeApprovalItem,
@@ -109,31 +114,35 @@ def get_home(
         requester_id=actor.user_id,
     )
 
-    # Canonical request entries include taskless approvals (for example
-    # classification or device approvals), while task targets must still be
-    # live tasks in this workspace. The same predicate drives both counts and
-    # bounded entries so truncation never changes the count.
+    # v1's three action entries answer who must respond to a task handoff or
+    # acceptance request. Other pending approvals remain available through the
+    # approval center and legacy aggregate fields above, but must not inflate
+    # the task workbench's action metrics.
     needs_me_count = _pending_approval_count(
         session,
         actor.workspace_id,
         approver_id=actor.user_id,
+        action_only=True,
     )
     waiting_on_other_entry_count = _pending_approval_count(
         session,
         actor.workspace_id,
         requester_id=actor.user_id,
+        action_only=True,
     )
     needs_me_entries, needs_me_has_more = _pending_approval_entries(
         session,
         actor.workspace_id,
         approver_id=actor.user_id,
         limit=_ENTRY_LIMIT,
+        action_only=True,
     )
     waiting_on_other_entries, waiting_on_other_has_more = _pending_approval_entries(
         session,
         actor.workspace_id,
         requester_id=actor.user_id,
         limit=_ENTRY_LIMIT,
+        action_only=True,
     )
 
     # Read the live task set once so a task can only be assigned to one
@@ -336,6 +345,7 @@ def get_home_entry_page(
             actor.workspace_id,
             approver_id=approver_id,
             requester_id=requester_id,
+            action_only=True,
         )
         rows, has_more = _pending_approval_page(
             session,
@@ -344,6 +354,7 @@ def get_home_entry_page(
             requester_id=requester_id,
             limit=limit,
             cursor=cursor,
+            action_only=True,
         )
         items = [
             HomeApprovalItem(
@@ -508,6 +519,7 @@ def _pending_approval_page(
     requester_id=None,
     limit: int,
     cursor: dict[str, Any] | None,
+    action_only: bool = False,
 ) -> tuple[list[tuple[TaskApprovalRequest, Task | None]], bool]:
     """Return one keyset page using the same visibility predicate as counts."""
 
@@ -518,13 +530,15 @@ def _pending_approval_page(
         if approver_id is not None
         else TaskApprovalRequest.requester_id == requester_id
     )
-    statement = (
-        select(TaskApprovalRequest, Task)
-        .outerjoin(Task, Task.id == TaskApprovalRequest.task_id)
-        .where(
-            TaskApprovalRequest.workspace_id == workspace_id,
-            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
-            direction,
+    statement = select(TaskApprovalRequest, Task)
+    if action_only:
+        statement = statement.join(Task, Task.id == TaskApprovalRequest.task_id).where(
+            Task.workspace_id == workspace_id,
+            Task.deleted_at.is_(None),
+            _task_action_request_predicate(),
+        )
+    else:
+        statement = statement.outerjoin(Task, Task.id == TaskApprovalRequest.task_id).where(
             or_(
                 TaskApprovalRequest.task_id.is_(None),
                 and_(
@@ -533,6 +547,10 @@ def _pending_approval_page(
                 ),
             ),
         )
+    statement = statement.where(
+        TaskApprovalRequest.workspace_id == workspace_id,
+        TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+        direction,
     )
     if cursor is not None:
         after = cursor["after"]
@@ -685,6 +703,7 @@ def _pending_approval_count(
     approver_id=None,
     requester_id=None,
     require_task: bool = False,
+    action_only: bool = False,
 ) -> int:
     """Count pending requests whose task target is still visible."""
 
@@ -696,7 +715,7 @@ def _pending_approval_count(
         else TaskApprovalRequest.requester_id == requester_id
     )
     statement = select(func.count()).select_from(TaskApprovalRequest)
-    if require_task:
+    if require_task or action_only:
         statement = statement.join(Task, Task.id == TaskApprovalRequest.task_id)
         target = and_(
             Task.workspace_id == workspace_id,
@@ -711,14 +730,15 @@ def _pending_approval_count(
                 Task.deleted_at.is_(None),
             ),
         )
-    count = session.scalar(
-        statement.where(
-            TaskApprovalRequest.workspace_id == workspace_id,
-            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
-            direction,
-            target,
-        )
-    )
+    filters = [
+        TaskApprovalRequest.workspace_id == workspace_id,
+        TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+        direction,
+        target,
+    ]
+    if action_only:
+        filters.append(_task_action_request_predicate())
+    count = session.scalar(statement.where(*filters))
     return int(count or 0)
 
 
@@ -729,6 +749,7 @@ def _pending_approval_entries(
     approver_id=None,
     requester_id=None,
     limit: int,
+    action_only: bool = False,
 ) -> tuple[list[tuple[TaskApprovalRequest, Task | None]], bool]:
     """Return bounded pending request/task pairs in stable oldest-first order."""
 
@@ -739,13 +760,15 @@ def _pending_approval_entries(
         if approver_id is not None
         else TaskApprovalRequest.requester_id == requester_id
     )
-    rows = session.execute(
-        select(TaskApprovalRequest, Task)
-        .outerjoin(Task, Task.id == TaskApprovalRequest.task_id)
-        .where(
-            TaskApprovalRequest.workspace_id == workspace_id,
-            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
-            direction,
+    statement = select(TaskApprovalRequest, Task)
+    if action_only:
+        statement = statement.join(Task, Task.id == TaskApprovalRequest.task_id).where(
+            Task.workspace_id == workspace_id,
+            Task.deleted_at.is_(None),
+            _task_action_request_predicate(),
+        )
+    else:
+        statement = statement.outerjoin(Task, Task.id == TaskApprovalRequest.task_id).where(
             or_(
                 TaskApprovalRequest.task_id.is_(None),
                 and_(
@@ -754,6 +777,12 @@ def _pending_approval_entries(
                 ),
             ),
         )
+    rows = session.execute(
+        statement.where(
+            TaskApprovalRequest.workspace_id == workspace_id,
+            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+            direction,
+        )
         .order_by(
             TaskApprovalRequest.created_at.asc(),
             TaskApprovalRequest.id.asc(),
@@ -761,6 +790,26 @@ def _pending_approval_entries(
         .limit(limit + 1)
     ).all()
     return rows[:limit], len(rows) > limit
+
+
+def _task_action_request_predicate():
+    """Match only the live requests that make another member the next actor."""
+
+    return or_(
+        TaskApprovalRequest.request_type == TaskApprovalRequestType.HANDLER_TRANSFER,
+        and_(
+            TaskApprovalRequest.request_type == TaskApprovalRequestType.STATUS_UPDATE,
+            TaskApprovalRequest.proposed_changes.contains(
+                {
+                    "target_status": TaskStatus.DONE.value,
+                    "review_submission": True,
+                }
+            ),
+            Task.status == TaskStatus.REVIEW,
+            Task.current_handler_id == TaskApprovalRequest.requester_id,
+            Task.reviewer_user_id == TaskApprovalRequest.approver_id,
+        ),
+    )
 
 
 def _task_sort_key(

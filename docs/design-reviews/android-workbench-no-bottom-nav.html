@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#225f50">
+  <title>Muyu Android 工作台 · 四项底部导航</title>
+  <style>
+    :root {
+      --page: #edf3ef;
+      --phone: #102f23;
+      --canvas: #f8faf9;
+      --surface: #ffffff;
+      --ink: #1d2d29;
+      --muted: #7c8783;
+      --brand: #225f50;
+      --brand-strong: #174b35;
+      --focus: #e7f0ed;
+      --coral: #b2573b;
+      --coral-surface: #f3dfd7;
+      --line: #dce3e0;
+      --sync: #52a083;
+      --radius: 8px;
+      --small-radius: 6px;
+      --shadow: 0 18px 42px rgba(18, 59, 42, .12);
+      --phone-shadow: 0 26px 80px rgba(15, 45, 33, .2);
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--page); }
+    body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--page); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 3px solid rgba(178, 87, 59, .35); outline-offset: 2px; }
+    .review { width: min(920px, 100%); margin: 0 auto; padding: 34px 22px 58px; }
+    .review-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 24px; }
+    .eyebrow { margin: 0 0 6px; color: var(--coral); font-size: 11px; font-weight: 800; letter-spacing: .1em; }
+    h1 { margin: 0; color: var(--brand-strong); font-size: 32px; line-height: 1.1; letter-spacing: 0; }
+    .intro { max-width: 510px; margin: 8px 0 0; color: #557066; font-size: 13px; line-height: 1.55; }
+    .review-note { max-width: 260px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); color: #557066; background: rgba(255, 255, 255, .72); font-size: 11px; line-height: 1.5; }
+    .review-note strong { display: block; margin-bottom: 3px; color: var(--brand-strong); font-size: 12px; }
+    .stage { display: grid; grid-template-columns: minmax(300px, 390px) minmax(240px, 1fr); gap: 28px; align-items: start; }
+    .phone { position: relative; width: 390px; max-width: 100%; margin: 0 auto; padding: 9px; border: 1px solid #c2d1c8; border-radius: 29px; background: var(--phone); box-shadow: var(--phone-shadow); }
+    .phone-screen { position: relative; min-height: 824px; overflow: hidden; border-radius: 22px; background: var(--canvas); }
+    .statusbar { display: flex; align-items: center; justify-content: space-between; height: 27px; padding: 6px 17px 0; color: #6d8077; background: var(--canvas); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+    .status-right { display: inline-flex; gap: 7px; align-items: center; }
+    .signal { display: inline-flex; gap: 2px; align-items: flex-end; height: 9px; }
+    .signal i { display: block; width: 3px; border-radius: 2px; background: var(--brand); }
+    .signal i:nth-child(1) { height: 3px; opacity: .45; }
+    .signal i:nth-child(2) { height: 5px; opacity: .65; }
+    .signal i:nth-child(3) { height: 7px; opacity: .82; }
+    .signal i:nth-child(4) { height: 9px; }
+    .appbar { display: flex; align-items: center; gap: 8px; padding: 13px 15px 9px; background: var(--canvas); }
+    .icon { display: inline-grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--brand); background: var(--surface); font-size: 18px; line-height: 1; }
+    .icon:hover { border-color: var(--brand); background: var(--focus); }
+    .brand-mark { display: inline-grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; color: var(--surface); background: var(--brand); font-size: 18px; font-weight: 800; }
+    .app-copy { min-width: 0; }
+    .app-copy small { display: block; margin-bottom: 1px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+    .app-copy h2 { margin: 0; color: var(--brand-strong); font-size: 18px; line-height: 1.1; }
+    .spacer { flex: 1; }
+    .category-button { display: inline-flex; align-items: center; gap: 3px; min-height: 30px; max-width: 92px; padding: 4px 7px; overflow: hidden; border: 1px solid var(--line); border-radius: 999px; color: var(--brand); background: var(--surface); font-size: 9px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .category-button:hover { border-color: var(--brand); background: var(--focus); }
+    .avatar { display: inline-grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; border: 1px solid #b8d6c4; border-radius: 50%; color: var(--brand-strong); background: var(--focus); font-size: 10px; font-weight: 800; }
+    .actor { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 16px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--small-radius); color: var(--muted); background: #f1f6f3; font-size: 10px; line-height: 1.35; }
+    .actor strong { color: var(--brand-strong); }
+    .synced { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--brand); font-size: 9px; font-weight: 800; }
+    .synced::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--sync); }
+    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 16px 12px; }
+    .summary button { display: flex; flex-direction: column; align-items: flex-start; min-height: 61px; padding: 8px 9px 7px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); text-align: left; background: var(--surface); }
+    .summary button:hover { border-color: var(--brand); background: var(--focus); }
+    .summary-number { color: var(--brand-strong); font-size: 18px; font-weight: 800; line-height: 1; }
+    .summary-label { margin-top: 4px; font-size: 10px; font-weight: 800; }
+    .summary-caption { margin-top: 1px; color: var(--muted); font-size: 8px; }
+    .feed { padding: 0 16px 92px; }
+    .feed-heading { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 6px; }
+    .feed-heading h3 { margin: 0; color: var(--brand-strong); font-size: 13px; line-height: 1.2; }
+    .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 4px; padding: 0 4px; border-radius: 999px; color: var(--brand); background: #dceee4; font-size: 9px; vertical-align: 1px; }
+    .feed-note { color: var(--muted); font-size: 8px; }
+    .task-list { display: grid; gap: 6px; }
+    .task { padding: 9px 9px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .task.blocked { border-left: 3px solid var(--coral); padding-left: 7px; background: #fffaf8; }
+    .task-top { display: flex; align-items: flex-start; gap: 6px; }
+    .task-title { overflow: hidden; flex: 1; min-width: 0; padding: 0; border: 0; color: var(--brand-strong); text-align: left; background: transparent; font-size: 12px; font-weight: 800; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+    .task-title:hover { color: var(--coral); }
+    .pill { display: inline-flex; align-items: center; justify-content: center; min-height: 19px; padding: 2px 6px; border-radius: 999px; white-space: nowrap; font-size: 9px; font-weight: 800; line-height: 1.1; }
+    .pill.progress { color: var(--brand); background: #dceee4; }
+    .pill.blocked { color: #9b3e31; background: var(--coral-surface); }
+    .pill.todo { color: #64736d; background: #edf1ef; }
+    .meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .meta .pill { color: #557066; background: #f3f6f4; font-size: 8px; font-weight: 700; }
+    .meta .pill.overdue { color: #a34134; background: var(--coral-surface); }
+    .next { display: grid; grid-template-columns: auto 1fr; gap: 5px; margin: 7px 0 0; color: #557066; font-size: 9px; line-height: 1.35; }
+    .next strong { color: var(--brand); }
+    .foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 7px; color: var(--muted); font-size: 8px; }
+    .owner { display: inline-flex; align-items: center; gap: 4px; }
+    .owner-dot { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; color: var(--brand-strong); background: #dceee4; font-size: 8px; font-weight: 800; }
+    .owner-dot.partner { color: #874b2f; background: #fae5d6; }
+    .fab { position: absolute; right: 16px; bottom: 76px; z-index: 3; display: inline-grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 50%; color: var(--surface); background: var(--brand); box-shadow: 0 8px 18px rgba(34, 95, 80, .26); font-size: 25px; line-height: 1; }
+    .fab:hover { background: var(--brand-strong); }
+    .drawer, .category-menu { position: absolute; z-index: 5; display: none; }
+    .drawer { inset: 0; background: rgba(18, 59, 42, .23); }
+    .drawer.open { display: block; }
+    .drawer-panel { width: 79%; height: 100%; padding: 18px 14px; border-radius: 0 17px 17px 0; background: var(--canvas); box-shadow: 12px 0 28px rgba(18, 59, 42, .16); }
+    .drawer-head { display: flex; align-items: center; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+    .drawer-head strong { color: var(--brand-strong); font-size: 13px; }
+    .drawer-list { display: grid; gap: 4px; margin-top: 14px; }
+    .drawer-list button { min-height: 36px; padding: 7px 9px; border: 0; border-radius: var(--small-radius); color: #557066; text-align: left; background: transparent; font-size: 11px; font-weight: 700; }
+    .drawer-list button:hover, .drawer-list button.active { color: var(--brand-strong); background: var(--focus); }
+    .category-menu { top: 69px; right: 52px; width: 128px; padding: 7px; border: 1px solid var(--line); border-radius: var(--small-radius); background: var(--surface); box-shadow: var(--shadow); }
+    .category-menu.open { display: grid; gap: 2px; }
+    .category-menu button { min-height: 30px; padding: 5px 7px; border: 0; border-radius: 4px; color: #557066; text-align: left; background: transparent; font-size: 10px; font-weight: 700; }
+    .category-menu button:hover { color: var(--brand-strong); background: var(--focus); }
+    .account-menu { position: absolute; top: 59px; right: 13px; z-index: 4; display: none; width: 144px; padding: 7px; border: 1px solid var(--line); border-radius: var(--small-radius); background: var(--surface); box-shadow: var(--shadow); }
+    .account-menu.open { display: grid; gap: 2px; }
+    .account-menu button { min-height: 31px; padding: 5px 7px; border: 0; border-radius: 4px; color: #557066; text-align: left; background: transparent; font-size: 10px; font-weight: 700; }
+    .account-menu button:hover { color: var(--brand-strong); background: var(--focus); }
+    .bottom-nav { position: absolute; right: 0; bottom: 0; left: 0; z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); min-height: 64px; padding: 7px 9px 8px; border-top: 1px solid var(--line); background: var(--surface); }
+    .bottom-nav button { display: grid; place-items: center; align-content: center; gap: 3px; min-width: 0; min-height: 48px; padding: 4px 2px; border: 0; border-radius: var(--small-radius); color: var(--muted); background: transparent; font-size: 9px; font-weight: 800; line-height: 1.1; }
+    .bottom-nav button:hover { color: var(--brand); background: var(--focus); }
+    .bottom-nav button.active { color: var(--brand-strong); background: var(--focus); }
+    .bottom-nav .tab-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; font-size: 17px; line-height: 1; }
+    .bottom-nav button.active .tab-icon { color: var(--brand); }
+    .toast { position: absolute; right: 14px; bottom: 142px; left: 14px; z-index: 4; display: none; padding: 9px 10px; border: 1px solid #b8d6c4; border-radius: var(--small-radius); color: var(--brand-strong); background: #eef7f2; font-size: 10px; font-weight: 700; }
+    .toast.show { display: block; }
+    .notes { padding-top: 18px; }
+    .notes h2 { margin: 0 0 10px; color: var(--brand-strong); font-size: 18px; }
+    .notes p { margin: 0 0 12px; color: #557066; font-size: 12px; line-height: 1.55; }
+    .rule { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+    .rule li { padding: 10px 11px; border: 1px solid var(--line); border-radius: var(--small-radius); color: #557066; background: rgba(255, 255, 255, .62); font-size: 11px; line-height: 1.45; }
+    .rule strong { color: var(--brand-strong); }
+    @media (max-width: 760px) {
+      .review { padding: 24px 14px 42px; }
+      .review-head { align-items: flex-start; flex-direction: column; }
+      .review-note { max-width: none; }
+      .stage { grid-template-columns: 1fr; gap: 18px; }
+      .phone { max-width: 390px; }
+      .notes { padding-top: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="review">
+    <header class="review-head">
+      <div>
+        <p class="eyebrow">ANDROID WORKBENCH · CONFIRMED DIRECTION</p>
+        <h1>四项入口，内容仍归工作台</h1>
+        <p class="intro">保留事项、记账、习惯打卡、我的四个一级入口。事项页继续作为协作工作台；清单、四象限、日程从汉堡菜单切换，顶部下拉只选择任务分类。</p>
+      </div>
+      <aside class="review-note"><strong>结构结论</strong>底部只承担一级模块切换；事项页内部仍是一套工作台，视图、分类和账户入口保持原来的层级。</aside>
+    </header>
+    <section class="stage">
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="statusbar"><span>14:49</span><span class="status-right"><span>5G</span><span class="signal"><i></i><i></i><i></i><i></i></span><span>66%</span></span></div>
+          <header class="appbar">
+            <button class="icon menu-button" aria-label="打开工作台菜单">☰</button>
+            <span class="brand-mark" aria-hidden="true">↗</span>
+            <div class="app-copy"><small>此刻的协作工作台</small><h2>此刻</h2></div>
+            <span class="spacer"></span>
+            <button class="category-button" aria-label="选择任务分类">全部分类⌄</button>
+            <button class="avatar account-button" aria-label="打开我的菜单">B</button>
+          </header>
+          <div class="actor"><span>正在以 <strong>Bokang</strong> 查看</span><span class="synced">已同步</span></div>
+          <div class="summary"><button><span class="summary-number">2</span><span class="summary-label">需要我处理</span><span class="summary-caption">待处理请求</span></button><button><span class="summary-number">3</span><span class="summary-label">等对方</span><span class="summary-caption">交接中</span></button><button><span class="summary-number">7</span><span class="summary-label">本周</span><span class="summary-caption">我的任务</span></button></div>
+          <div class="feed">
+            <section><div class="feed-heading"><h3>卡住的事情 <span class="count">2</span></h3><span class="feed-note">先看卡住的事</span></div><div class="task-list"><article class="task blocked"><div class="task-top"><button class="task-title">确认婚礼酒店</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill overdue">逾期 2d</span><span class="pill">婚礼</span><span class="pill">Q1</span></div><p class="next"><strong>下一步</strong><span>等待酒店补充合同</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>等待条件</span></div></article><article class="task blocked"><div class="task-top"><button class="task-title">确认印刷材质</button><span class="pill blocked">阻塞中</span></div><div class="meta"><span class="pill">今天</span><span class="pill">工作</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>等供应商确认纸张</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>等待条件</span></div></article></div></section>
+            <section><div class="feed-heading"><h3>我在推进 <span class="count">2</span></h3><span class="feed-note">我负责的下一步</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">整理宾客名单</button><span class="pill progress">进行中</span></div><div class="meta"><span class="pill">周五</span><span class="pill">婚礼</span><span class="pill">Q2</span></div><p class="next"><strong>下一步</strong><span>合并最后一版联系方式</span></p><div class="foot"><span class="owner"><span class="owner-dot">B</span>Bokang</span><span>可协作</span></div></article></div></section>
+            <section><div class="feed-heading"><h3>对方在推进 <span class="count">1</span></h3><span class="feed-note">交给对方的进展</span></div><div class="task-list"><article class="task"><div class="task-top"><button class="task-title">确认菜单</button><span class="pill todo">待进行</span></div><div class="meta"><span class="pill">周六</span><span class="pill">婚礼</span><span class="pill">Q3</span></div><p class="next"><strong>下一步</strong><span>由溪岸继续处理</span></p><div class="foot"><span class="owner"><span class="owner-dot partner">溪</span>溪岸</span><span>可协作</span></div></article></div></section>
+            <div style="height: 20px"></div>
+          </div>
+          <button class="fab" aria-label="新增任务">＋</button>
+          <nav class="bottom-nav" aria-label="一级模块导航">
+            <button class="active" aria-current="page"><span class="tab-icon" aria-hidden="true">▤</span><span>事项</span></button>
+            <button><span class="tab-icon" aria-hidden="true">¥</span><span>记账</span></button>
+            <button><span class="tab-icon" aria-hidden="true">✓</span><span>习惯打卡</span></button>
+            <button><span class="tab-icon" aria-hidden="true">○</span><span>我的</span></button>
+          </nav>
+          <div class="drawer"><div class="drawer-panel"><div class="drawer-head"><span class="brand-mark">↗</span><strong>工作台视图</strong></div><div class="drawer-list"><button class="active">此刻</button><button>全部任务</button><button>四象限</button><button>日程</button><button>我的与审批</button><button>设备管理</button></div></div></div>
+          <div class="category-menu"><button>全部分类</button><button>婚礼</button><button>工作</button><button>生活</button></div>
+          <div class="account-menu"><button>我的资料</button><button>审批中心</button><button>设备管理</button><button>扫码登录 Web</button></div>
+          <div class="toast">已打开新增任务，先写下要推进的事情。</div>
+        </div>
+      </div>
+      <aside class="notes">
+        <h2>本版交互规则</h2>
+        <p>底部保留四个一级模块入口，但不再把清单、四象限、日程拆成底部 Tab。事项页的主体高度仍然优先留给工作内容。</p>
+        <ul class="rule">
+          <li><strong>一级入口：</strong>事项、记账、习惯打卡、我的；当前默认选中事项。</li>
+          <li><strong>视图：</strong>汉堡菜单切换“此刻 / 全部任务 / 四象限 / 日程”。</li>
+          <li><strong>分类：</strong>标题右侧“全部分类⌄”只筛选分类，不改变当前视图。</li>
+          <li><strong>我的：</strong>底部“我的”进入账户工作区，头像菜单继续提供资料、审批、设备和扫码登录。</li>
+          <li><strong>底部：</strong>导航栏固定在屏幕底部；任务列表预留安全间距，FAB 悬浮在导航栏上方。</li>
+          <li><strong>新增：</strong>FAB 不改变导航栏高度，点击后仍从当前事项工作台创建任务。</li>
+        </ul>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const phone = document.querySelector('.phone-screen');
+    const drawer = phone.querySelector('.drawer');
+    const categoryMenu = phone.querySelector('.category-menu');
+    const accountMenu = phone.querySelector('.account-menu');
+    const toast = phone.querySelector('.toast');
+    const viewTitle = phone.querySelector('.app-copy h2');
+    const bottomNav = phone.querySelector('.bottom-nav');
+    const showToast = (message) => {
+      toast.textContent = message;
+      toast.classList.add('show');
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 2400);
+    };
+    phone.querySelector('.menu-button').addEventListener('click', () => {
+      categoryMenu.classList.remove('open');
+      accountMenu.classList.remove('open');
+      drawer.classList.toggle('open');
+    });
+    drawer.addEventListener('click', (event) => {
+      if (event.target === drawer) drawer.classList.remove('open');
+    });
+    drawer.querySelectorAll('.drawer-list button').forEach((button) => {
+      button.addEventListener('click', () => {
+        drawer.querySelectorAll('.drawer-list button').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        viewTitle.textContent = button.textContent;
+        drawer.classList.remove('open');
+        showToast(`已切换到${button.textContent}视图`);
+      });
+    });
+    phone.querySelector('.category-button').addEventListener('click', () => {
+      drawer.classList.remove('open');
+      accountMenu.classList.remove('open');
+      categoryMenu.classList.toggle('open');
+    });
+    phone.querySelector('.account-button').addEventListener('click', () => {
+      drawer.classList.remove('open');
+      categoryMenu.classList.remove('open');
+      accountMenu.classList.toggle('open');
+    });
+    phone.querySelector('.fab').addEventListener('click', () => {
+      showToast('已打开新增任务，先写下要推进的事情。');
+    });
+    phone.querySelectorAll('.category-menu button').forEach((button) => {
+      button.addEventListener('click', () => {
+        phone.querySelector('.category-button').textContent = button.textContent + '⌄';
+        categoryMenu.classList.remove('open');
+      });
+    });
+    accountMenu.querySelectorAll('button').forEach((button) => {
+      button.addEventListener('click', () => {
+        accountMenu.classList.remove('open');
+        showToast(`${button.textContent}入口已打开`);
+      });
+    });
+    bottomNav.querySelectorAll('button').forEach((button) => {
+      button.addEventListener('click', () => {
+        bottomNav.querySelectorAll('button').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        bottomNav.querySelectorAll('button').forEach((item) => item.removeAttribute('aria-current'));
+        button.setAttribute('aria-current', 'page');
+        showToast(`${button.querySelector('span:last-child').textContent}模块已选中`);
+      });
+    });
+  </script>
+</body>
+</html>

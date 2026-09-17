@@ -32,6 +32,7 @@ abstract class WorkspaceSyncRepository {
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
@@ -166,6 +167,7 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
@@ -180,6 +182,9 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     };
     if (description != null) {
       body['description'] = description;
+    }
+    if (nextStepText != null) {
+      body['next_step_text'] = nextStepText;
     }
     if (dueAt != null) {
       body['due_at'] = dueAt;

@@ -34,7 +34,7 @@ from app.db.models import (
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
-from app.tasks.service import MUTABLE_FIELDS, TRANSITIONS, TaskService, normalize_task_labels
+from app.tasks.service import MUTABLE_FIELDS, TRANSITIONS, TaskService, normalize_next_step_text, normalize_task_labels
 from app.workspaces.classifications import (
     ClassificationError,
     ClassificationService,
@@ -1354,6 +1354,13 @@ class TaskApprovalService:
             if "labels" in changes:
                 try:
                     normalize_task_labels(changes["labels"])
+                except TaskConflictError as error:
+                    raise TaskApprovalError(error.code, str(error)) from error
+            if "next_step_text" in changes:
+                try:
+                    changes["next_step_text"] = normalize_next_step_text(
+                        changes["next_step_text"], allow_none=False
+                    )
                 except TaskConflictError as error:
                     raise TaskApprovalError(error.code, str(error)) from error
         elif request_type == TaskApprovalRequestType.QUADRANT_UPDATE:

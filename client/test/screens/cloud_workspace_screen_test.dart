@@ -116,6 +116,7 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
@@ -399,7 +400,7 @@ void main() {
 
       await tester.pageBack();
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('task-list-destination')));
+      await tester.tap(find.byKey(const ValueKey('matters-destination')));
       await tester.pumpAndSettle();
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
@@ -535,6 +536,10 @@ void main() {
       find.byKey(const Key('task-title-input')),
       'Buy milk',
     );
+    await tester.enterText(
+      find.byKey(const Key('task-next-step-input')),
+      '确认牛奶品牌和购买时间',
+    );
     await tester.pump();
     expect(
       tester
@@ -629,6 +634,10 @@ void main() {
       isTrue,
     );
     await tester.enterText(find.byKey(const Key('task-title-input')), 'Plan');
+    await tester.enterText(
+      find.byKey(const Key('task-next-step-input')),
+      '列出本周计划并确认第一个动作',
+    );
 
     final labelButtonBeforeDue = tester.getTopLeft(
       find.byKey(const Key('task-create-label-button')),
@@ -734,6 +743,10 @@ void main() {
         find.byKey(const Key('task-title-input')),
         'Keep me',
       );
+      await tester.enterText(
+        find.byKey(const Key('task-next-step-input')),
+        '保留失败时填写的下一步内容',
+      );
       await tester.pump();
       await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
       await tester.pumpAndSettle();
@@ -816,7 +829,7 @@ void main() {
     );
   });
 
-  testWidgets('bottom navigation exposes exactly the four task destinations', (
+  testWidgets('bottom navigation exposes the v1 four destinations', (
     tester,
   ) async {
     final sync = await readyController(FakeTaskRepository());
@@ -827,23 +840,24 @@ void main() {
     );
 
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('清单'), findsWidgets);
-    expect(find.text('四象限'), findsOneWidget);
-    expect(find.text('日程'), findsOneWidget);
+    expect(find.text('事项'), findsWidgets);
+    expect(find.text('记账'), findsOneWidget);
+    expect(find.text('打卡'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
     expect(find.text('看板'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('task-quadrant-destination')));
+    await tester.tap(find.byKey(const Key('matter-view-menu')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('task-category-selector')), findsOneWidget);
-    expect(find.text('全部任务'), findsOneWidget);
-    expect(find.byKey(const Key('task-quadrant-label-filter')), findsNothing);
+    await tester.tap(find.byKey(const Key('matter-view-item-quadrant')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('task-quadrant-title-Q1')), findsOneWidget);
     expect(find.byKey(const Key('task-quadrant-title-Q2')), findsOneWidget);
     expect(find.byKey(const Key('task-quadrant-title-Q3')), findsOneWidget);
     expect(find.byKey(const Key('task-quadrant-title-Q4')), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('task-schedule-destination')));
+    await tester.tap(find.byKey(const Key('matter-view-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('matter-view-item-schedule')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('task-schedule-scroll')), findsOneWidget);
 
@@ -852,50 +866,36 @@ void main() {
     expect(find.text('当前会话不可用'), findsOneWidget);
   });
 
-  testWidgets(
-    'task destinations share one AppBar contract while My stays independent',
-    (tester) async {
-      final sync = await readyController(FakeTaskRepository());
-      await tester.pumpWidget(
-        MaterialApp(
-          home: CloudWorkspaceScreen(
-            api: testApi(),
-            syncController: sync,
-            session: loggedInSession,
-            signingKey: FakeCloudSigningKey(),
-          ),
+  testWidgets('matter title menu and My stay independent', (tester) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(
+          api: testApi(),
+          syncController: sync,
+          session: loggedInSession,
+          signingKey: FakeCloudSigningKey(),
         ),
-      );
+      ),
+    );
 
-      final taskAppBarHeights = <double>[];
-      for (final destination in const [
-        'task-list-destination',
-        'task-quadrant-destination',
-        'task-schedule-destination',
-      ]) {
-        await tester.tap(find.byKey(ValueKey(destination)));
-        await tester.pumpAndSettle();
-        final appBar = tester.widget<AppBar>(
-          find.byKey(const Key('task-system-app-bar')),
-        );
-        taskAppBarHeights.add(appBar.preferredSize.height);
-        expect(find.byKey(const Key('task-system-title')), findsOneWidget);
-        expect(find.byKey(const Key('profile-account-app-bar')), findsNothing);
-      }
+    expect(find.byKey(const Key('task-system-app-bar')), findsOneWidget);
+    expect(find.byKey(const Key('task-system-title')), findsOneWidget);
+    expect(find.byKey(const Key('matter-view-menu')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('matter-view-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('matter-view-item-quadrant')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-system-app-bar')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-system-app-bar')), findsNothing);
+    expect(find.byKey(const Key('profile-account-app-bar')), findsOneWidget);
+    expect(find.byKey(const Key('profile-approval-center')), findsOneWidget);
+    expect(find.byKey(const Key('profile-web-qr-login')), findsOneWidget);
+  });
 
-      expect(taskAppBarHeights, everyElement(taskAppBarHeights.first));
-      await tester.tap(find.byKey(const ValueKey('task-profile-destination')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('task-system-app-bar')), findsNothing);
-      expect(find.byKey(const Key('profile-account-app-bar')), findsOneWidget);
-      expect(find.byKey(const Key('profile-approval-center')), findsOneWidget);
-      expect(find.byKey(const Key('profile-web-qr-login')), findsOneWidget);
-    },
-  );
-
-  testWidgets('hamburger opens a left drawer instead of a bottom sheet', (
-    tester,
-  ) async {
+  testWidgets('matter title opens a compact view menu', (tester) async {
     final sync = await readyController(FakeTaskRepository());
     await tester.pumpWidget(
       MaterialApp(
@@ -903,11 +903,13 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const Key('task-list-menu-button')));
+    await tester.tap(find.byKey(const Key('matter-view-menu')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('task-list-drawer')), findsOneWidget);
-    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.byKey(const Key('matter-view-item-moment')), findsOneWidget);
+    expect(find.byKey(const Key('matter-view-item-quadrant')), findsOneWidget);
+    expect(find.byKey(const Key('matter-view-item-schedule')), findsOneWidget);
+    expect(find.byKey(const Key('task-list-drawer')), findsNothing);
   });
 
   testWidgets(
@@ -1049,7 +1051,9 @@ void main() {
             .physics,
         isA<AlwaysScrollableScrollPhysics>(),
       );
-      await tester.tap(find.byKey(const ValueKey('task-quadrant-destination')));
+      await tester.tap(find.byKey(const Key('matter-view-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matter-view-item-quadrant')));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -1057,7 +1061,9 @@ void main() {
             .physics,
         isA<AlwaysScrollableScrollPhysics>(),
       );
-      await tester.tap(find.byKey(const ValueKey('task-schedule-destination')));
+      await tester.tap(find.byKey(const Key('matter-view-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('matter-view-item-schedule')));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -1096,7 +1102,7 @@ void main() {
     expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
   });
 
-  testWidgets('日程 uses the shared category menu and has no create action', (
+  testWidgets('日程 uses the title view menu and has no create action', (
     tester,
   ) async {
     final sync = await readyController(FakeTaskRepository());
@@ -1106,11 +1112,13 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('task-schedule-destination')));
+    await tester.tap(find.byKey(const Key('matter-view-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('matter-view-item-schedule')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('task-system-app-bar')), findsOneWidget);
-    expect(find.byKey(const Key('task-list-menu-button')), findsOneWidget);
+    expect(find.byKey(const Key('matter-view-menu')), findsOneWidget);
     expect(find.byKey(const Key('task-category-selector')), findsOneWidget);
     expect(find.text('全部任务'), findsOneWidget);
     expect(find.byKey(const Key('task-schedule-label-filter')), findsNothing);

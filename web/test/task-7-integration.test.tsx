@@ -102,11 +102,11 @@ describe('Task 7 App integration', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/tasks/task-1'));
     expect(screen.getByRole('dialog', { name: '任务详情' })).toBeInTheDocument();
     expect(screen.getByTestId('muyu-app')).toHaveAttribute('data-route', 'task:task-1');
-    expect(document.querySelector(`[data-${listRoute === 'today' ? 'today' : 'all-tasks'}-page`)).toBeInTheDocument();
+    expect(document.querySelector(`[data-${listRoute === 'today' ? 'matters' : 'all-tasks'}-page`)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭任务详情' }));
     await waitFor(() => expect(window.location.hash).toBe(`#/${listRoute}`));
-    expect(document.querySelector(`[data-${listRoute === 'today' ? 'today' : 'all-tasks'}-page`)).toBeInTheDocument();
+    expect(document.querySelector(`[data-${listRoute === 'today' ? 'matters' : 'all-tasks'}-page`)).toBeInTheDocument();
     expect(document.activeElement).toBe(taskTrigger);
   });
 

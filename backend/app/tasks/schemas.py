@@ -12,6 +12,9 @@ class CreateTaskRequest(BaseModel):
     request_id: UUID
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=10000)
+    # Nullable for one compatibility window so older clients can still read
+    # and create historical-shaped tasks. New v1 clients always send it.
+    next_step_text: str | None = Field(default=None)
     due_at: str | None = None
     parent_task_id: UUID | None = None
     planned_start_at: str | None = None

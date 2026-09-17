@@ -24,10 +24,11 @@ export interface TaskEditFormProps {
   classifications?: WorkspaceClassification[];
 }
 
-type DraftField = 'title' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'reviewRejectionReason' | 'reviewContent' | 'progress';
+type DraftField = 'title' | 'nextStepText' | 'description' | 'status' | 'currentHandler' | 'dueAt' | 'quadrant' | 'labels' | 'blockedReason' | 'resumeHandler' | 'reviewRejectionReason' | 'reviewContent' | 'progress';
 
 interface TaskDraft {
   title: string;
+  nextStepText: string;
   description: string;
   status: TaskStatus;
   currentHandler: string;
@@ -114,6 +115,18 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
     // detection when the partner updates another field while this form is open.
     const changes: EditableTaskChanges = {};
     if (dirtyFields.current.has('title')) changes.title = draft.title.trim();
+    if (dirtyFields.current.has('nextStepText')) {
+      const nextStepText = draft.nextStepText.trim();
+      if (!nextStepText) {
+        setError('请填写明确下一步。');
+        return;
+      }
+      if (Array.from(nextStepText).length > 90) {
+        setError('明确下一步不能超过 90 个字符。');
+        return;
+      }
+      changes.next_step_text = nextStepText;
+    }
     if (dirtyFields.current.has('description')) changes.description = draft.description;
     if (draft.dueAt !== toDateTimeLocalValue(task.due_at)) {
       if (draft.dueAt.trim() === '') {
@@ -242,6 +255,18 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
             value={draft.title}
             disabled={!canWrite}
             onChange={(event) => updateDraft('title', event.target.value)}
+          />
+        </label>
+
+        <label className="task-detail-field">
+          <span>明确下一步</span>
+          <input
+            aria-label="明确下一步"
+            type="text"
+            maxLength={90}
+            value={draft.nextStepText}
+            disabled={!canWrite}
+            onChange={(event) => updateDraft('nextStepText', event.target.value)}
           />
         </label>
 
@@ -421,6 +446,7 @@ export function TaskEditForm({ task, members, actions, currentUserId, canWrite =
 function createDraft(task: TaskItem): TaskDraft {
   return {
     title: task.title,
+    nextStepText: task.next_step_text ?? '',
     description: task.description,
     status: normalizeTaskStatus(task.status) as TaskStatus,
     currentHandler: task.current_handler_id,
@@ -437,6 +463,7 @@ function createDraft(task: TaskItem): TaskDraft {
 
 function preserveDirtyFields(next: TaskDraft, current: TaskDraft, dirtyFields: Set<DraftField>): void {
   if (dirtyFields.has('title')) next.title = current.title;
+  if (dirtyFields.has('nextStepText')) next.nextStepText = current.nextStepText;
   if (dirtyFields.has('description')) next.description = current.description;
   if (dirtyFields.has('status')) next.status = current.status;
   if (dirtyFields.has('currentHandler')) next.currentHandler = current.currentHandler;
@@ -464,6 +491,7 @@ function clearDirtyFields(
 function fieldsForChanges(changes: EditableTaskChanges): DraftField[] {
   const fields: DraftField[] = [];
   if ('title' in changes) fields.push('title');
+  if ('next_step_text' in changes) fields.push('nextStepText');
   if ('description' in changes) fields.push('description');
   if ('due_at' in changes) fields.push('dueAt');
   if ('current_handler_id' in changes) fields.push('currentHandler');

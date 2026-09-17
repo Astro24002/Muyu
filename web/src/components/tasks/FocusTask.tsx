@@ -17,6 +17,7 @@ export function FocusTask({ task, onContinue, busy }: FocusTaskProps): JSX.Eleme
       <div className="focus-task__body">
         <p className="focus-task__eyebrow">继续上次的任务</p>
         <h2 className="focus-task__title">{task.title}</h2>
+        {task.next_step_text ? <p className="focus-task__description">下一步：{task.next_step_text}</p> : null}
         {task.description ? <p className="focus-task__description">{task.description}</p> : null}
         <TaskMeta task={task} className="focus-task__meta" />
         <TaskStatusLabel status={task.status} />

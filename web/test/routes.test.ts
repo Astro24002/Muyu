@@ -6,7 +6,14 @@ describe('hash routes', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('parses the supported routes and falls back to today', () => {
+  it('parses canonical v1 routes and legacy aliases', () => {
+    expect(parseHash('#/matters')).toEqual({ kind: 'matters', view: 'moment' });
+    expect(parseHash('#/matters/quadrant')).toEqual({ kind: 'matters', view: 'quadrant' });
+    expect(parseHash('#/matters/schedule')).toEqual({ kind: 'matters', view: 'schedule' });
+    expect(parseHash('#/ledger')).toEqual({ kind: 'ledger' });
+    expect(parseHash('#/checkins')).toEqual({ kind: 'checkins' });
+    expect(parseHash('#/me')).toEqual({ kind: 'me' });
+    expect(parseHash('#/all-tasks')).toEqual({ kind: 'all-tasks' });
     expect(parseHash('#/today')).toEqual({ kind: 'today' });
     expect(parseHash('#/tasks')).toEqual({ kind: 'tasks' });
     expect(parseHash('#/approvals')).toEqual({ kind: 'approvals' });
@@ -25,5 +32,8 @@ describe('hash routes', () => {
     navigate({ kind: 'task', id: 'task-1' });
     expect(window.location.hash).toBe('#/tasks/task-1');
     expect(window.location.pathname).toBe(pathname);
+
+    navigate({ kind: 'matters', view: 'schedule' });
+    expect(window.location.hash).toBe('#/matters/schedule');
   });
 });

@@ -9,12 +9,12 @@ import { render } from './react-test-helpers';
 
 const task: TaskItem = {
   id: 'task-1', workspace_id: 'workspace-1', parent_task_id: null, task_number: '26090001',
-  title: '原始标题', description: '下一步描述', due_at: '2026-09-02T12:00:00Z', status: 'TODO',
+  title: '原始标题', description: '补充说明', next_step_text: '先确认下一步', due_at: '2026-09-02T12:00:00Z', status: 'TODO',
   current_handler_id: 'viewer', blocked_reason: null, blocked_since: null, resume_handler_id: null,
   waiting_for_user_id: null, planned_start_at: null, estimated_minutes: 30, completed_at: null,
   created_by: 'viewer', created_at: '2026-08-30T08:00:00Z', updated_at: '2026-08-30T08:00:00Z',
   delay_count: 1, total_delay_minutes: 30, version: 3,
-  status_version: 2, field_versions: { title: 3, description: 2, quadrant: 1, labels: 1 },
+  status_version: 2, field_versions: { title: 3, description: 2, next_step_text: 2, quadrant: 1, labels: 1 },
   lifecycle_version: 1, deleted_at: null, quadrant: 'Q2', labels: ['工作'], progress: null,
 };
 
@@ -64,7 +64,8 @@ describe('TaskDetailPanel', () => {
     const panel = screen.getByRole('dialog', { name: '任务详情' });
     expect(panel).toHaveAttribute('data-panel-mode', 'drawer');
     expect(screen.getByRole('heading', { name: '原始标题' })).toBeInTheDocument();
-    expect(screen.getByLabelText('描述')).toHaveValue('下一步描述');
+    expect(screen.getByLabelText('明确下一步')).toHaveValue('先确认下一步');
+    expect(screen.getByLabelText('描述')).toHaveValue('补充说明');
     expect(screen.getByLabelText(/负责人/)).toHaveValue('viewer');
     expect(screen.getByText('待进行')).toBeInTheDocument();
     expect(screen.getByText(/截止/)).toBeInTheDocument();
@@ -106,6 +107,17 @@ describe('TaskDetailPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({ title: '只改标题' }));
+  });
+
+  it('sends an edited explicit next step as its own field', async () => {
+    const onSave = vi.fn().mockResolvedValue({ ...task, cursor: 4 });
+    const actions = makeActions(onSave);
+    render(<TaskDetailPanel task={task} members={makeState().snapshot!.members} syncState={makeState()} actions={actions} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先补充验收材料' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ next_step_text: '先补充验收材料' }));
   });
 
   it('does not allow an existing task deadline to be cleared', async () => {

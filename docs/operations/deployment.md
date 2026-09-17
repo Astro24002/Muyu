@@ -60,6 +60,11 @@ cleanup worker to `1Panel-postgresql-lJTO` and passes the password through
 `PGPASSWORD`; the URI intentionally contains no password, so passwords with
 `@` remain valid.
 
+Run these commands from the repository root. Do not pass `--project-directory`
+pointing at the root: the external override's `./Caddyfile.server` mount must
+resolve relative to `deploy/`. A wrong base directory can leave Caddy unable
+to start even if the API is healthy.
+
 ```sh
 docker compose --env-file deploy/.env \
   -f deploy/docker-compose.yml \
@@ -75,6 +80,13 @@ docker compose --env-file deploy/.env \
   -f deploy/docker-compose.external-db.yml \
   up -d --no-build api web-session-cleanup caddy
 ```
+
+Before advancing a live Alembic head, verify the current revision, create a
+restricted custom-format database backup, and restore it in an isolated
+PostgreSQL instance. Preserve the prior API/Caddy images under distinct tags.
+Downgrading `0016_life_domains` drops ledger, habit and anniversary records;
+after the first live write, use a reviewed forward fix or a verified restore
+plan instead of assuming a schema-only downgrade is lossless.
 
 Never put SMS tokens, database passwords, backup keys, or Android signing
 material in the repository, Web bundle, APK build arguments, or logs.

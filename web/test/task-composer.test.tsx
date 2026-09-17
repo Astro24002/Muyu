@@ -13,19 +13,22 @@ describe('TaskComposer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
     expect(screen.getByLabelText('任务标题')).toBeInTheDocument();
-    expect(screen.getByLabelText('下一步描述')).toBeInTheDocument();
+    expect(screen.getByLabelText('明确下一步')).toBeInTheDocument();
+    expect(screen.getByLabelText('描述')).toBeInTheDocument();
     expect(screen.getByLabelText('四象限')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '分类' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '  写周报  ' } });
-    fireEvent.change(screen.getByLabelText('下一步描述'), { target: { value: '先列出本周完成事项' } });
+    fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先列出本周完成事项' } });
+    fireEvent.change(screen.getByLabelText('描述'), { target: { value: '补充本周完成事项' } });
     fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
     fireEvent.click(screen.getByRole('radio', { name: '工作' }));
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
-    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('写周报', '先列出本周完成事项', 'Q1', ['工作']));
+    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('写周报', '补充本周完成事项', 'Q1', ['工作'], '先列出本周完成事项'));
     expect(screen.getByLabelText('任务标题')).toHaveValue('');
-    expect(screen.getByLabelText('下一步描述')).toHaveValue('');
+    expect(screen.getByLabelText('明确下一步')).toHaveValue('');
+    expect(screen.getByLabelText('描述')).toHaveValue('');
     expect(screen.getByLabelText('四象限')).toHaveValue('');
     expect(screen.getByRole('radio', { name: '工作' })).not.toBeChecked();
   });
@@ -43,6 +46,11 @@ describe('TaskComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
     expect(screen.getByRole('alert')).toHaveTextContent('请选择四象限。');
     expect(sync.createTask).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('请填写明确下一步。');
+    expect(sync.createTask).not.toHaveBeenCalled();
   });
 
   it('does not submit when the workspace has no approved classifications', () => {
@@ -51,6 +59,7 @@ describe('TaskComposer', () => {
     render(<TaskComposer sync={sync} />);
     fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
     fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '没有分类的任务' } });
+    fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先确认分类' } });
     fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
@@ -80,7 +89,8 @@ describe('TaskComposer', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('网络不可用'));
     expect(screen.getByLabelText('任务标题')).toHaveValue('保留这份草稿');
-    expect(screen.getByLabelText('下一步描述')).toHaveValue('网络恢复后继续');
+    expect(screen.getByLabelText('明确下一步')).toHaveValue('先处理网络');
+    expect(screen.getByLabelText('描述')).toHaveValue('网络恢复后继续');
     expect(screen.getByLabelText('四象限')).toHaveValue('Q2');
     expect(screen.getByRole('radio', { name: '工作' })).toBeChecked();
   });
@@ -103,7 +113,8 @@ describe('TaskComposer', () => {
 function fillDraft(): void {
   fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
   fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '保留这份草稿' } });
-  fireEvent.change(screen.getByLabelText('下一步描述'), { target: { value: '网络恢复后继续' } });
+  fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先处理网络' } });
+  fireEvent.change(screen.getByLabelText('描述'), { target: { value: '网络恢复后继续' } });
   fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q2' } });
   fireEvent.click(screen.getByRole('radio', { name: '工作' }));
 }

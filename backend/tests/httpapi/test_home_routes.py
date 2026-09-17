@@ -564,7 +564,81 @@ def test_home_canonical_projection_exposes_request_directions_and_legacy_aliases
     }
 
 
-def test_home_canonical_entries_include_taskless_requests_and_filter_deleted_targets(db_engine) -> None:
+def test_home_entry_counts_only_include_pending_handoffs_and_review_acceptance(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+
+    transfer_task = _create_task(client, owner_headers, "交给对方的事项")
+    transfer = client.patch(
+        f"/api/v1/tasks/{transfer_task['id']}",
+        headers=partner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"current_handler_id": partner["user"]["id"]},
+            "base_field_versions": {
+                "current_handler_id": transfer_task["field_versions"]["current_handler_id"]
+            },
+        },
+    )
+    assert transfer.status_code == 202, transfer.text
+
+    review_task = _transition(
+        client,
+        partner_headers,
+        _create_task(client, partner_headers, "等待验收的事项"),
+        "IN_PROGRESS",
+    )
+    _transition(client, partner_headers, review_task, "REVIEW")
+
+    field_update_task = _create_task(client, owner_headers, "普通字段审批")
+    field_update = client.patch(
+        f"/api/v1/tasks/{field_update_task['id']}",
+        headers=partner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {"title": "不应进入事项指标"},
+            "base_field_versions": {"title": field_update_task["field_versions"]["title"]},
+        },
+    )
+    assert field_update.status_code == 202, field_update.text
+
+    classification = client.post(
+        "/api/v1/workspaces/current/classifications",
+        headers=partner_headers,
+        json={"request_id": str(uuid4()), "name": "生活"},
+    )
+    assert classification.status_code == 202, classification.text
+
+    response = client.get("/api/v1/home", headers=owner_headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Legacy approval totals remain broad for existing approval-center clients.
+    assert body["pending_approval_count"] == 4
+    assert body["needs_action_count"] == 4
+    # The v1 entry is intentionally narrower: only the next actor for a
+    # handoff or review acceptance is counted as needing a response.
+    assert body["entry_counts"]["needs_me"] == 2
+    needs_me = body["entries"]["needs_me"]
+    assert {
+        item["approval_request"]["request_type"] for item in needs_me["items"]
+    } == {"HANDLER_TRANSFER", "STATUS_UPDATE"}
+    assert {item["task"]["id"] for item in needs_me["items"]} == {
+        transfer_task["id"],
+        review_task["id"],
+    }
+
+    page = client.get("/api/v1/home/entries/needs_me", headers=owner_headers)
+    assert page.status_code == 200, page.text
+    assert page.json()["count"] == 2
+    assert {
+        item["approval_request"]["request_type"] for item in page.json()["items"]
+    } == {"HANDLER_TRANSFER", "STATUS_UPDATE"}
+
+
+def test_home_task_action_entries_exclude_taskless_and_deleted_approval_targets(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
     owner_headers = _headers(owner)
@@ -609,35 +683,24 @@ def test_home_canonical_entries_include_taskless_requests_and_filter_deleted_tar
     assert body["pending_approval_count"] == 6
     assert body["waiting_on_other_count"] == 1
     assert body["entry_counts"] == {
-        "needs_me": 6,
-        "waiting_on_other": 1,
+        "needs_me": 0,
+        "waiting_on_other": 0,
         "due_this_week": body["week_due_count"],
     }
 
     needs_me = body["entries"]["needs_me"]
     waiting_on_other = body["entries"]["waiting_on_other"]
-    assert len(needs_me["items"]) == 5
-    assert needs_me["has_more"] is True
-    assert all(item["approval_request"]["task_id"] is None for item in needs_me["items"])
-    assert all(item["task"] is None for item in needs_me["items"])
+    assert needs_me == {"items": [], "has_more": False}
     assert waiting_on_other["has_more"] is False
-    assert waiting_on_other["items"][0]["approval_request"]["task_id"] is None
-    assert waiting_on_other["items"][0]["task"] is None
-    assert incoming_task["id"] not in {
-        item["task"]["id"]
-        for section in (needs_me, waiting_on_other)
-        for item in section["items"]
-        if item["task"] is not None
-    }
+    assert waiting_on_other["items"] == []
 
 
-def test_home_entry_page_paginates_taskless_approvals_without_duplicates(db_engine) -> None:
+def test_home_entry_page_excludes_taskless_and_stale_non_action_approvals(db_engine) -> None:
     client = _client(db_engine)
     owner, partner = _ready_workspace(client)
     owner_headers = _headers(owner)
     partner_headers = _headers(partner)
 
-    expected_request_ids: list[str] = []
     for index in range(5):
         pending = client.post(
             "/api/v1/workspaces/current/classifications",
@@ -645,7 +708,6 @@ def test_home_entry_page_paginates_taskless_approvals_without_duplicates(db_engi
             json={"request_id": str(uuid4()), "name": f"乙{index}"},
         )
         assert pending.status_code == 202, pending.text
-        expected_request_ids.append(pending.json()["approval_request"]["id"])
 
     # Keep a pending task approval in the owner's workspace, then move only
     # its task to another workspace. The request remains in the database but
@@ -670,62 +732,21 @@ def test_home_entry_page_paginates_taskless_approvals_without_duplicates(db_engi
         foreign_row.workspace_id = foreign_workspace.id
         session.commit()
 
-    first = client.get(
+    page = client.get(
         "/api/v1/home/entries/needs_me?limit=2",
         headers=owner_headers,
     )
-    assert first.status_code == 200, first.text
-    first_body = first.json()
-    assert first_body["count"] == 5
-    assert len(first_body["items"]) == 2
-    assert first_body["has_more"] is True
-    assert isinstance(first_body["next_cursor"], str)
-    assert first_body["next_cursor"].startswith("home-entry-v1.")
-    assert all(item["task"] is None for item in first_body["items"])
-
-    second = client.get(
-        "/api/v1/home/entries/needs_me?limit=2&after_cursor="
-        + first_body["next_cursor"],
-        headers=owner_headers,
-    )
-    assert second.status_code == 200, second.text
-    second_body = second.json()
-    assert second_body["count"] == 5
-    assert len(second_body["items"]) == 2
-    assert second_body["has_more"] is True
-
-    # Reusing a cursor is deterministic while the underlying list is stable.
-    replay = client.get(
-        "/api/v1/home/entries/needs_me?limit=2&after_cursor="
-        + first_body["next_cursor"],
-        headers=owner_headers,
-    )
-    assert replay.status_code == 200, replay.text
-    assert replay.json()["items"] == second_body["items"]
-
-    third = client.get(
-        "/api/v1/home/entries/needs_me?limit=2&after_cursor="
-        + second_body["next_cursor"],
-        headers=owner_headers,
-    )
-    assert third.status_code == 200, third.text
-    third_body = third.json()
-    assert third_body["count"] == 5
-    assert len(third_body["items"]) == 1
-    assert third_body["has_more"] is False
-    assert third_body["next_cursor"] is None
-
-    page_ids = [
-        item["approval_request"]["id"]
-        for body in (first_body, second_body, third_body)
-        for item in body["items"]
-    ]
-    assert len(page_ids) == len(set(page_ids)) == 5
-    assert set(page_ids) == set(expected_request_ids)
+    assert page.status_code == 200, page.text
+    assert page.json() == {
+        "count": 0,
+        "items": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
     home = client.get("/api/v1/home", headers=owner_headers)
     assert home.status_code == 200, home.text
-    assert home.json()["entry_counts"]["needs_me"] == first_body["count"]
+    assert home.json()["entry_counts"]["needs_me"] == page.json()["count"]
 
 
 def test_home_entry_page_paginates_due_tasks_with_stable_ordering(db_engine) -> None:

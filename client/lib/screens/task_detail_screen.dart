@@ -26,6 +26,7 @@ class TaskDetailScreen extends StatefulWidget {
 class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _title;
   late final TextEditingController _description;
+  late final TextEditingController _nextStepText;
   late final TextEditingController _dueAt;
   late final TextEditingController _plannedStartAt;
   late final TextEditingController _estimatedMinutes;
@@ -49,6 +50,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     super.initState();
     _title = TextEditingController(text: widget.task.title);
     _description = TextEditingController(text: widget.task.description);
+    _nextStepText = TextEditingController(text: widget.task.nextStepText ?? '');
     _dueAt = TextEditingController(text: _dateText(widget.task.dueAt));
     _plannedStartAt = TextEditingController(
       text: _dateText(widget.task.plannedStartAt),
@@ -70,6 +72,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   void dispose() {
     _title.dispose();
     _description.dispose();
+    _nextStepText.dispose();
     _dueAt.dispose();
     _plannedStartAt.dispose();
     _estimatedMinutes.dispose();
@@ -85,7 +88,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         // not discard a next_step received by a newer detail response while
         // the snapshot is being reconciled.
         return task.nextStep == null && widget.task.nextStep != null
-            ? task.copyWith(nextStep: widget.task.nextStep)
+            ? task.copyWith(
+                nextStep: widget.task.nextStep,
+                nextStepText: widget.task.nextStepText,
+              )
             : task;
       }
     }
@@ -171,6 +177,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   void _loadEditor(TaskItem task) {
     _title.text = task.title;
     _description.text = task.description;
+    _nextStepText.text = task.nextStepText ?? '';
     _dueAt.text = _dateText(task.dueAt);
     _plannedStartAt.text = _dateText(task.plannedStartAt);
     _estimatedMinutes.text = task.estimatedMinutes?.toString() ?? '';
@@ -256,8 +263,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Future<void> _save() async {
     final title = _title.text.trim();
+    final nextStepText = _nextStepText.text.trim();
     if (!widget.canWrite || title.isEmpty || _saving) return;
     final current = _current;
+    if (nextStepText.isEmpty && current.nextStepText != null) {
+      setState(() => _formError = '请填写明确下一步');
+      return;
+    }
+    if (nextStepText.isNotEmpty && nextStepText.runes.length > 90) {
+      setState(() => _formError = '明确下一步不能超过 90 个字符');
+      return;
+    }
     final labelsChanged = !_sameLabels(_selectedLabels, current.labels);
     final approvedClassifications = {
       for (final classification in widget.sync.state.classifications)
@@ -296,6 +312,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (title != current.title) 'title': title,
       if (_description.text.trim() != current.description)
         'description': _description.text.trim(),
+      if (nextStepText.isNotEmpty && nextStepText != current.nextStepText)
+        'next_step_text': nextStepText,
       if (dueChanged) 'due_at': dueAt,
       if (_dateValue(_plannedStartAt.text) !=
           current.plannedStartAt?.toIso8601String())
@@ -906,7 +924,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('下一步', style: theme.textTheme.labelMedium),
+                if (_current.nextStepText?.trim().isNotEmpty == true) ...[
+                  Text('明确下一步', style: theme.textTheme.labelMedium),
+                  const SizedBox(height: MuyuSpacing.xs),
+                  Text(
+                    _current.nextStepText!,
+                    key: const Key('task-next-step-text'),
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: MuyuSpacing.sm),
+                ],
+                Text('当前行动', style: theme.textTheme.labelMedium),
                 const SizedBox(height: MuyuSpacing.xs),
                 Text(
                   nextStep.label,
@@ -1186,6 +1217,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        TextField(
+          key: const Key('task-detail-next-step'),
+          controller: _nextStepText,
+          maxLines: 2,
+          maxLength: 90,
+          enabled: widget.canWrite,
+          decoration: const InputDecoration(labelText: '明确下一步'),
+        ),
+        const SizedBox(height: MuyuSpacing.md),
         TextField(
           key: const Key('task-detail-description'),
           controller: _description,

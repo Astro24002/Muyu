@@ -79,7 +79,7 @@ describe('Task 8 App integration', () => {
     const api = { getTaskActivity } as unknown as ApiClient;
     render(<App api={api} login={makeLogin()} sync={makeSync()} />);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: '此刻' })).toBeInTheDocument());
     expect(getTaskActivity).not.toHaveBeenCalled();
 
     window.location.hash = '#/activity';
@@ -99,7 +99,7 @@ describe('Task 8 App integration', () => {
     } as unknown as ApiClient;
     render(<App api={api} login={makeLogin()} sync={makeSync()} />);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: '此刻' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '用户菜单' }));
     await waitFor(() => expect(screen.getByTestId('qr-login-page')).toBeInTheDocument());
     expect(screen.getByTestId('react-route')).toHaveAttribute('data-route', 'today');

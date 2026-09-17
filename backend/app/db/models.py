@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import CHAR, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import CHAR, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import Enum as SAEnum
 
 from app.db.enums import (
     ApprovalStatus,
+    AnniversaryKind,
     ChangeAction,
     ChallengeStatus,
     ConflictStatus,
     DeviceStatus,
     InviteStatus,
+    HabitFrequency,
+    HabitStatus,
+    LedgerEntryType,
     MembershipStatus,
     OperationType,
     RecurrenceStatus,
@@ -335,6 +339,13 @@ class Task(Base):
             "reviewer_user_id",
             "due_at",
         ),
+        Index(
+            "uq_tasks_workspace_source_key",
+            "workspace_id",
+            "source_key",
+            unique=True,
+            postgresql_where=text("source_key IS NOT NULL"),
+        ),
     )
 
     id = _id()
@@ -343,6 +354,8 @@ class Task(Base):
     task_number: Mapped[str] = mapped_column(String(8), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    next_step_text: Mapped[str | None] = mapped_column(String(90))
+    source_key: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[TaskStatus] = mapped_column(_enum(TaskStatus), nullable=False, default=TaskStatus.TODO, server_default="TODO")
     quadrant: Mapped[TaskQuadrant] = mapped_column(_enum(TaskQuadrant), nullable=False)
     labels: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
@@ -578,6 +591,168 @@ class ActivityEvent(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     request_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     created_at = _created()
+
+
+class DomainCommand(Base):
+    """Idempotency record for non-task workspace commands."""
+
+    __tablename__ = "domain_commands"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "request_id", name="uq_domain_commands_workspace_request"),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    request_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at = _created()
+
+
+class LedgerEntry(Base):
+    __tablename__ = "ledger_entries"
+    __table_args__ = (
+        CheckConstraint("amount_minor > 0", name="ck_ledger_entries_amount_positive"),
+        CheckConstraint("currency = 'CNY'", name="ck_ledger_entries_currency_cny"),
+        CheckConstraint("version > 0", name="ck_ledger_entries_version_positive"),
+        Index("ix_ledger_entries_workspace_date", "workspace_id", "deleted_at", "date"),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    entry_type: Mapped[LedgerEntryType] = mapped_column(
+        "type", _enum(LedgerEntryType), nullable=False
+    )
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="CNY", server_default="CNY")
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    payer_or_payee_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    entry_date: Mapped[date] = mapped_column("date", Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    updated_by: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    created_at = _created()
+    updated_at = _created()
+
+
+class Habit(Base):
+    __tablename__ = "habits"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_habits_version_positive"),
+        Index("ix_habits_workspace_owner", "workspace_id", "deleted_at", "owner_id"),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    frequency: Mapped[HabitFrequency] = mapped_column(_enum(HabitFrequency), nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[HabitStatus] = mapped_column(
+        _enum(HabitStatus), nullable=False, default=HabitStatus.ACTIVE, server_default="ACTIVE"
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at = _created()
+    updated_at = _created()
+
+
+class HabitCheckin(Base):
+    __tablename__ = "habit_checkins"
+    __table_args__ = (
+        UniqueConstraint(
+            "habit_id",
+            "frequency_snapshot",
+            "period_key",
+            "revoked_at",
+            name="uq_habit_checkins_period_state",
+        ),
+        Index(
+            "uq_habit_checkins_active_period",
+            "habit_id",
+            "frequency_snapshot",
+            "period_key",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
+        Index("ix_habit_checkins_workspace_period", "workspace_id", "period_key"),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    habit_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("habits.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    frequency_snapshot: Mapped[HabitFrequency] = mapped_column(_enum(HabitFrequency), nullable=False)
+    period_key: Mapped[str] = mapped_column(String(10), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    request_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at = _created()
+
+
+class Anniversary(Base):
+    __tablename__ = "anniversaries"
+    __table_args__ = (
+        CheckConstraint("prepare_days IN (0, 1, 3, 7, 14, 30)", name="ck_anniversaries_prepare_days"),
+        CheckConstraint("version > 0", name="ck_anniversaries_version_positive"),
+        Index("ix_anniversaries_workspace_anchor", "workspace_id", "deleted_at", "anchor_date"),
+    )
+
+    id = _id()
+    workspace_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    anchor_date: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[AnniversaryKind] = mapped_column(_enum(AnniversaryKind), nullable=False)
+    prepare_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    updated_by: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    created_at = _created()
+    updated_at = _created()
 
 
 __all__ = [name for name in globals() if not name.startswith("_")]

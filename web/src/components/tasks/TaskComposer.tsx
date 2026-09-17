@@ -12,6 +12,7 @@ export type CreateTaskHandler = (
   description: string,
   quadrant: TaskQuadrant,
   labels: string[],
+  nextStepText?: string,
 ) => void | Promise<void>;
 
 export interface TaskComposerProps {
@@ -23,12 +24,13 @@ export interface TaskComposerProps {
 
 interface TaskDraft {
   title: string;
+  nextStepText: string;
   description: string;
   quadrant: TaskItem['quadrant'] | '';
   labels: string[];
 }
 
-const EMPTY_DRAFT: TaskDraft = { title: '', description: '', quadrant: '', labels: [] };
+const EMPTY_DRAFT: TaskDraft = { title: '', nextStepText: '', description: '', quadrant: '', labels: [] };
 
 export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand }: TaskComposerProps): JSX.Element {
   const state = useWorkspaceState(sync);
@@ -37,6 +39,7 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleId = useId();
+  const nextStepId = useId();
   const descriptionId = useId();
   const quadrantId = useId();
   const errorId = useId();
@@ -64,6 +67,15 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
       setError('请选择四象限。');
       return;
     }
+    const nextStepText = draft.nextStepText.trim();
+    if (!nextStepText) {
+      setError('请填写明确下一步。');
+      return;
+    }
+    if (Array.from(nextStepText).length > 90) {
+      setError('明确下一步不能超过 90 个字符。');
+      return;
+    }
     if (draft.labels.length !== 1) {
       setError('请选择一个已批准分类。');
       return;
@@ -78,8 +90,8 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
     setSubmitting(true);
     setError(null);
     try {
-      const create = onCreateTask ?? ((title: string, description: string, quadrant: TaskQuadrant, nextLabels: string[]) => sync.createTask(title, description, quadrant, nextLabels));
-      await create(draft.title.trim(), draft.description, draft.quadrant, draft.labels);
+      const create = onCreateTask ?? ((title: string, description: string, quadrant: TaskQuadrant, nextLabels: string[], nextStep: string) => sync.createTask(title, description, quadrant, nextLabels, nextStep));
+      await create(draft.title.trim(), draft.description, draft.quadrant, draft.labels, nextStepText);
       const currentError = sync.state.error;
       if (currentError && currentError !== previousError) {
         setError(currentError);
@@ -131,7 +143,18 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
           />
         </div>
         <div className="task-composer__field">
-          <label htmlFor={descriptionId}>下一步描述</label>
+          <label htmlFor={nextStepId}>明确下一步</label>
+          <input
+            id={nextStepId}
+            type="text"
+            maxLength={90}
+            value={draft.nextStepText}
+            disabled={disabled}
+            onChange={(event) => updateDraft('nextStepText', event.target.value)}
+          />
+        </div>
+        <div className="task-composer__field">
+          <label htmlFor={descriptionId}>描述</label>
           <textarea
             id={descriptionId}
             value={draft.description}

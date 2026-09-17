@@ -370,6 +370,7 @@ class WorkspaceSyncController extends ChangeNotifier
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
@@ -391,12 +392,20 @@ class WorkspaceSyncController extends ChangeNotifier
         !approvedNames.contains(normalizedLabels.single.toLowerCase())) {
       throw const FormatException('任务只能选择已批准分类');
     }
+    final normalizedNextStep = nextStepText?.trim();
+    if (normalizedNextStep != null && normalizedNextStep.isEmpty) {
+      throw const FormatException('请填写明确下一步');
+    }
+    if (normalizedNextStep != null && normalizedNextStep.runes.length > 90) {
+      throw const FormatException('明确下一步不能超过 90 个字符');
+    }
     try {
       final created = await repository.create(
         title: title,
         quadrant: quadrant,
         labels: normalizedLabels,
         description: description,
+        nextStepText: normalizedNextStep,
         dueAt: dueAt,
         parentTaskId: parentTaskId,
         plannedStartAt: plannedStartAt,
@@ -421,8 +430,20 @@ class WorkspaceSyncController extends ChangeNotifier
     final repository = _repository;
     final task = _task(taskId);
     if (repository == null || task == null || state.isStale) return null;
-    if (fields.containsKey('labels')) {
-      final value = fields['labels'];
+    final normalizedFields = Map<String, Object?>.of(fields);
+    if (normalizedFields.containsKey('next_step_text')) {
+      final value = normalizedFields['next_step_text'];
+      if (value is! String || value.trim().isEmpty) {
+        throw const FormatException('请填写明确下一步');
+      }
+      final normalized = value.trim();
+      if (normalized.runes.length > 90) {
+        throw const FormatException('明确下一步不能超过 90 个字符');
+      }
+      normalizedFields['next_step_text'] = normalized;
+    }
+    if (normalizedFields.containsKey('labels')) {
+      final value = normalizedFields['labels'];
       if (value is! List || value.length != 1 || value.first is! String) {
         throw const FormatException('任务必须选择一个已批准分类');
       }
@@ -434,13 +455,14 @@ class WorkspaceSyncController extends ChangeNotifier
       if (classification.isEmpty || !approved) {
         throw const FormatException('任务只能选择已批准分类');
       }
+      normalizedFields['labels'] = <String>[classification];
     }
     try {
       final result = await repository.update(
         taskId,
-        fields: fields,
+        fields: normalizedFields,
         fieldVersions: {
-          for (final field in fields.keys)
+          for (final field in normalizedFields.keys)
             if (field != 'transfer_note') field: task.fieldVersions[field] ?? 1,
         },
         requestId: _requestId(),

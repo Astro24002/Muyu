@@ -3,6 +3,7 @@ import type { CanonicalTaskStatus, TaskItem, TaskQuadrant } from '../api/types';
 export type EditableTaskChanges = Pick<Partial<TaskItem>,
   | 'title'
   | 'description'
+  | 'next_step_text'
   | 'due_at'
   | 'planned_start_at'
   | 'estimated_minutes'
@@ -66,6 +67,9 @@ const MAX_TASK_LABEL_CHARS = 320;
 export function parseTaskItem(value: unknown): TaskItem {
   if (!isRecord(value)) throw new Error('任务数据格式无效。');
   if (!isTaskQuadrant(value.quadrant)) throw new Error('任务必须设置有效四象限。');
+  if (value.next_step_text !== undefined && value.next_step_text !== null && typeof value.next_step_text !== 'string') {
+    throw new Error('任务明确下一步格式无效。');
+  }
   const status = normalizeTaskStatus(value.status);
   return { ...value, status, quadrant: value.quadrant, labels: value.labels === undefined ? [] : parseTaskLabels(value.labels) } as TaskItem;
 }

@@ -169,10 +169,10 @@ describe('WorkspaceSyncController', () => {
     const controller = new WorkspaceSyncController(api as never, { requestIdFactory });
     await controller.loadSnapshot();
 
-    await controller.createTask('New task', 'New description', 'Q2', ['工作']);
+    await controller.createTask('New task', 'New description', 'Q2', ['工作'], '先确认内容');
 
     expect(requestIdFactory).toHaveBeenCalledOnce();
-    expect(api.createTask).toHaveBeenCalledWith({ requestId: '00000000-0000-4000-8000-000000000001', title: 'New task', description: 'New description', quadrant: 'Q2', labels: ['工作'] });
+    expect(api.createTask).toHaveBeenCalledWith({ requestId: '00000000-0000-4000-8000-000000000001', title: 'New task', description: 'New description', quadrant: 'Q2', labels: ['工作'], nextStepText: '先确认内容' });
     expect(controller.state.snapshot?.tasks).toContainEqual(expect.objectContaining({ id: 'task-2', title: 'New task' }));
     expect(controller.state.cursor).toBe(6);
     expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);

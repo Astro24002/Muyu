@@ -245,9 +245,9 @@ describe('React accessibility contract', () => {
   });
 
   it('exposes current navigation, icon-only names, QR labels, and UserMenu dialog semantics', () => {
-    const nav = render(<TopNav route={{ kind: 'activity' }} onNavigate={vi.fn()} />);
+    const nav = render(<TopNav route={{ kind: 'me' }} onNavigate={vi.fn()} />);
     const navigation = within(nav.container).getByRole('navigation', { name: '主导航' });
-    expect(within(navigation).getByRole('link', { name: '动态' })).toHaveAttribute('aria-current', 'page');
+    expect(within(navigation).getByRole('link', { name: '我的' })).toHaveAttribute('aria-current', 'page');
     expect(within(navigation).queryAllByRole('link', { current: 'page' })).toHaveLength(1);
     assertButtonNames(nav.container);
     assertNoNestedInteractive(nav.container);
@@ -343,6 +343,7 @@ describe('React accessibility contract', () => {
     );
     fireEvent.click(within(composer.container).getByRole('button', { name: '记下一件事' }));
     fireEvent.change(within(composer.container).getByLabelText('任务标题'), { target: { value: '新任务' } });
+    fireEvent.change(within(composer.container).getByLabelText('明确下一步'), { target: { value: '先确认执行内容' } });
     fireEvent.change(within(composer.container).getByLabelText('四象限'), { target: { value: 'Q2' } });
     fireEvent.click(within(composer.container).getByRole('radio', { name: '工作' }));
     fireEvent.click(within(composer.container).getByRole('button', { name: '创建任务' }));

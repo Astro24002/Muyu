@@ -21,6 +21,7 @@ export function TaskMeta({ task, now = new Date(), className }: TaskMetaProps): 
     <div className={['task-meta', className].filter(Boolean).join(' ')} data-task-meta>
       <span>负责人：{task.current_handler_id}</span>
       <span>四象限：{task.quadrant}</span>
+      {task.next_step_text ? <span>下一步：{task.next_step_text}</span> : null}
       {labels ? <span>{labels}</span> : null}
       {progress ? <span>{progress}</span> : null}
       <time className="task-meta__date" data-task-date={task.due_at ?? undefined} dateTime={task.due_at ?? undefined}>

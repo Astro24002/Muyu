@@ -5,7 +5,7 @@ import type { WebSessionApi } from '../account/web-session-api';
 import { IconButton } from '../ui/IconButton';
 import { UserMenu } from './UserMenu';
 
-export type PrimaryRoute = Extract<Route, { kind: 'today' | 'tasks' | 'approvals' | 'activity' }>;
+export type PrimaryRoute = Extract<Route, { kind: 'matters' | 'ledger' | 'checkins' | 'me' }>;
 
 export interface TopNavProps {
   route: Route;
@@ -19,10 +19,10 @@ export interface TopNavProps {
 }
 
 const PRIMARY_NAV: Array<{ route: PrimaryRoute; label: string }> = [
-  { route: { kind: 'today' }, label: '今天' },
-  { route: { kind: 'tasks' }, label: '所有任务' },
-  { route: { kind: 'approvals' }, label: '审批' },
-  { route: { kind: 'activity' }, label: '动态' },
+  { route: { kind: 'matters', view: 'moment' }, label: '事项' },
+  { route: { kind: 'ledger' }, label: '记账' },
+  { route: { kind: 'checkins' }, label: '打卡' },
+  { route: { kind: 'me' }, label: '我的' },
 ];
 
 export function TopNav({
@@ -77,11 +77,11 @@ export function TopNav({
       <div className="top-nav__inner">
         <a
           className="top-nav__brand"
-          href="#/today"
-          aria-label="木鱼，回到今天"
+          href="#/matters"
+          aria-label="木鱼，回到事项"
           onClick={(event) => {
             event.preventDefault();
-            onNavigate({ kind: 'today' });
+            onNavigate({ kind: 'matters', view: 'moment' });
           }}
         >
           <span className="top-nav__brand-name">木鱼</span>
@@ -91,12 +91,11 @@ export function TopNav({
         <nav className="top-nav__links" aria-label="主导航">
           {PRIMARY_NAV.map(({ route: targetRoute, label }) => {
             const active = isActiveRoute(route, targetRoute.kind);
-            const isApproval = targetRoute.kind === 'approvals';
             return (
               <a
                 key={targetRoute.kind}
                 className={['top-nav__link', active ? 'top-nav__link--active' : undefined].filter(Boolean).join(' ')}
-                href={`#/${targetRoute.kind}`}
+                href={targetRoute.kind === 'matters' ? '#/matters' : `#/${targetRoute.kind}`}
                 aria-current={active ? 'page' : undefined}
                 data-active-indicator={active ? 'true' : undefined}
                 onClick={(event) => {
@@ -105,11 +104,6 @@ export function TopNav({
                 }}
               >
                 <span>{label}</span>
-                {isApproval && pendingApprovalCount > 0 ? (
-                  <span className="top-nav__badge" aria-label={`${pendingApprovalCount} 个待处理审批`}>
-                    {pendingApprovalCount}
-                  </span>
-                ) : null}
               </a>
             );
           })}
@@ -127,11 +121,13 @@ export function TopNav({
               else setSearchOpen(true);
             }}
           />
-          <IconButton
-            label="新建任务"
-            icon={<Plus aria-hidden="true" size={19} strokeWidth={1.8} />}
-            onClick={onCreateTask}
-          />
+          {onCreateTask ? (
+            <IconButton
+              label="新建任务"
+              icon={<Plus aria-hidden="true" size={19} strokeWidth={1.8} />}
+              onClick={onCreateTask}
+            />
+          ) : null}
           <UserMenu onLogout={onLogout} sessionApi={sessionApi} onAuthRequired={onAuthRequired} />
         </div>
 
@@ -165,5 +161,5 @@ export function TopNav({
 }
 
 function isActiveRoute(route: Route, target: PrimaryRoute['kind']): boolean {
-  return route.kind === target || (target === 'tasks' && route.kind === 'task');
+  return route.kind === target || (target === 'matters' && (route.kind === 'task' || route.kind === 'all-tasks' || route.kind === 'today' || route.kind === 'tasks'));
 }

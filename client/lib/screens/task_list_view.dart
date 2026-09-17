@@ -188,6 +188,14 @@ class _MomentSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final moment = home.moment;
+    final seen = <String>{};
+    HomeTaskSection uniqueSection(HomeTaskSection section) => HomeTaskSection(
+      items: section.items.where((task) => seen.add(task.id)),
+      hasMore: section.hasMore,
+    );
+    final blocked = uniqueSection(moment.blocked);
+    final mine = uniqueSection(moment.mine);
+    final other = uniqueSection(moment.other);
     return Padding(
       key: const Key('moment-summary'),
       padding: const EdgeInsets.only(bottom: MuyuSpacing.sm),
@@ -200,7 +208,7 @@ class _MomentSummary extends StatelessWidget {
             key: const Key('moment-section-blocked'),
             sectionKey: 'blocked',
             title: '卡住的事情',
-            section: moment.blockedTasks,
+            section: blocked,
             state: state,
             onTaskTap: onTaskTap,
           ),
@@ -208,15 +216,15 @@ class _MomentSummary extends StatelessWidget {
             key: const Key('moment-section-mine'),
             sectionKey: 'mine',
             title: '我在推进',
-            section: moment.myTasks,
+            section: mine,
             state: state,
             onTaskTap: onTaskTap,
           ),
           _MomentTaskSection(
             key: const Key('moment-section-other'),
             sectionKey: 'other',
-            title: '对方在推进',
-            section: moment.otherTasks,
+            title: 'TA 在推进',
+            section: other,
             state: state,
             onTaskTap: onTaskTap,
           ),
@@ -1219,7 +1227,8 @@ class TaskSummaryCard extends StatelessWidget {
       ),
     ];
     final blockedReason = _nonEmpty(task.blockedReason);
-    final nextStep = _nonEmpty(task.nextStep?.label);
+    final nextStep =
+        _nonEmpty(task.nextStepText) ?? _nonEmpty(task.nextStep?.label);
     final contextLabel = <String>[
       if (blockedReason != null) '阻塞原因$blockedReason',
       if (nextStep != null) '下一步$nextStep',

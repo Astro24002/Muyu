@@ -292,13 +292,13 @@ class MomentProjection {
     final mine = value.containsKey('mine')
         ? HomeTaskSection._fromJson(
             value['mine'],
-            allowedStatuses: const {'TODO', 'IN_PROGRESS'},
+            allowedStatuses: const {'TODO', 'IN_PROGRESS', 'REVIEW'},
           )
         : _legacySection(value, 'my_tasks');
     final other = value.containsKey('other')
         ? HomeTaskSection._fromJson(
             value['other'],
-            allowedStatuses: const {'TODO', 'IN_PROGRESS'},
+            allowedStatuses: const {'TODO', 'IN_PROGRESS', 'REVIEW'},
           )
         : _legacySection(value, 'other_tasks');
     return MomentProjection(

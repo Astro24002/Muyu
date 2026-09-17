@@ -84,6 +84,7 @@ class RecordingRepository implements WorkspaceSyncRepository {
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,

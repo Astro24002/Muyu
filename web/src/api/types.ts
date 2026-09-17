@@ -30,6 +30,7 @@ export type ApprovalRequestStatus = TaskApprovalRequestStatus;
 
 export interface TaskItem {
   id: string; workspace_id: string; parent_task_id: string | null; title: string; description: string;
+  next_step_text?: string | null;
   due_at: string | null; status: TaskStatus; current_handler_id: string; blocked_reason: string | null;
   blocked_since: string | null; resume_handler_id: string | null; waiting_for_user_id: string | null;
   reviewer_user_id?: string | null; review_submitted_at?: string | null; reviewed_at?: string | null; review_rejection_reason?: string | null;

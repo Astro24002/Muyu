@@ -113,7 +113,7 @@ void main() {
       matching: find.byWidgetPredicate((widget) {
         if (widget is! Text) return false;
         final text = widget.data ?? widget.textSpan?.toPlainText() ?? '';
-        return text.contains('清单→此刻');
+        return text.contains('此刻');
       }),
     );
     expect(titleText, findsOneWidget);
@@ -128,7 +128,7 @@ void main() {
     const sections = <String, String>{
       'blocked': '卡住的事情',
       'mine': '我在推进',
-      'other': '对方在推进',
+      'other': 'TA 在推进',
     };
     for (final entry in sections.entries) {
       final section = find.byKey(Key('moment-section-${entry.key}'));
@@ -193,9 +193,9 @@ void main() {
       findsNWidgets(4),
     );
     for (final key in const [
-      'task-list-destination',
-      'task-quadrant-destination',
-      'task-schedule-destination',
+      'matters-destination',
+      'ledger-destination',
+      'checkins-destination',
       'task-profile-destination',
     ]) {
       expect(find.byKey(ValueKey(key)), findsOneWidget);

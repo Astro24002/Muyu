@@ -97,6 +97,29 @@ class TaskApprovalRequestStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class LedgerEntryType(StrEnum):
+    EXPENSE = "EXPENSE"
+    INCOME = "INCOME"
+
+
+class HabitFrequency(StrEnum):
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+
+
+class HabitStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    DELETED = "DELETED"
+
+
+class AnniversaryKind(StrEnum):
+    ANNIVERSARY = "ANNIVERSARY"
+    BIRTHDAY = "BIRTHDAY"
+    IMPORTANT_DAY = "IMPORTANT_DAY"
+
+
 # The public status names are the canonical persisted status names.
 PUBLIC_TASK_STATUS = {status: status.value for status in TaskStatus}
 

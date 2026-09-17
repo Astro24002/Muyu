@@ -8,7 +8,7 @@ import { render } from './react-test-helpers';
 describe('TopNav', () => {
   it('renders exactly four primary links and marks the current route', () => {
     const onNavigate = vi.fn();
-    const route: Route = { kind: 'approvals' };
+    const route: Route = { kind: 'me' };
 
     render(
       <TopNav
@@ -22,25 +22,25 @@ describe('TopNav', () => {
     const nav = screen.getByRole('navigation', { name: '主导航' });
     const links = within(nav).getAllByRole('link');
     expect(links).toHaveLength(4);
-    expect(links.map((link) => link.textContent)).toEqual(['今天', '所有任务', '审批3', '动态']);
+    expect(links.map((link) => link.textContent)).toEqual(['事项', '记账', '打卡', '我的']);
 
-    const activeLink = within(nav).getByRole('link', { name: /审批/ });
+    const activeLink = within(nav).getByRole('link', { name: '我的' });
     expect(activeLink).toHaveAttribute('aria-current', 'page');
     expect(activeLink).toHaveClass('top-nav__link--active');
     expect(activeLink).toHaveAttribute('data-active-indicator', 'true');
 
-    fireEvent.click(within(nav).getByRole('link', { name: '今天' }));
-    expect(onNavigate).toHaveBeenCalledWith({ kind: 'today' });
+    fireEvent.click(within(nav).getByRole('link', { name: '事项' }));
+    expect(onNavigate).toHaveBeenCalledWith({ kind: 'matters', view: 'moment' });
   });
 
-  it('keeps the approval badge text readable and makes actions functional', () => {
+  it('keeps actions functional and makes the task action contextual', () => {
     const onCreateTask = vi.fn();
     const onLogout = vi.fn();
     const onNavigate = vi.fn();
 
     render(
       <AppShell
-        route={{ kind: 'today' }}
+        route={{ kind: 'matters', view: 'moment' }}
         onNavigate={onNavigate}
         onLogout={onLogout}
         onCreateTask={onCreateTask}
@@ -50,7 +50,6 @@ describe('TopNav', () => {
       </AppShell>,
     );
 
-    expect(screen.getByLabelText('2 个待处理审批')).toHaveTextContent('2');
     expect(screen.getByRole('button', { name: '搜索' })).toHaveAttribute('title', '搜索');
     expect(screen.getByRole('button', { name: '新建任务' })).toHaveAttribute('title', '新建任务');
     expect(screen.getByRole('button', { name: '用户菜单' })).toHaveAttribute('title', '用户菜单');
@@ -73,7 +72,7 @@ describe('TopNav', () => {
   it('restores focus to the search trigger after Escape and close-button dismissal', () => {
     render(
       <TopNav
-        route={{ kind: 'today' }}
+        route={{ kind: 'ledger' }}
         onNavigate={vi.fn()}
       />,
     );

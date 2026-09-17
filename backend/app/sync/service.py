@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.db.enums import MembershipStatus
 from app.auth.profile import public_display_name
-from app.db.models import Task, TaskApprovalRequest, TaskComment, TaskConflict, User, Workspace, WorkspaceChangeLog, WorkspaceClassification, WorkspaceCursor, WorkspaceMembership
+from app.db.models import Anniversary, Habit, HabitCheckin, LedgerEntry, Task, TaskApprovalRequest, TaskComment, TaskConflict, User, Workspace, WorkspaceChangeLog, WorkspaceClassification, WorkspaceCursor, WorkspaceMembership
+from app.life.anniversaries import AnniversaryService
+from app.life.checkins import HabitService
+from app.life.ledger import LedgerService
 from app.tasks.approval_schemas import approval_request_json, comment_json
 from app.tasks.operations import task_conflict_json
 from app.tasks.service import TaskService
@@ -77,6 +80,31 @@ class SyncService:
             .where(WorkspaceClassification.workspace_id == workspace_id)
             .order_by(WorkspaceClassification.normalized_name.asc(), WorkspaceClassification.id.asc())
         ).all()
+        ledger_entries = self.session.scalars(
+            select(LedgerEntry)
+            .where(LedgerEntry.workspace_id == workspace_id, LedgerEntry.deleted_at.is_(None))
+            .order_by(LedgerEntry.entry_date.desc(), LedgerEntry.created_at.desc(), LedgerEntry.id.desc())
+        ).all()
+        habits = self.session.scalars(
+            select(Habit)
+            .where(Habit.workspace_id == workspace_id, Habit.deleted_at.is_(None))
+            .order_by(Habit.created_at.asc(), Habit.id.asc())
+        ).all()
+        checkins = self.session.scalars(
+            select(HabitCheckin)
+            .join(Habit, Habit.id == HabitCheckin.habit_id)
+            .where(
+                HabitCheckin.workspace_id == workspace_id,
+                HabitCheckin.revoked_at.is_(None),
+                Habit.deleted_at.is_(None),
+            )
+            .order_by(HabitCheckin.occurred_at.desc(), HabitCheckin.id.desc())
+        ).all()
+        anniversaries = self.session.scalars(
+            select(Anniversary)
+            .where(Anniversary.workspace_id == workspace_id, Anniversary.deleted_at.is_(None))
+            .order_by(Anniversary.anchor_date.asc(), Anniversary.id.asc())
+        ).all()
         return {
             "workspace_id": str(workspace_id),
             "viewer_user_id": str(viewer_user_id) if viewer_user_id else None,
@@ -103,6 +131,10 @@ class SyncService:
                 }
                 for item in classifications
             ],
+            "ledger_entries": [LedgerService.snapshot(item) for item in ledger_entries],
+            "habits": [HabitService(self.session).snapshot(item, HabitService(self.session).current_checkin(item), include_history=True) for item in habits],
+            "habit_checkins": [HabitService.checkin_snapshot(item) for item in checkins],
+            "anniversaries": [AnniversaryService(self.session).snapshot(item) for item in anniversaries],
             "cursor": head,
         }
 
@@ -211,6 +243,34 @@ class SyncService:
                         else None
                     )
                     resource = task_conflict_json(conflict, current_snapshot)
+            elif item.resource_type == "ledger_entry":
+                ledger_entry = self.session.scalar(
+                    select(LedgerEntry).where(
+                        LedgerEntry.id == item.resource_id,
+                        LedgerEntry.workspace_id == workspace_id,
+                    )
+                )
+                if ledger_entry is not None:
+                    resource = LedgerService.snapshot(ledger_entry)
+            elif item.resource_type == "habit":
+                habit = self.session.scalar(
+                    select(Habit).where(Habit.id == item.resource_id, Habit.workspace_id == workspace_id)
+                )
+                if habit is not None:
+                    habit_service = HabitService(self.session)
+                    resource = habit_service.snapshot(habit, habit_service.current_checkin(habit), include_history=True)
+            elif item.resource_type == "habit_checkin":
+                checkin = self.session.scalar(
+                    select(HabitCheckin).where(HabitCheckin.id == item.resource_id, HabitCheckin.workspace_id == workspace_id)
+                )
+                if checkin is not None:
+                    resource = HabitService.checkin_snapshot(checkin)
+            elif item.resource_type == "anniversary":
+                anniversary = self.session.scalar(
+                    select(Anniversary).where(Anniversary.id == item.resource_id, Anniversary.workspace_id == workspace_id)
+                )
+                if anniversary is not None:
+                    resource = AnniversaryService(self.session).snapshot(anniversary)
             changes.append({"cursor": item.cursor, "resource_type": item.resource_type, "resource_id": str(item.resource_id), "action": item.action.value, "operation_id": str(item.operation_id) if item.operation_id else None, "resource": resource})
         return {
             "workspace_id": str(workspace_id),

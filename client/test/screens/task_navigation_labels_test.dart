@@ -82,6 +82,7 @@ class LabelRecordingRepository implements WorkspaceSyncRepository {
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
@@ -228,6 +229,10 @@ void main() {
     await tester.tap(find.byKey(const Key('create-task-fab')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('task-title-input')), 'Plan');
+    await tester.enterText(
+      find.byKey(const Key('task-next-step-input')),
+      '确认计划中的第一个动作',
+    );
     await tester.pump();
     expect(
       tester
@@ -272,9 +277,16 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('task-label-chip-工作')), findsOneWidget);
-    await tester.tap(
-      find.byKey(const Key('task-detail-classification-option-婚礼')),
+    final weddingLabel = find.byKey(
+      const Key('task-detail-classification-option-婚礼'),
     );
+    await tester.scrollUntilVisible(
+      weddingLabel,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(weddingLabel);
     await tester.tap(find.byKey(const Key('task-save-button')));
     await tester.pumpAndSettle();
 

@@ -1,6 +1,19 @@
 # 双人协作行动管理系统技术设计（历史基线）
 
-> **现行运行时架构**以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 为唯一依据：PostgreSQL 是明文协作事实源，Android 与 Web 经 FastAPI 的 REST/WSS 协作。本文件记录 Phase 0-3 的历史 FastAPI/PostgreSQL、固定用户和共享密码设计，仅用于理解遗留实现；它不定义新系统的认证、数据、同步、冲突或发布路径。
+> **现行运行时架构**以 [云端协调双人协作架构设计](./superpowers/specs/2026-08-24-cloud-coordinated-collaboration-design.md) 及后续账户、设备、单负责人规格为现有兼容依据：PostgreSQL 是明文协作事实源，Android 与 Web 经 FastAPI 的 REST/WSS 协作。本文件记录 Phase 0-3 的历史 FastAPI/PostgreSQL、固定用户和共享密码设计，仅用于理解遗留实现；它不定义新系统的认证、数据、同步、冲突或发布路径。
+
+## v1 当前技术入口（2026-09-17）
+
+最新目标架构见 [设计交付 v1.0](../Muyu-Codex-Design-and-Implementation.md)，工程适配见 [v1 契约与交付设计](./superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md)。下文 Phase 0-3 内容整体为历史，不覆盖此入口。
+
+- 继续使用 Flutter Android、独立 React/TypeScript Web、FastAPI/SQLAlchemy/Alembic/PostgreSQL 模块化单体；不把原型的 DOM/localStorage 或建议字段名直接变成生产架构。
+- 路由负责鉴权及契约，领域服务负责权限、版本、幂等与事务，Repository 负责持久化；客户端 Controller 维护同步和 last-known-good，页面不直接改 owner/status。
+- `tasks` 仍是三视图、全部事情和详情的唯一任务源；新增独立 `ledger`、`checkins`、`anniversaries`，共享 Workspace、审计及 cursor，不复用任务表存生活记录。
+- 每次写入原子完成实体、版本、活动/审批、cursor 和幂等结果。REST snapshot/changes 是正确性路径，WebSocket 只通知失效；缓存只读，超时原 key 重试。
+- 用户下一步文本与 viewer-aware 行动投影分离；六状态与五种产品语义分离；`quadrant` 与重要/紧急单源映射。日期/时区、创建即交接、新领域同步与旧客户端兼容必须完成迁移测试。
+- 不重新接入身份或从空库替换生产数据。SMS、Android 设备、Web QR 与双人 Workspace 已存在；所有新增领域从首次真实写入起落实鉴权、事务和幂等。
+
+## 历史 Phase 0-3 设计
 
 ## 1. 总体架构
 

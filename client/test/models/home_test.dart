@@ -200,6 +200,27 @@ void main() {
     expect(home.isValidForWorkspace('workspace-1'), isTrue);
   });
 
+  test('keeps review tasks in the owner moment section', () {
+    final home = HomeResponse.fromJson({
+      'viewer_user_id': 'user-1',
+      'entry_counts': {
+        'needs_me': 0,
+        'waiting_on_other': 0,
+        'due_this_week': 0,
+      },
+      'moment': {
+        'blocked': {'items': [], 'has_more': false},
+        'mine': {
+          'items': [taskJson('review-mine', 'REVIEW')],
+          'has_more': false,
+        },
+        'other': {'items': [], 'has_more': false},
+      },
+    });
+
+    expect(home.moment.mine.items.single.status, 'REVIEW');
+  });
+
   test('falls back to legacy counts and moment aliases when canonical fields are absent', () {
     final home = HomeResponse.fromJson({
       'viewer_user_id': 'user-1',

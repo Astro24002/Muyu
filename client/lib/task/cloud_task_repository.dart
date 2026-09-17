@@ -31,6 +31,7 @@ class CloudTaskRepository {
     required String quadrant,
     List<String> labels = const [],
     String? description,
+    String? nextStepText,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
@@ -45,6 +46,7 @@ class CloudTaskRepository {
       'labels': labels,
     };
     if (description != null) body['description'] = description;
+    if (nextStepText != null) body['next_step_text'] = nextStepText;
     if (dueAt != null) body['due_at'] = dueAt;
     if (parentTaskId != null) body['parent_task_id'] = parentTaskId;
     if (plannedStartAt != null) body['planned_start_at'] = plannedStartAt;

@@ -182,7 +182,12 @@ export class WorkspaceSyncController {
     }
   }
 
-  async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = []): Promise<void> {
+  async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = [], nextStepText?: string): Promise<void> {
+    const normalizedNextStepText = nextStepText === undefined ? undefined : nextStepText.trim();
+    if (nextStepText !== undefined && (!normalizedNextStepText || Array.from(normalizedNextStepText).length > 90)) {
+      this.setState({ error: '明确下一步不能为空且不能超过 90 个字符。' });
+      return;
+    }
     const classifications = this.currentState.snapshot?.classifications ?? [];
     const available = approvedClassificationNames(classifications);
     if (!Array.isArray(labels) || labels.length !== 1 || typeof labels[0] !== 'string' || labels[0].trim().length === 0) {
@@ -195,7 +200,14 @@ export class WorkspaceSyncController {
       return;
     }
     const approvedName = available.find((name) => name.toLocaleLowerCase() === classification.toLocaleLowerCase())!;
-    await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({ requestId: this.requestIdFactory(), title, description, quadrant, labels: [approvedName] }));
+    await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({
+      requestId: this.requestIdFactory(),
+      title,
+      description,
+      quadrant,
+      labels: [approvedName],
+      ...(normalizedNextStepText === undefined ? {} : { nextStepText: normalizedNextStepText }),
+    }));
   }
 
   async createClassification(name: string): Promise<PendingApproval | undefined> {
@@ -229,6 +241,14 @@ export class WorkspaceSyncController {
       return undefined;
     }
     const normalizedChanges: EditableTaskChanges = { ...changes };
+    if (Object.prototype.hasOwnProperty.call(changes, 'next_step_text')) {
+      const value: unknown = changes.next_step_text;
+      if (typeof value !== 'string' || !value.trim() || Array.from(value.trim()).length > 90) {
+        this.setState({ error: '明确下一步不能为空且不能超过 90 个字符。' });
+        return undefined;
+      }
+      normalizedChanges.next_step_text = value.trim();
+    }
     if (Object.prototype.hasOwnProperty.call(changes, 'labels')) {
       const value: unknown = changes.labels;
       if (!Array.isArray(value) || value.length !== 1 || typeof value[0] !== 'string' || value[0].trim().length === 0) {

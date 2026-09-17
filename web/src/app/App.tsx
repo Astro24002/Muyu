@@ -11,8 +11,11 @@ import type { TaskActivityState } from '../components/tasks/TaskTimeline';
 import type { WebSessionApi } from '../components/account/web-session-api';
 import { ActivityPage } from '../pages/ActivityPage';
 import { AllTasksPage } from '../pages/AllTasksPage';
+import { MattersPage, type MatterView } from '../pages/MattersPage';
+import { MyPage } from '../pages/MyPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
+import { UnavailableDomainPage } from '../pages/UnavailableDomainPage';
 import type { WebSocketFactory } from '../realtime/workspace-socket';
 import type { TaskDetailActions } from '../tasks/task-detail-actions';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
@@ -29,6 +32,7 @@ export interface AppProps {
 }
 
 type AppScreen = 'loading' | 'login' | 'workspace' | 'error';
+type TaskListRoute = Extract<Route, { kind: 'matters' | 'all-tasks' | 'today' | 'tasks' }>;
 
 export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element {
   const workspaceState = useWorkspaceState(sync);
@@ -36,10 +40,10 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const [screen, setScreen] = useState<AppScreen>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(() => parseHash(typeof window === 'undefined' ? '' : window.location.hash));
-  const [taskListRoute, setTaskListRoute] = useState<'today' | 'tasks'>('tasks');
+  const [taskListRoute, setTaskListRoute] = useState<TaskListRoute>({ kind: 'all-tasks' });
   const [taskActivity, setTaskActivity] = useState<TaskActivityState>({ status: 'idle', events: [] });
   const [taskActivityRetry, setTaskActivityRetry] = useState(0);
-  const taskListRouteRef = useRef<'today' | 'tasks'>('tasks');
+  const taskListRouteRef = useRef<TaskListRoute>({ kind: 'all-tasks' });
   const taskFocusRef = useRef<{ taskId: string; element: HTMLElement | null } | null>(null);
   const taskActivityRequestSequenceRef = useRef(0);
   const activeRef = useRef(false);
@@ -272,7 +276,11 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     };
   }, [api, selectedTask !== null, taskActivityRetry, taskId, workspaceId, workspaceReady]);
 
-  const routeKey = route.kind === 'task' ? `task:${route.id}` : route.kind;
+  const routeKey = route.kind === 'task'
+    ? `task:${route.id}`
+    : route.kind === 'matters'
+      ? `matters:${route.view ?? 'moment'}`
+      : route.kind;
   const focusNewTask = useCallback((): void => {
     const composerTrigger = document.querySelector<HTMLButtonElement>('[data-task-composer-trigger]');
     if (composerTrigger) {
@@ -283,14 +291,17 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   }, []);
   const onNavigate = useCallback((nextRoute: PrimaryRoute): void => {
     taskFocusRef.current = null;
-    if (nextRoute.kind === 'today' || nextRoute.kind === 'tasks') {
-      taskListRouteRef.current = nextRoute.kind;
-      setTaskListRoute(nextRoute.kind);
+    if (nextRoute.kind === 'matters' || nextRoute.kind === 'ledger' || nextRoute.kind === 'checkins' || nextRoute.kind === 'me') {
+      if (nextRoute.kind === 'matters') {
+        const nextMatterRoute: TaskListRoute = { kind: 'matters', view: nextRoute.view ?? 'moment' };
+        taskListRouteRef.current = nextMatterRoute;
+        setTaskListRoute(nextMatterRoute);
+      }
     }
     navigate(nextRoute);
   }, []);
   const openTask = useCallback((task: TaskItem): void => {
-    const backgroundRoute = route.kind === 'today' || route.kind === 'tasks' ? route.kind : taskListRouteRef.current;
+    const backgroundRoute = taskRouteFor(route) ?? taskListRouteRef.current;
     taskListRouteRef.current = backgroundRoute;
     setTaskListRoute(backgroundRoute);
     const activeElement = typeof document !== 'undefined'
@@ -304,8 +315,8 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const closeTask = useCallback((): void => {
     navigate(taskListRouteRef.current);
   }, []);
-  const createTask = useCallback<CreateTaskHandler>((title: string, description: string, quadrant: TaskQuadrant, labels: string[]): Promise<void> => {
-    return sync.createTask(title, description, quadrant, labels);
+  const createTask = useCallback<CreateTaskHandler>((title: string, description: string, quadrant: TaskQuadrant, labels: string[], nextStepText?: string): Promise<void> => {
+    return sync.createTask(title, description, quadrant, labels, nextStepText);
   }, [sync]);
   const taskActions: TaskDetailActions | undefined = selectedTask ? {
     onTransition: (status, payload) => sync.transitionTask(selectedTask.id, status, payload),
@@ -317,8 +328,8 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     currentUserId: workspaceState.snapshot?.viewer_user_id ?? undefined,
     canWrite: !workspaceState.loading && !workspaceState.stale && !workspaceState.authRequired,
   } : undefined;
-  const taskBackground = taskListRoute === 'today'
-    ? <TodayPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
+  const taskBackground = taskListRoute.kind === 'matters' || taskListRoute.kind === 'today'
+    ? <MattersPage sync={sync} view={taskListRoute.kind === 'matters' ? taskListRoute.view : 'moment'} onOpenTask={openTask} onCreateTask={createTask} />
     : <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />;
 
   return (
@@ -330,15 +341,23 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
           route={route}
           onNavigate={onNavigate}
           onLogout={logout}
-          onCreateTask={focusNewTask}
+          onCreateTask={canCreateTask(route) ? focusNewTask : undefined}
           sessionApi={webSessionApi(api)}
           onAuthRequired={recoverAuthRequired}
             pendingApprovalCount={pendingApprovalCount(workspaceState)}
           >
-            {route.kind === 'today' ? (
-              <TodayPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
-            ) : route.kind === 'tasks' ? (
+            {route.kind === 'matters' ? (
+              <MattersPage sync={sync} view={route.view ?? 'moment'} onOpenTask={openTask} onCreateTask={createTask} />
+            ) : route.kind === 'all-tasks' || route.kind === 'tasks' ? (
               <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
+            ) : route.kind === 'today' ? (
+              <MattersPage sync={sync} view="moment" onOpenTask={openTask} onCreateTask={createTask} />
+            ) : route.kind === 'ledger' ? (
+              <UnavailableDomainPage title="记账尚未开放" />
+            ) : route.kind === 'checkins' ? (
+              <UnavailableDomainPage title="打卡尚未开放" />
+            ) : route.kind === 'me' ? (
+              <MyPage sessionApi={webSessionApi(api)} onAuthRequired={recoverAuthRequired} />
             ) : route.kind === 'approvals' ? (
               <ApprovalsPage sync={sync} />
             ) : route.kind === 'activity' ? (
@@ -380,6 +399,19 @@ function findTaskFocusTarget(taskId: string): HTMLElement | null {
     return row.querySelector<HTMLElement>('[role="button"]');
   }
   return null;
+}
+
+function taskRouteFor(route: Route): TaskListRoute | null {
+  if (route.kind === 'matters') return { kind: 'matters', view: route.view ?? 'moment' };
+  if (route.kind === 'all-tasks') return { kind: 'all-tasks' };
+  if (route.kind === 'today') return { kind: 'today' };
+  if (route.kind === 'tasks') return { kind: 'tasks' };
+  return null;
+}
+
+function canCreateTask(route: Route): boolean {
+  if (route.kind === 'all-tasks' || route.kind === 'tasks' || route.kind === 'today') return true;
+  return route.kind === 'matters' && (route.view ?? 'moment') === 'moment';
 }
 
 function placeholder(screen: AppScreen, error: string | null, onRetry: () => void): JSX.Element {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -17,6 +17,7 @@ from app.db.enums import (
     TaskApprovalRequestType,
     TaskStatus,
 )
+from app.core.time import BUSINESS_TIMEZONE_NAME, utc_week_bounds
 from app.db.models import Task, TaskApprovalRequest, WorkspaceMembership
 from app.home.schemas import (
     HomeApprovalItem,
@@ -114,10 +115,8 @@ def get_home(
         requester_id=actor.user_id,
     )
 
-    # v1's three action entries answer who must respond to a task handoff or
-    # acceptance request. Other pending approvals remain available through the
-    # approval center and legacy aggregate fields above, but must not inflate
-    # the task workbench's action metrics.
+    # Count each pending agreement request once, including invitations that
+    # have no task until the recipient accepts.
     needs_me_count = _pending_approval_count(
         session,
         actor.workspace_id,
@@ -254,7 +253,7 @@ def get_home(
     return HomeResponse(
         viewer_user_id=actor.user_id,
         as_of=now,
-        week=HomeWeek(timezone="UTC", start=week_start, end=week_end),
+        week=HomeWeek(timezone=BUSINESS_TIMEZONE_NAME, start=week_start, end=week_end),
         entry_counts=HomeEntryCounts(
             needs_me=needs_me_count,
             waiting_on_other=waiting_on_other_entry_count,
@@ -532,9 +531,11 @@ def _pending_approval_page(
     )
     statement = select(TaskApprovalRequest, Task)
     if action_only:
-        statement = statement.join(Task, Task.id == TaskApprovalRequest.task_id).where(
-            Task.workspace_id == workspace_id,
-            Task.deleted_at.is_(None),
+        statement = statement.outerjoin(Task, Task.id == TaskApprovalRequest.task_id).where(
+            or_(
+                and_(TaskApprovalRequest.request_type == TaskApprovalRequestType.TASK_INVITATION, TaskApprovalRequest.task_id.is_(None)),
+                and_(Task.workspace_id == workspace_id, Task.deleted_at.is_(None)),
+            ),
             _task_action_request_predicate(),
         )
     else:
@@ -683,12 +684,7 @@ def _task_cursor_key(task: Task, now: datetime) -> dict[str, Any]:
 
 
 def _week_bounds(now: datetime) -> tuple[datetime, datetime]:
-    week_start = datetime.combine(
-        now.date() - timedelta(days=now.weekday()),
-        time.min,
-        tzinfo=timezone.utc,
-    )
-    return week_start, week_start + timedelta(days=7)
+    return utc_week_bounds(now)
 
 
 def _iso_utc(value: datetime | None) -> str | None:
@@ -715,7 +711,7 @@ def _pending_approval_count(
         else TaskApprovalRequest.requester_id == requester_id
     )
     statement = select(func.count()).select_from(TaskApprovalRequest)
-    if require_task or action_only:
+    if require_task:
         statement = statement.join(Task, Task.id == TaskApprovalRequest.task_id)
         target = and_(
             Task.workspace_id == workspace_id,
@@ -724,7 +720,7 @@ def _pending_approval_count(
     else:
         statement = statement.outerjoin(Task, Task.id == TaskApprovalRequest.task_id)
         target = or_(
-            TaskApprovalRequest.task_id.is_(None),
+            and_(TaskApprovalRequest.task_id.is_(None), TaskApprovalRequest.request_type == TaskApprovalRequestType.TASK_INVITATION) if action_only else TaskApprovalRequest.task_id.is_(None),
             and_(
                 Task.workspace_id == workspace_id,
                 Task.deleted_at.is_(None),
@@ -762,9 +758,11 @@ def _pending_approval_entries(
     )
     statement = select(TaskApprovalRequest, Task)
     if action_only:
-        statement = statement.join(Task, Task.id == TaskApprovalRequest.task_id).where(
-            Task.workspace_id == workspace_id,
-            Task.deleted_at.is_(None),
+        statement = statement.outerjoin(Task, Task.id == TaskApprovalRequest.task_id).where(
+            or_(
+                and_(TaskApprovalRequest.request_type == TaskApprovalRequestType.TASK_INVITATION, TaskApprovalRequest.task_id.is_(None)),
+                and_(Task.workspace_id == workspace_id, Task.deleted_at.is_(None)),
+            ),
             _task_action_request_predicate(),
         )
     else:
@@ -796,6 +794,12 @@ def _task_action_request_predicate():
     """Match only the live requests that make another member the next actor."""
 
     return or_(
+        TaskApprovalRequest.request_type.in_((
+            TaskApprovalRequestType.TASK_INVITATION,
+            TaskApprovalRequestType.TASK_UPDATE,
+            TaskApprovalRequestType.QUADRANT_UPDATE,
+            TaskApprovalRequestType.TASK_DELETE,
+        )),
         TaskApprovalRequest.request_type == TaskApprovalRequestType.HANDLER_TRANSFER,
         and_(
             TaskApprovalRequest.request_type == TaskApprovalRequestType.STATUS_UPDATE,

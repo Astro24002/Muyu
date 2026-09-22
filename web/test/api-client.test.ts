@@ -14,7 +14,7 @@ describe('ApiClient', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/web-login/challenges', expect.objectContaining({
       credentials: 'include',
       body: JSON.stringify({ origin: 'https://app.test', browser_proof_hash: 'a'.repeat(64) }),
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Muyu-Client-Contract': '2026-09-v1' },
     }));
   });
 
@@ -111,6 +111,48 @@ describe('ApiClient', () => {
     }));
   });
 
+  it('sends a task invitation to the dedicated endpoint when creating for TA', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ pending: true, approval_request: { id: 'approval-1' }, cursor: 2 }), { status: 202 }),
+    );
+    await new ApiClient().createTaskInvitation({ requestId: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'], nextStepText: '先确认内容', acceptanceCriteria: '对方确认交付物', targetHandlerId: 'user-2' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/task-invitations', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'request-1', title: 'Task', description: '', quadrant: 'Q2', labels: ['工作'], next_step_text: '先确认内容', acceptance_criteria: '对方确认交付物', target_handler_id: 'user-2' }),
+    }));
+  });
+
+  it('sends an agreement update request with the acceptance criteria version', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ pending: true, approval_request: { id: 'approval-1' }, cursor: 3 }), { status: 202 }),
+    );
+
+    await new ApiClient().requestAgreementUpdate('task/1', {
+      requestId: 'request-2',
+      acceptanceCriteria: '双方确认交付物',
+      baseFieldVersion: 4,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks/task%2F1/agreement-requests', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'request-2', acceptance_criteria: '双方确认交付物', base_field_version: 4 }),
+    }));
+  });
+
+  it('sends a cancellation request with the lifecycle version', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ pending: true, approval_request: { id: 'approval-2' }, cursor: 4 }), { status: 202 }),
+    );
+
+    await new ApiClient().requestTaskCancellation('task-2', {
+      requestId: 'request-3',
+      reason: '需求已取消',
+      baseLifecycleVersion: 6,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/tasks/task-2/cancellation-requests', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'request-3', reason: '需求已取消', base_lifecycle_version: 6 }),
+    }));
+  });
+
   it('sends a review return reason with a status transition', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'task-1', cursor: 2 }), { status: 200 }),
@@ -162,3 +204,14 @@ describe('ApiClient', () => {
     }));
   });
 });
+
+ it('keeps a single contract header with caller headers on reads and writes', async () => {
+   const mock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+   for (const method of ['GET', 'POST', 'PATCH', 'DELETE']) {
+     await new ApiClient().request('/api/v1/tasks', { method, headers: { 'x-muyu-client-contract': 'old', 'Idempotency-Key': 'request-1' } });
+     const headers = new Headers(mock.mock.calls.at(-1)?.[1]?.headers);
+     expect(headers.get('x-muyu-client-contract')).toBe('2026-09-v1');
+     expect(headers.get('idempotency-key')).toBe('request-1');
+   }
+   mock.mockRestore();
+ });

@@ -32,7 +32,7 @@ from app.workspaces.classifications import (
 )
 
 
-MUTABLE_FIELDS = {"title", "description", "next_step_text", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "quadrant", "progress", "labels"}
+MUTABLE_FIELDS = {"title", "description", "next_step_text", "acceptance_criteria", "due_at", "planned_start_at", "estimated_minutes", "current_handler_id", "quadrant", "progress", "labels"}
 ALLOWED_PROGRESS = {20, 40, 60, 80}
 # The wire/storage field remains named ``labels`` for backwards compatibility,
 # but the product contract now allows exactly one classification per task.
@@ -40,6 +40,7 @@ MAX_TASK_LABELS = 1
 MAX_TASK_LABEL_LENGTH = 5
 MAX_TASK_LABEL_CHARS = 320
 MAX_NEXT_STEP_TEXT_LENGTH = 90
+MAX_ACCEPTANCE_CRITERIA_LENGTH = 500
 DEFAULT_TASK_DUE_DAYS = 14
 TRANSITIONS = {
     "TODO": {"IN_PROGRESS", "BLOCKED", "CANCELLED"},
@@ -124,6 +125,15 @@ def normalize_next_step_text(value: object, *, allow_none: bool = True) -> str |
     return normalized
 
 
+def normalize_acceptance_criteria(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise TaskConflictError("invalid_request", "acceptance_criteria cannot be blank")
+    normalized = value.strip()
+    if len(normalized) > MAX_ACCEPTANCE_CRITERIA_LENGTH:
+        raise TaskConflictError("invalid_request", "acceptance_criteria can contain at most 500 characters")
+    return normalized
+
+
 class TaskService:
     def __init__(self, session: Session, *, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self.session = session
@@ -145,13 +155,18 @@ class TaskService:
         labels: list[str] | None = None,
         next_step_text: str | None = None,
         *,
+        acceptance_criteria: str | None = None,
+        invitation_requester_id: UUID | None = None,
         source_key: str | None = None,
         initial_status: TaskStatus = TaskStatus.TODO,
+        target_handler_id: UUID | str | None = None,
     ) -> Task:
         title = title.strip()
         if not title:
             raise TaskConflictError("invalid_request", "title is required")
         next_step_text = normalize_next_step_text(next_step_text)
+        if acceptance_criteria is not None:
+            acceptance_criteria = normalize_acceptance_criteria(acceptance_criteria)
         if quadrant not in {item.value for item in TaskQuadrant}:
             raise TaskConflictError("invalid_request", "quadrant must be Q1, Q2, Q3, or Q4")
         if not isinstance(initial_status, TaskStatus):
@@ -174,6 +189,10 @@ class TaskService:
             if source_task is not None:
                 raise TaskConflictError("idempotency_replay", "source key already exists")
         self._validated_member(workspace_id, actor_user_id)
+        if invitation_requester_id is not None:
+            self._validated_member(workspace_id, invitation_requester_id)
+            if invitation_requester_id == actor_user_id:
+                raise TaskConflictError("invalid_request", "invitation requester must differ from owner")
         normalized_labels = normalize_task_labels([] if labels is None else labels)
         try:
             normalized_labels = validate_active_classifications(
@@ -190,9 +209,14 @@ class TaskService:
                 raise TaskConflictError("not_found", "parent task not found")
             if parent.parent_task_id is not None:
                 raise TaskConflictError("nested_task_not_allowed", "subtasks cannot have subtasks")
+        fingerprint_fields = {"title": title, "description": description, "next_step_text": next_step_text, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels, "source_key": source_key, "initial_status": initial_status.value, "target_handler_id": str(target_handler_id) if target_handler_id is not None else None}
+        if acceptance_criteria is not None:
+            fingerprint_fields["acceptance_criteria"] = acceptance_criteria
+        if invitation_requester_id is not None:
+            fingerprint_fields["invitation_requester_id"] = str(invitation_requester_id)
         fingerprint = request_fingerprint(
             "/api/v1/tasks",
-            {"title": title, "description": description, "next_step_text": next_step_text, "due_at": due_at.isoformat() if due_at else None, "parent_task_id": str(parent_task_id) if parent_task_id else None, "planned_start_at": planned_start_at.isoformat() if planned_start_at else None, "estimated_minutes": estimated_minutes, "quadrant": quadrant, "labels": normalized_labels, "source_key": source_key, "initial_status": initial_status.value},
+            fingerprint_fields,
         )
         existing = self._existing_operation(workspace_id, actor_user_id, request_id)
         if existing is not None:
@@ -208,6 +232,7 @@ class TaskService:
             title=title,
             description=description,
             next_step_text=next_step_text,
+            acceptance_criteria=acceptance_criteria,
             source_key=source_key,
             due_at=due_at,
             parent_task_id=parent_task_id,
@@ -217,8 +242,9 @@ class TaskService:
             labels=normalized_labels,
             current_handler_id=actor_user_id,
             status=initial_status,
-            created_by=actor_user_id,
-            field_versions={"title": 1, "description": 1, "next_step_text": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "quadrant": 1, "progress": 1, "labels": 1},
+            created_by=invitation_requester_id or actor_user_id,
+            reviewer_user_id=invitation_requester_id,
+            field_versions={"title": 1, "description": 1, "next_step_text": 1, "acceptance_criteria": 1, "due_at": 1, "planned_start_at": 1, "estimated_minutes": 1, "current_handler_id": 1, "quadrant": 1, "progress": 1, "labels": 1},
         )
         self.session.add(task)
         self.session.flush()
@@ -252,6 +278,8 @@ class TaskService:
             changes["next_step_text"] = normalize_next_step_text(
                 changes["next_step_text"], allow_none=False
             )
+        if "acceptance_criteria" in changes:
+            changes["acceptance_criteria"] = normalize_acceptance_criteria(changes["acceptance_criteria"])
         for field in ("due_at", "planned_start_at"):
             value = changes.get(field)
             if value is None or isinstance(value, datetime):
@@ -815,6 +843,7 @@ class TaskService:
             "title": task.title,
             "description": task.description,
             "next_step_text": getattr(task, "next_step_text", None),
+            "acceptance_criteria": getattr(task, "acceptance_criteria", None),
             "source_key": getattr(task, "source_key", None),
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": public_status,

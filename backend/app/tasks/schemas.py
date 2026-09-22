@@ -15,6 +15,7 @@ class CreateTaskRequest(BaseModel):
     # Nullable for one compatibility window so older clients can still read
     # and create historical-shaped tasks. New v1 clients always send it.
     next_step_text: str | None = Field(default=None)
+    acceptance_criteria: str | None = None
     due_at: str | None = None
     parent_task_id: UUID | None = None
     planned_start_at: str | None = None
@@ -23,6 +24,30 @@ class CreateTaskRequest(BaseModel):
     # `invalid_request` code for both omitted and explicit null quadrants.
     quadrant: str | None = None
     labels: list[str] = Field(default_factory=list)
+    target_handler_id: UUID | None = None
+
+
+class CreateTaskInvitationRequest(CreateTaskRequest):
+    target_handler_id: UUID
+    acceptance_criteria: str
+    next_step_text: str
+    invitation_note: str = Field(default="", max_length=500)
+
+
+class AgreementUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    acceptance_criteria: str = Field(min_length=1, max_length=500)
+    base_field_version: int = Field(ge=1)
+
+
+class CancellationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    reason: str = Field(min_length=1, max_length=2000)
+    base_lifecycle_version: int = Field(ge=1)
 
 
 class PatchTaskRequest(BaseModel):
@@ -39,7 +64,12 @@ class PatchTaskRequest(BaseModel):
         # A transfer note is request context, not a mutable task field. It is
         # validated with the handler-transfer approval and does not have its
         # own task field version.
-        versioned_changes = set(self.changes) - {"transfer_note"}
+        versioned_changes = set(self.changes) - {
+            "transfer_note",
+            "proposed_next_step",
+        }
+        if "proposed_next_step" in self.changes:
+            versioned_changes.add("next_step_text")
         if versioned_changes != set(self.base_field_versions):
             raise ValueError("base versions must match changed fields")
         return self

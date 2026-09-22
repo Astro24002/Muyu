@@ -541,6 +541,100 @@ def test_handler_transfer_trims_note_replays_and_applies_without_duplicate_activ
     assert len({item["id"] for item in events}) == len(events)
 
 
+def test_handler_transfer_applies_proposed_next_step_only_after_acceptance(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "交接下一步",
+            "next_step_text": "我先整理资料",
+            "quadrant": "Q2",
+            "labels": ["工作"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    pending = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {
+                "current_handler_id": partner["user"]["id"],
+                "transfer_note": "请接手供应商沟通",
+                "proposed_next_step": "联系供应商确认交付日期",
+            },
+            "base_field_versions": {
+                "current_handler_id": task["field_versions"]["current_handler_id"],
+                "next_step_text": task["field_versions"]["next_step_text"],
+            },
+        },
+    )
+    assert pending.status_code == 202, pending.text
+    approval = pending.json()["approval_request"]
+    assert approval["proposed_changes"]["proposed_next_step"] == "联系供应商确认交付日期"
+
+    before = client.get(f"/api/v1/tasks/{task['id']}", headers=partner_headers)
+    assert before.status_code == 200
+    assert before.json()["current_handler_id"] == owner["user"]["id"]
+    assert before.json()["next_step_text"] == "我先整理资料"
+
+    accepted = client.post(
+        f"/api/v1/workspaces/{task['workspace_id']}/approval-requests/{approval['id']}/approve",
+        headers=partner_headers,
+        json={"request_id": str(uuid4())},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["task"]["current_handler_id"] == partner["user"]["id"]
+    assert accepted.json()["task"]["next_step_text"] == "联系供应商确认交付日期"
+
+
+def test_rejected_handler_transfer_keeps_current_next_step(db_engine) -> None:
+    client = _client(db_engine)
+    owner, partner = _ready_workspace(client)
+    owner_headers = _headers(owner)
+    partner_headers = _headers(partner)
+    created = client.post(
+        "/api/v1/tasks",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "title": "拒绝交接下一步",
+            "next_step_text": "保留原下一步",
+            "quadrant": "Q2",
+            "labels": ["工作"],
+        },
+    ).json()
+    pending = client.patch(
+        f"/api/v1/tasks/{created['id']}",
+        headers=owner_headers,
+        json={
+            "request_id": str(uuid4()),
+            "changes": {
+                "current_handler_id": partner["user"]["id"],
+                "proposed_next_step": "不应写入",
+            },
+            "base_field_versions": {
+                "current_handler_id": created["field_versions"]["current_handler_id"],
+                "next_step_text": created["field_versions"]["next_step_text"],
+            },
+        },
+    ).json()
+    rejected = client.post(
+        f"/api/v1/workspaces/{created['workspace_id']}/approval-requests/{pending['approval_request']['id']}/reject",
+        headers=partner_headers,
+        json={"request_id": str(uuid4()), "reason": "暂不接手"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["task"]["current_handler_id"] == owner["user"]["id"]
+    assert rejected.json()["task"]["next_step_text"] == "保留原下一步"
+
+
 def test_review_rejection_projects_resubmission_for_owner_only(db_engine) -> None:
     client = _client(db_engine)
     owner, reviewer = _ready_workspace(client)

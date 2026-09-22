@@ -16,6 +16,7 @@ export type CanonicalTaskStatus = 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'REVIEW' 
 export type TaskStatus = CanonicalTaskStatus | 'WAITING' | 'COMPLETED';
 export type TaskQuadrant = 'Q1' | 'Q2' | 'Q3' | 'Q4';
 export type TaskApprovalRequestType =
+  | 'TASK_INVITATION'
   | 'TASK_UPDATE'
   | 'QUADRANT_UPDATE'
   | 'STATUS_UPDATE'
@@ -31,6 +32,7 @@ export type ApprovalRequestStatus = TaskApprovalRequestStatus;
 export interface TaskItem {
   id: string; workspace_id: string; parent_task_id: string | null; title: string; description: string;
   next_step_text?: string | null;
+  acceptance_criteria?: string | null;
   due_at: string | null; status: TaskStatus; current_handler_id: string; blocked_reason: string | null;
   blocked_since: string | null; resume_handler_id: string | null; waiting_for_user_id: string | null;
   reviewer_user_id?: string | null; review_submitted_at?: string | null; reviewed_at?: string | null; review_rejection_reason?: string | null;
@@ -185,14 +187,104 @@ export interface WorkspaceSnapshot {
   comments?: TaskComment[];
   approval_requests?: TaskApprovalRequest[];
   classifications?: WorkspaceClassification[];
+  ledger_entries?: LedgerEntry[];
+  habits?: Habit[];
+  habit_checkins?: HabitCheckin[];
+  anniversaries?: Anniversary[];
 }
 
 export interface WorkspaceChange {
   cursor: number;
-  resource_type: 'task' | 'task_conflict' | 'approval_request' | 'comment' | 'classification' | string;
+  resource_type: 'task' | 'task_conflict' | 'approval_request' | 'comment' | 'classification' | 'ledger_entry' | 'habit' | 'habit_checkin' | 'anniversary' | string;
   resource_id: string;
   action: string;
   operation_id: string | null;
-  resource: TaskItem | TaskApprovalRequest | TaskComment | WorkspaceClassification | Record<string, unknown> | null;
+  resource: TaskItem | TaskApprovalRequest | TaskComment | WorkspaceClassification | LedgerEntry | Habit | HabitCheckin | Anniversary | Record<string, unknown> | null;
 }
 export interface WorkspaceChanges { workspace_id: string; cursor: number; changes: WorkspaceChange[] }
+
+export type LedgerEntryType = 'EXPENSE' | 'INCOME';
+
+export interface LedgerEntry {
+  id: string;
+  workspace_id: string;
+  type: LedgerEntryType;
+  amount_minor: number;
+  amount: string;
+  currency: 'CNY' | string;
+  title: string;
+  category: string;
+  payer_or_payee_id: string;
+  payer_or_payee_name?: string;
+  date: string;
+  note: string | null;
+  created_by: string;
+  updated_by: string;
+  version: number;
+  deleted_at: string | null;
+}
+
+export interface LedgerSummary {
+  month: string;
+  currency: string;
+  expense_minor: number;
+  income_minor: number;
+  balance_minor: number;
+  categories: Array<{ category: string; amount_minor: number; ratio: number }>;
+  payer_totals: Array<{ user_id: string; display_name: string; amount_minor: number }>;
+}
+
+export type HabitFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+export type HabitStatus = 'ACTIVE' | 'PAUSED' | 'DELETED';
+
+export interface HabitCheckin {
+  id: string;
+  habit_id: string;
+  workspace_id: string;
+  actor_id: string;
+  frequency_snapshot: HabitFrequency;
+  period_key: string;
+  day: string;
+  occurred_at: string;
+  revoked_at: string | null;
+}
+
+export interface Habit {
+  id: string;
+  workspace_id: string;
+  owner_id: string;
+  title: string;
+  note: string | null;
+  frequency: HabitFrequency;
+  start_date: string;
+  status: HabitStatus;
+  version: number;
+  current_period_key: string;
+  checked_in: boolean;
+  current_checkin: HabitCheckin | null;
+  checkins: HabitCheckin[];
+  deleted_at: string | null;
+}
+
+export type AnniversaryKind = 'ANNIVERSARY' | 'BIRTHDAY' | 'IMPORTANT_DAY';
+
+export interface Anniversary {
+  id: string;
+  workspace_id: string;
+  title: string;
+  anchor_date: string;
+  kind: AnniversaryKind;
+  prepare_days: number;
+  note: string | null;
+  next_occurrence: string;
+  days_until: number;
+  is_today: boolean;
+  version: number;
+  deleted_at?: string | null;
+}
+
+export interface PreparationTaskResult {
+  task: TaskItem;
+  cursor: number | null;
+  source_key: string;
+}

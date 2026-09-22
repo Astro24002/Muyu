@@ -196,6 +196,8 @@ const CHANGE_LABELS: Record<string, string> = {
   resume_handler_id: '恢复负责人',
   waiting_for_user_id: '等待对象',
   review_rejection_reason: '退回原因',
+  acceptance_criteria: '完成标准',
+  cancel_reason: '取消原因',
   name: '分类名称',
 };
 
@@ -216,6 +218,8 @@ function approvalSubject(request: TaskApprovalRequest, task?: TaskItem | null): 
     return `${number}${task.title}`;
   }
   if (request.request_type === 'COMMENT_DELETE') return '删除任务评论';
+  if (request.request_type === 'TASK_UPDATE' && request.proposed_changes.agreement_update === true) return '修改完成标准';
+  if (request.request_type === 'TASK_DELETE' && request.proposed_changes.cancellation_request === true) return '取消任务';
   if (request.request_type === 'TASK_DELETE') return '删除任务';
   if (request.request_type === 'TASK_RESTORE') return '恢复任务';
   return '协作请求';
@@ -227,7 +231,7 @@ function approvalChanges(
 ): ApprovalChange[] {
   const reviewSubmission = isTaskReviewSubmission(request);
   const entries = Object.entries(request.proposed_changes ?? {})
-    .filter(([key]) => key !== 'review_submission');
+    .filter(([key]) => !['review_submission', 'agreement_update', 'cancellation_request'].includes(key));
   if (entries.length === 0) {
     return request.request_type === 'TASK_DELETE' ? [{ key: 'action', label: '操作', value: '删除任务' }]
       : request.request_type === 'TASK_RESTORE' ? [{ key: 'action', label: '操作', value: '恢复任务' }]
@@ -284,7 +288,10 @@ function fallbackMemberLabel(userId: string): string {
 function requestTypeLabel(request: TaskApprovalRequest, reviewSubmission = false): string {
   const type = request.request_type;
   if (reviewSubmission) return '任务验收';
+  if (request.proposed_changes.agreement_update === true) return '修改完成标准';
+  if (request.proposed_changes.cancellation_request === true) return '取消任务';
   const labels: Record<TaskApprovalRequest['request_type'], string> = {
+    TASK_INVITATION: '任务邀请',
     TASK_UPDATE: '任务修改',
     QUADRANT_UPDATE: '四象限修改',
     STATUS_UPDATE: '状态修改',

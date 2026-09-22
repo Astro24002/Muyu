@@ -32,11 +32,13 @@ class CloudTaskRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
     String? requestId,
+    String? targetHandlerId,
   }) async {
     final id = requestId ?? newRequestId();
     final body = <String, Object?>{
@@ -47,11 +49,101 @@ class CloudTaskRepository {
     };
     if (description != null) body['description'] = description;
     if (nextStepText != null) body['next_step_text'] = nextStepText;
+    if (acceptanceCriteria != null) {
+      body['acceptance_criteria'] = acceptanceCriteria;
+    }
     if (dueAt != null) body['due_at'] = dueAt;
     if (parentTaskId != null) body['parent_task_id'] = parentTaskId;
     if (plannedStartAt != null) body['planned_start_at'] = plannedStartAt;
     if (estimatedMinutes != null) body['estimated_minutes'] = estimatedMinutes;
+    if (targetHandlerId != null) body['target_handler_id'] = targetHandlerId;
     return _taskRequest('POST', '/api/v1/tasks', body, id);
+  }
+
+  Future<TaskApprovalRequest> createTaskInvitation({
+    required String title,
+    required String quadrant,
+    required List<String> labels,
+    String? description,
+    required String nextStepText,
+    required String acceptanceCriteria,
+    String? dueAt,
+    String? parentTaskId,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+    required String targetHandlerId,
+    String? requestId,
+  }) async {
+    final id = requestId ?? newRequestId();
+    final body = <String, Object?>{
+      'request_id': id,
+      'title': title,
+      'quadrant': quadrant,
+      'labels': labels,
+      'next_step_text': nextStepText,
+      'acceptance_criteria': acceptanceCriteria,
+      'target_handler_id': targetHandlerId,
+    };
+    if (description != null) body['description'] = description;
+    if (dueAt != null) body['due_at'] = dueAt;
+    if (parentTaskId != null) body['parent_task_id'] = parentTaskId;
+    if (plannedStartAt != null) body['planned_start_at'] = plannedStartAt;
+    if (estimatedMinutes != null) body['estimated_minutes'] = estimatedMinutes;
+    final value = await _write('POST', '/api/v1/task-invitations', body);
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const CloudTaskFailure('服务器返回了无效任务邀请');
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
+  }
+
+  Future<TaskApprovalRequest> requestAgreementUpdate({
+    required String taskId,
+    required String acceptanceCriteria,
+    required int baseFieldVersion,
+    String? requestId,
+  }) async {
+    final id = requestId ?? newRequestId();
+    final value = await _write(
+      'POST',
+      '/api/v1/tasks/$taskId/agreement-requests',
+      {
+        'request_id': id,
+        'acceptance_criteria': acceptanceCriteria,
+        'base_field_version': baseFieldVersion,
+      },
+    );
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const CloudTaskFailure('服务器返回了无效约定申请');
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
+  }
+
+  Future<TaskApprovalRequest> requestCancellation({
+    required String taskId,
+    required String reason,
+    required int baseLifecycleVersion,
+    String? requestId,
+  }) async {
+    final id = requestId ?? newRequestId();
+    final value = await _write(
+      'POST',
+      '/api/v1/tasks/$taskId/cancellation-requests',
+      {
+        'request_id': id,
+        'reason': reason,
+        'base_lifecycle_version': baseLifecycleVersion,
+      },
+    );
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const CloudTaskFailure('服务器返回了无效取消申请');
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
   }
 
   Future<TaskMutationResult?> update(

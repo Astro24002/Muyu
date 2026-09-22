@@ -27,6 +27,15 @@ class TaskListGroup {
 class TaskView {
   static const statuses = taskStatuses;
 
+  static bool isOpen(TaskItem task) =>
+      task.deletedAt == null &&
+      const {
+        'TODO',
+        'IN_PROGRESS',
+        'BLOCKED',
+        'REVIEW',
+      }.contains(normalizeTaskStatus(task.status));
+
   static const quadrants = <String>['Q1', 'Q2', 'Q3', 'Q4'];
 
   /// The list is an action window, not an archive of every future task.

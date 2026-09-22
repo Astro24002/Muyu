@@ -12,6 +12,7 @@ import '../models/classification.dart';
 import '../models/task.dart';
 import '../models/task_approval_request.dart';
 import '../models/home.dart';
+import '../life/life_repository.dart';
 import '../tasks/task_status.dart';
 import 'workspace_cache.dart';
 import 'workspace_sync_repository.dart';
@@ -241,12 +242,20 @@ class WorkspaceSyncController extends ChangeNotifier
       final approvals = [...current.approvalRequests];
       final comments = [...current.comments];
       final classifications = [...current.classifications];
+      final ledgerEntries = [...current.ledgerEntries];
+      final habits = [...current.habits];
+      final habitCheckins = [...current.habitCheckins];
+      final anniversaries = [...current.anniversaries];
       for (final change in result.changes) {
         _applyTask(tasks, change, current.workspaceId);
         _applyConflict(conflicts, change, current.workspaceId);
         _applyApproval(approvals, change, current.workspaceId);
         _applyComment(comments, change, current.workspaceId);
         _applyClassification(classifications, change, current.workspaceId);
+        _applyLedgerEntry(ledgerEntries, change, current.workspaceId);
+        _applyHabit(habits, change, current.workspaceId);
+        _applyHabitCheckin(habitCheckins, habits, change, current.workspaceId);
+        _applyAnniversary(anniversaries, change, current.workspaceId);
       }
       final next = WorkspaceSnapshot(
         workspaceId: current.workspaceId,
@@ -259,6 +268,11 @@ class WorkspaceSyncController extends ChangeNotifier
         approvalRequests: approvals,
         classifications: classifications,
         hasClassificationContract: current.hasClassificationContract,
+        ledgerEntries: ledgerEntries,
+        habits: habits,
+        habitCheckins: habitCheckins,
+        anniversaries: anniversaries,
+        hasLifeDomainContract: current.hasLifeDomainContract,
         fetchedAt: DateTime.now(),
       );
       if (!next.isValidForWorkspace()) {
@@ -371,10 +385,12 @@ class WorkspaceSyncController extends ChangeNotifier
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
+    String? targetHandlerId,
   }) async {
     final repository = _repository;
     if (repository == null || state.snapshot == null || state.isStale) {
@@ -399,18 +415,53 @@ class WorkspaceSyncController extends ChangeNotifier
     if (normalizedNextStep != null && normalizedNextStep.runes.length > 90) {
       throw const FormatException('明确下一步不能超过 90 个字符');
     }
+    final normalizedCriteria = acceptanceCriteria?.trim();
+    if (acceptanceCriteria != null &&
+        (normalizedCriteria == null ||
+            normalizedCriteria.isEmpty ||
+            normalizedCriteria.runes.length > 500)) {
+      throw const FormatException('完成标准不能为空且不能超过 500 个字符');
+    }
     try {
+      final requestId = _requestId();
+      if (targetHandlerId != null) {
+        if (normalizedNextStep == null || normalizedNextStep.isEmpty) {
+          throw const FormatException('邀请 TA 必须填写明确下一步');
+        }
+        if (normalizedCriteria == null || normalizedCriteria.isEmpty) {
+          throw const FormatException('邀请 TA 必须填写完成标准');
+        }
+        final invitation = await repository.createTaskInvitation(
+          title: title,
+          quadrant: quadrant,
+          labels: normalizedLabels,
+          description: description,
+          nextStepText: normalizedNextStep,
+          acceptanceCriteria: normalizedCriteria,
+          dueAt: dueAt,
+          parentTaskId: parentTaskId,
+          plannedStartAt: plannedStartAt,
+          estimatedMinutes: estimatedMinutes,
+          targetHandlerId: targetHandlerId,
+          requestId: requestId,
+        );
+        _mergeApproval(invitation);
+        await pull();
+        await _refreshHome();
+        return null;
+      }
       final created = await repository.create(
         title: title,
         quadrant: quadrant,
         labels: normalizedLabels,
         description: description,
         nextStepText: normalizedNextStep,
+        acceptanceCriteria: normalizedCriteria,
         dueAt: dueAt,
         parentTaskId: parentTaskId,
         plannedStartAt: plannedStartAt,
         estimatedMinutes: estimatedMinutes,
-        requestId: _requestId(),
+        requestId: requestId,
       );
       _replaceTask(created);
       await pull();
@@ -431,6 +482,17 @@ class WorkspaceSyncController extends ChangeNotifier
     final task = _task(taskId);
     if (repository == null || task == null || state.isStale) return null;
     final normalizedFields = Map<String, Object?>.of(fields);
+    if (normalizedFields.containsKey('proposed_next_step')) {
+      final value = normalizedFields['proposed_next_step'];
+      if (value is! String || value.trim().isEmpty) {
+        throw const FormatException('请填写接棒后的明确下一步');
+      }
+      final normalized = value.trim();
+      if (normalized.runes.length > 90) {
+        throw const FormatException('明确下一步不能超过 90 个字符');
+      }
+      normalizedFields['proposed_next_step'] = normalized;
+    }
     if (normalizedFields.containsKey('next_step_text')) {
       final value = normalizedFields['next_step_text'];
       if (value is! String || value.trim().isEmpty) {
@@ -463,7 +525,10 @@ class WorkspaceSyncController extends ChangeNotifier
         fields: normalizedFields,
         fieldVersions: {
           for (final field in normalizedFields.keys)
-            if (field != 'transfer_note') field: task.fieldVersions[field] ?? 1,
+            if (field != 'transfer_note' && field != 'proposed_next_step')
+              field: task.fieldVersions[field] ?? 1,
+          if (normalizedFields.containsKey('proposed_next_step'))
+            'next_step_text': task.fieldVersions['next_step_text'] ?? 1,
         },
         requestId: _requestId(),
       );
@@ -513,6 +578,76 @@ class WorkspaceSyncController extends ChangeNotifier
         requestId: _requestId(),
       );
       _mergeApproval(approval);
+      return approval;
+    } catch (error) {
+      if (await _mergeApiConflict(error)) return null;
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskApprovalRequest?> requestAgreementUpdate(
+    String taskId, {
+    required String acceptanceCriteria,
+  }) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    final task = _task(taskId);
+    if (repository == null ||
+        snapshot == null ||
+        task == null ||
+        state.isStale) {
+      return null;
+    }
+    final criteria = acceptanceCriteria.trim();
+    if (criteria.isEmpty || criteria.runes.length > 500) {
+      throw const FormatException('完成标准不能为空且不能超过 500 个字符');
+    }
+    try {
+      final approval = await repository.requestAgreementUpdate(
+        workspaceId: snapshot.workspaceId,
+        taskId: taskId,
+        acceptanceCriteria: criteria,
+        baseFieldVersion: task.fieldVersions['acceptance_criteria'] ?? 1,
+        requestId: _requestId(),
+      );
+      _mergeApproval(approval);
+      await _refreshHome();
+      return approval;
+    } catch (error) {
+      if (await _mergeApiConflict(error)) return null;
+      _setError(error);
+      rethrow;
+    }
+  }
+
+  Future<TaskApprovalRequest?> requestCancellation(
+    String taskId, {
+    required String reason,
+  }) async {
+    final repository = _repository;
+    final snapshot = state.snapshot;
+    final task = _task(taskId);
+    if (repository == null ||
+        snapshot == null ||
+        task == null ||
+        state.isStale) {
+      return null;
+    }
+    final normalizedReason = reason.trim();
+    if (normalizedReason.isEmpty || normalizedReason.runes.length > 2000) {
+      throw const FormatException('取消原因不能为空且不能超过 2000 个字符');
+    }
+    try {
+      final approval = await repository.requestCancellation(
+        workspaceId: snapshot.workspaceId,
+        taskId: taskId,
+        reason: normalizedReason,
+        baseLifecycleVersion: task.lifecycleVersion,
+        requestId: _requestId(),
+      );
+      _mergeApproval(approval);
+      await _refreshHome();
       return approval;
     } catch (error) {
       if (await _mergeApiConflict(error)) return null;
@@ -858,6 +993,11 @@ class WorkspaceSyncController extends ChangeNotifier
       approvalRequests: current.approvalRequests,
       classifications: current.classifications,
       hasClassificationContract: current.hasClassificationContract,
+      ledgerEntries: current.ledgerEntries,
+      habits: current.habits,
+      habitCheckins: current.habitCheckins,
+      anniversaries: current.anniversaries,
+      hasLifeDomainContract: current.hasLifeDomainContract,
       fetchedAt: DateTime.now(),
     );
     if (!next.isValidForWorkspace()) {
@@ -1007,6 +1147,11 @@ class WorkspaceSyncController extends ChangeNotifier
       approvalRequests: approvalRequests ?? current.approvalRequests,
       classifications: classifications ?? current.classifications,
       hasClassificationContract: current.hasClassificationContract,
+      ledgerEntries: current.ledgerEntries,
+      habits: current.habits,
+      habitCheckins: current.habitCheckins,
+      anniversaries: current.anniversaries,
+      hasLifeDomainContract: current.hasLifeDomainContract,
       fetchedAt: DateTime.now(),
     );
     if (!next.isValidForWorkspace()) {
@@ -1131,6 +1276,11 @@ class WorkspaceSyncController extends ChangeNotifier
       approvalRequests: current.approvalRequests,
       classifications: current.classifications,
       hasClassificationContract: current.hasClassificationContract,
+      ledgerEntries: current.ledgerEntries,
+      habits: current.habits,
+      habitCheckins: current.habitCheckins,
+      anniversaries: current.anniversaries,
+      hasLifeDomainContract: current.hasLifeDomainContract,
       fetchedAt: DateTime.now(),
     );
     if (!next.isValidForWorkspace()) {
@@ -1369,6 +1519,113 @@ class WorkspaceSyncController extends ChangeNotifier
       classifications.add(change.classification!);
     } else {
       classifications[index] = change.classification!;
+    }
+  }
+
+  static void _applyLedgerEntry(
+    List<LedgerItem> entries,
+    WorkspaceChange change,
+    String workspaceId,
+  ) {
+    final index = entries.indexWhere((item) => item.id == change.resourceId);
+    if (change.resourceType != 'ledger_entry') return;
+    if (change.action.toUpperCase() == 'DELETED') {
+      if (index != -1) entries.removeAt(index);
+      return;
+    }
+    final entry = change.ledgerEntry;
+    if (entry == null || entry.workspaceId != workspaceId) return;
+    if (index == -1) {
+      entries.add(entry);
+    } else {
+      entries[index] = entry;
+    }
+  }
+
+  static void _applyHabit(
+    List<HabitItem> habits,
+    WorkspaceChange change,
+    String workspaceId,
+  ) {
+    if (change.resourceType != 'habit') return;
+    final index = habits.indexWhere((item) => item.id == change.resourceId);
+    if (change.action.toUpperCase() == 'DELETED') {
+      if (index != -1) habits.removeAt(index);
+      return;
+    }
+    final habit = change.habit;
+    if (habit == null || habit.workspaceId != workspaceId) return;
+    if (index == -1) {
+      habits.add(habit);
+    } else {
+      habits[index] = habit;
+    }
+  }
+
+  static void _applyHabitCheckin(
+    List<HabitCheckinItem> checkins,
+    List<HabitItem> habits,
+    WorkspaceChange change,
+    String workspaceId,
+  ) {
+    if (change.resourceType != 'habit_checkin') return;
+    final index = checkins.indexWhere((item) => item.id == change.resourceId);
+    if (change.action.toUpperCase() == 'DELETED') {
+      if (index != -1) checkins.removeAt(index);
+      _updateHabitCheckinHistory(habits, change.resourceId, null, remove: true);
+      return;
+    }
+    final checkin = change.habitCheckin;
+    if (checkin == null || checkin.workspaceId != workspaceId) return;
+    _updateHabitCheckinHistory(habits, checkin.id, checkin);
+    if (checkin.revokedAt != null) {
+      if (index != -1) checkins.removeAt(index);
+    } else if (index == -1) {
+      checkins.add(checkin);
+    } else {
+      checkins[index] = checkin;
+    }
+  }
+
+  static void _updateHabitCheckinHistory(
+    List<HabitItem> habits,
+    String checkinId,
+    HabitCheckinItem? checkin, {
+    bool remove = false,
+  }) {
+    final index = checkin == null
+        ? habits.indexWhere(
+            (item) =>
+                item.checkins.any((item) => item.id == checkinId) ||
+                item.currentCheckin?.id == checkinId,
+          )
+        : habits.indexWhere((item) => item.id == checkin.habitId);
+    if (index == -1) return;
+    final history = [...habits[index].checkins]
+      ..removeWhere((item) => item.id == checkinId);
+    if (!remove && checkin != null) history.add(checkin);
+    habits[index] = habits[index].withCheckinHistory(history);
+  }
+
+  static void _applyAnniversary(
+    List<AnniversaryItem> anniversaries,
+    WorkspaceChange change,
+    String workspaceId,
+  ) {
+    if (change.resourceType != 'anniversary') return;
+    final index = anniversaries.indexWhere(
+      (item) => item.id == change.resourceId,
+    );
+    if (change.action.toUpperCase() == 'DELETED') {
+      if (index != -1) anniversaries.removeAt(index);
+      return;
+    }
+    final anniversary = change.anniversary;
+    if (anniversary == null || anniversary.workspaceId != workspaceId) return;
+    if (index == -1) {
+      anniversaries.add(anniversary);
+    } else {
+      anniversaries[index] = anniversary;
     }
   }
 }

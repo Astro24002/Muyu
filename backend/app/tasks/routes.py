@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
-from uuid import UUID, uuid4
+from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth.service import _hash_token
 from app.db.enums import ChangeAction, ConflictStatus, MembershipStatus, OperationType, Resolution, TaskApprovalRequestStatus, TaskApprovalRequestType, TaskStatus, WebSessionStatus
 from app.db.models import ActivityEvent, AndroidDevice, ImportantDate, MobileSession, Task, TaskApprovalRequest, TaskComment, TaskConflict, TaskOperation, User, WebSession, WorkspaceChangeLog, WorkspaceMembership
-from app.httpapi.dependencies import get_db
+from app.httpapi.dependencies import client_contract, get_db, SUPPORTED_CLIENT_CONTRACT
 from app.httpapi.errors import ApiError
 from app.tasks.comments import add_comment, list_comments
 from app.tasks.conflicts import TaskConflictError
@@ -22,7 +22,7 @@ from app.tasks.operations import task_conflict_json
 from app.tasks.recurrence import create_rule
 from app.tasks.approval_schemas import approval_request_json, comment_json
 from app.tasks.approvals import TaskApprovalError, TaskApprovalResult, TaskApprovalService
-from app.tasks.schemas import CommentDeleteRequest, CommentRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
+from app.tasks.schemas import AgreementUpdateRequest, CancellationRequest, CommentDeleteRequest, CommentRequest, CreateTaskInvitationRequest, CreateTaskRequest, DelayRequest, LifecycleRequest, PatchTaskRequest, ResolveConflictRequest, TransitionRequest
 from app.tasks.search import query_tasks, search_tasks
 from app.tasks.service import TaskService
 
@@ -208,7 +208,12 @@ def _patch_approval_type(changes: dict[str, object]) -> TaskApprovalRequestType:
     fields = set(changes)
     if fields == {"quadrant"}:
         return TaskApprovalRequestType.QUADRANT_UPDATE
-    if fields in ({"current_handler_id"}, {"current_handler_id", "transfer_note"}):
+    if fields in (
+        {"current_handler_id"},
+        {"current_handler_id", "transfer_note"},
+        {"current_handler_id", "proposed_next_step"},
+        {"current_handler_id", "transfer_note", "proposed_next_step"},
+    ):
         return TaskApprovalRequestType.HANDLER_TRANSFER
     return TaskApprovalRequestType.TASK_UPDATE
 
@@ -320,7 +325,9 @@ def _is_review_acceptance_request(request: TaskApprovalRequest, task: Task) -> b
 
 
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
-def create_task(body: CreateTaskRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+def create_task(body: CreateTaskRequest, request: Request, background_tasks: BackgroundTasks, contract: str | None = Depends(client_contract), actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+    if contract == SUPPORTED_CLIENT_CONTRACT and (body.next_step_text is None or not body.next_step_text.strip()):
+        raise ApiError(422, "next_step_required", "next_step_text is required for this client contract")
     try:
         due_at = datetime.fromisoformat(body.due_at) if body.due_at else None
         service = TaskService(session)
@@ -338,15 +345,67 @@ def create_task(body: CreateTaskRequest, request: Request, background_tasks: Bac
             body.quadrant,
             body.labels,
             body.next_step_text,
+            acceptance_criteria=body.acceptance_criteria,
+            initial_status=TaskStatus.IN_PROGRESS if contract == SUPPORTED_CLIENT_CONTRACT else TaskStatus.TODO,
+            target_handler_id=body.target_handler_id,
         )
+        approval = None
+        approval_service = TaskApprovalService(session)
+        if body.target_handler_id is not None:
+            if body.target_handler_id == actor.user_id:
+                raise TaskConflictError("approval_not_allowed", "target handler must be another workspace member")
+            approval = approval_service.create(
+                actor.workspace_id,
+                actor.user_id,
+                uuid5(NAMESPACE_URL, f"muyu:handler-transfer:{body.request_id}"),
+                task.id,
+                TaskApprovalRequestType.HANDLER_TRANSFER,
+                {
+                    "current_handler_id": str(body.target_handler_id),
+                    **(
+                        {"proposed_next_step": body.next_step_text}
+                        if body.next_step_text is not None
+                        else {}
+                    ),
+                },
+                {
+                    "current_handler_id": int((task.field_versions or {}).get("current_handler_id", 1)),
+                    **(
+                        {"next_step_text": int((task.field_versions or {}).get("next_step_text", 1))}
+                        if body.next_step_text is not None
+                        else {}
+                    ),
+                },
+            )
         session.commit()
-    except (ValueError, TaskConflictError) as error:
+    except (ValueError, TaskConflictError, TaskApprovalError) as error:
         session.rollback()
         if isinstance(error, ValueError):
             raise ApiError(422, "invalid_request", "invalid due_at") from error
         raise _task_error(error, session) from error
+    final_cursor = approval_service.last_cursor if approval is not None else service.last_cursor
+    _queue_hint(background_tasks, request, actor.workspace_id, final_cursor)
+    result = _task_json(TaskService(session), task) | {"cursor": final_cursor}
+    if approval is not None:
+        result["approval_request"] = approval_request_json(approval)
+    return result
+
+
+@router.post("/task-invitations", status_code=status.HTTP_202_ACCEPTED)
+def create_task_invitation(body: CreateTaskInvitationRequest, request: Request, background_tasks: BackgroundTasks, actor: Actor = Depends(require_write_actor), session: Session = Depends(get_db)) -> dict[str, object]:
+    service = TaskApprovalService(session)
+    changes = body.model_dump(mode="json", exclude={"request_id"}, exclude_unset=True)
+    try:
+        approval = service.create(
+            actor.workspace_id, actor.user_id, body.request_id, None,
+            TaskApprovalRequestType.TASK_INVITATION, changes, {},
+        )
+        session.commit()
+    except TaskApprovalError as error:
+        session.rollback()
+        raise _approval_error(error) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
-    return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
+    return {"approval_request": approval_request_json(approval), "pending": True, "cursor": service.last_cursor}
 
 
 @router.get("/tasks")
@@ -439,6 +498,88 @@ def patch_task(task_id: UUID, body: PatchTaskRequest, request: Request, backgrou
         raise _task_error(error, session) from error
     _queue_hint(background_tasks, request, actor.workspace_id, service.last_cursor)
     return _task_json(TaskService(session), task) | {"cursor": service.last_cursor}
+
+
+@router.post("/tasks/{task_id}/agreement-requests", status_code=status.HTTP_202_ACCEPTED)
+def request_agreement_update(
+    task_id: UUID,
+    body: AgreementUpdateRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    actor: Actor = Depends(require_write_actor),
+    session: Session = Depends(get_db),
+) -> JSONResponse:
+    """Ask the task owner to approve a replacement completion agreement.
+
+    The current criteria remains on the task until the owner approves.  The
+    marker is stored in the existing approval payload so older clients can
+    continue to read the request without a second agreement table.
+    """
+
+    try:
+        target = session.scalar(
+            select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)
+        )
+        if target is None:
+            raise TaskConflictError("not_found", "task not found")
+        approval_service = TaskApprovalService(session)
+        approval = approval_service.create(
+            actor.workspace_id,
+            actor.user_id,
+            body.request_id,
+            task_id,
+            TaskApprovalRequestType.TASK_UPDATE,
+            {"acceptance_criteria": body.acceptance_criteria, "agreement_update": True},
+            {"acceptance_criteria": body.base_field_version},
+        )
+        session.commit()
+    except (TaskConflictError, TaskApprovalError) as error:
+        session.rollback()
+        if isinstance(error, TaskApprovalError):
+            raise _approval_error(error) from error
+        raise _task_error(error, session) from error
+    _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+    return _pending_response(approval, approval_service, target)
+
+
+@router.post("/tasks/{task_id}/cancellation-requests", status_code=status.HTTP_202_ACCEPTED)
+def request_task_cancellation(
+    task_id: UUID,
+    body: CancellationRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    actor: Actor = Depends(require_write_actor),
+    session: Session = Depends(get_db),
+) -> JSONResponse:
+    """Ask the task owner to cancel a task while preserving the current task."""
+
+    try:
+        target = session.scalar(
+            select(Task).where(Task.id == task_id, Task.workspace_id == actor.workspace_id)
+        )
+        if target is None:
+            raise TaskConflictError("not_found", "task not found")
+        approval_service = TaskApprovalService(session)
+        approval = approval_service.create(
+            actor.workspace_id,
+            actor.user_id,
+            body.request_id,
+            task_id,
+            TaskApprovalRequestType.TASK_DELETE,
+            {
+                "cancellation_request": True,
+                "cancel_reason": body.reason,
+            },
+            {"lifecycle_version": body.base_lifecycle_version},
+        )
+        session.commit()
+    except (TaskConflictError, TaskApprovalError) as error:
+        session.rollback()
+        if isinstance(error, TaskApprovalError):
+            raise _approval_error(error) from error
+        raise _task_error(error, session) from error
+    _queue_hint(background_tasks, request, actor.workspace_id, approval_service.last_cursor)
+    return _pending_response(approval, approval_service, target)
 
 
 @router.post("/tasks/{task_id}/lifecycle")

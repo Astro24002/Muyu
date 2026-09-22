@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
-from zoneinfo import ZoneInfo
+from app.core.time import BUSINESS_TIMEZONE
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,7 +18,6 @@ from app.httpapi.errors import ApiError
 from app.tasks.operations import request_fingerprint
 
 
-BUSINESS_TIMEZONE = ZoneInfo("Asia/Shanghai")
 MONEY_MAX_MINOR = 2_000_000_000
 
 

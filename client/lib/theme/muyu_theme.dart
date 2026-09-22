@@ -75,7 +75,8 @@ class MuyuSpacing {
   static const double xxl = 32;
 }
 
-const _page = Color(0xfff8faf9);
+// Warm paper tone used by the confirmed mobile prototype.
+const _page = Color(0xfffaf9f3);
 const _surface = Color(0xffffffff);
 const _text = Color(0xff1d2d29);
 const _body = Color(0xff25312e);
@@ -166,7 +167,7 @@ ThemeData muyuLightTheme() {
   );
   final textTheme = _muyuTextTheme();
   const controlShape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.all(Radius.circular(6)),
+    borderRadius: BorderRadius.all(Radius.circular(14)),
   );
 
   return ThemeData(
@@ -189,7 +190,7 @@ ThemeData muyuLightTheme() {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(6)),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
         side: BorderSide(color: _outline),
       ),
     ),
@@ -201,19 +202,19 @@ ThemeData muyuLightTheme() {
         vertical: MuyuSpacing.md,
       ),
       border: const OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(6)),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
         borderSide: BorderSide(color: _outline),
       ),
       enabledBorder: const OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(6)),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
         borderSide: BorderSide(color: _outline),
       ),
       focusedBorder: const OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(6)),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
         borderSide: BorderSide(color: _interactive, width: 2),
       ),
       errorBorder: const OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(6)),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
         borderSide: BorderSide(color: _error),
       ),
       focusedErrorBorder: const OutlineInputBorder(

@@ -21,7 +21,7 @@ export interface TaskDetailPanelProps {
   onActivityRetry?: () => void;
 }
 
-type PanelAction = 'comment' | 'delay' | 'delete-comment' | 'conflict';
+type PanelAction = 'comment' | 'delay' | 'delete-comment' | 'conflict' | 'agreement' | 'cancellation';
 
 export function TaskDetailPanel({ task, members, syncState, actions, onClose, activity = [], activityState, onActivityRetry }: TaskDetailPanelProps): JSX.Element {
   const dialogRef = useRef<HTMLElement>(null);
@@ -32,12 +32,25 @@ export function TaskDetailPanel({ task, members, syncState, actions, onClose, ac
   const [newDueAt, setNewDueAt] = useState('');
   const [delayReason, setDelayReason] = useState('NO_TIME');
   const [delayNote, setDelayNote] = useState('');
+  const [agreementCriteria, setAgreementCriteria] = useState(task.acceptance_criteria ?? '');
+  const [cancellationReason, setCancellationReason] = useState('');
 
   const mode = typeof window !== 'undefined' && window.innerWidth < 1024 ? 'bottom-sheet' : 'drawer';
   const canWrite = actions.canWrite !== false;
   const comments = useMemo(() => getTaskComments(task.id, syncState, actions), [actions, syncState, task.id]);
   const approvals = useMemo(() => getTaskApprovals(task.id, syncState), [syncState, task.id]);
   const conflicts = useMemo(() => syncState.conflicts.filter((item) => item.task_id === task.id), [syncState.conflicts, task.id]);
+  const isTerminal = task.status === 'DONE' || task.status === 'CANCELLED';
+  const hasPendingAgreement = approvals.some((approval) => (
+    approval.proposed_changes.agreement_update === true || approval.proposed_changes.cancellation_request === true
+  ));
+  const hasPendingHandoff = approvals.some((approval) => approval.request_type === 'HANDLER_TRANSFER');
+  const canRequestAgreement = canWrite
+    && !isOwner(task, actions)
+    && task.deleted_at === null
+    && !isTerminal
+    && !hasPendingAgreement
+    && !hasPendingHandoff;
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -103,6 +116,31 @@ export function TaskDetailPanel({ task, members, syncState, actions, onClose, ac
     });
   };
 
+  const submitAgreementUpdate = (): void => {
+    const criteria = agreementCriteria.trim();
+    if (!actions.onRequestAgreementUpdate || !canWrite || isOwner(task, actions)) return;
+    if (!criteria || Array.from(criteria).length > 500) {
+      setError('完成标准不能为空且不能超过 500 个字符。');
+      return;
+    }
+    run('agreement', () => actions.onRequestAgreementUpdate!(criteria), (value) => {
+      setError(isPendingApproval(value) ? '约定修改已提交，等待负责人确认。' : '约定修改已提交。');
+    });
+  };
+
+  const submitCancellation = (): void => {
+    const reason = cancellationReason.trim();
+    if (!actions.onRequestCancellation || !canWrite || isOwner(task, actions)) return;
+    if (!reason || Array.from(reason).length > 2000) {
+      setError('取消原因不能为空且不能超过 2000 个字符。');
+      return;
+    }
+    run('cancellation', () => actions.onRequestCancellation!(reason), (value) => {
+      setCancellationReason('');
+      setError(isPendingApproval(value) ? '取消申请已提交，等待负责人确认。' : '取消申请已提交。');
+    });
+  };
+
   return (
     <section
       className="task-detail-panel"
@@ -136,6 +174,45 @@ export function TaskDetailPanel({ task, members, syncState, actions, onClose, ac
           canWrite={canWrite}
           classifications={syncState.snapshot?.classifications ?? []}
         />
+
+        {canRequestAgreement && actions.onRequestAgreementUpdate ? (
+          <section className="task-detail-section task-detail-agreement" aria-labelledby="task-detail-agreement-heading">
+            <h3 id="task-detail-agreement-heading">双方约定</h3>
+            <p className="task-detail-empty">当前完成标准会在负责人确认前保持不变。</p>
+            <label className="task-detail-field">
+              <span>申请修改完成标准</span>
+              <textarea
+                aria-label="申请修改完成标准"
+                maxLength={500}
+                value={agreementCriteria}
+                disabled={busyActions.has('agreement')}
+                onChange={(event) => setAgreementCriteria(event.target.value)}
+              />
+            </label>
+            <Button tone="neutral" disabled={busyActions.has('agreement') || !agreementCriteria.trim()} onClick={submitAgreementUpdate}>
+              {busyActions.has('agreement') ? '提交中…' : '申请修改约定'}
+            </Button>
+          </section>
+        ) : null}
+
+        {canRequestAgreement && actions.onRequestCancellation ? (
+          <section className="task-detail-section task-detail-cancellation" aria-labelledby="task-detail-cancellation-heading">
+            <h3 id="task-detail-cancellation-heading">取消事项</h3>
+            <label className="task-detail-field">
+              <span>取消原因</span>
+              <textarea
+                aria-label="取消原因"
+                maxLength={2000}
+                value={cancellationReason}
+                disabled={busyActions.has('cancellation')}
+                onChange={(event) => setCancellationReason(event.target.value)}
+              />
+            </label>
+            <Button tone="danger" disabled={busyActions.has('cancellation') || !cancellationReason.trim()} onClick={submitCancellation}>
+              {busyActions.has('cancellation') ? '提交中…' : '申请取消任务'}
+            </Button>
+          </section>
+        ) : null}
 
         {approvals.length > 0 ? (
           <section className="task-detail-section task-detail-approvals" aria-labelledby="task-detail-approvals-heading">
@@ -281,11 +358,17 @@ function displayApprovalValue(value: unknown): string {
 
 function ApprovalSummary({ approval }: { approval: TaskApprovalRequest }): JSX.Element {
   const changes = Object.entries(approval.proposed_changes)
+    .filter(([field]) => field !== 'agreement_update' && field !== 'cancellation_request')
     .map(([field, value]) => `${field}：${displayApprovalValue(value)}`)
     .join('，');
+  const label = approval.proposed_changes.agreement_update === true
+    ? '申请修改完成标准'
+    : approval.proposed_changes.cancellation_request === true
+      ? '申请取消任务'
+      : '提议更新';
   return (
     <article className="task-approval-summary">
-      <strong>{approval.requester_id} 提议更新</strong>
+      <strong>{approval.requester_id} {label}</strong>
       <span>{changes || '有一项待确认的任务变更'}</span>
     </article>
   );

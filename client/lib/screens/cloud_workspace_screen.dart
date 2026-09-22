@@ -5,6 +5,10 @@ import '../core/api_client.dart';
 import '../auth/mobile_session_store.dart';
 import '../devices/device_management_repository.dart';
 import '../models/task.dart';
+import '../models/home.dart';
+import '../task/home_entry_repository.dart';
+import '../task/task_query_repository.dart';
+import '../tasks/task_status.dart';
 import '../models/task_view.dart';
 import '../life/life_controller.dart';
 import '../life/life_repository.dart';
@@ -22,6 +26,7 @@ import 'task_detail_screen.dart';
 import 'task_approval_screen.dart';
 import 'my_profile_screen.dart';
 import 'task_list_view.dart';
+import 'all_tasks_screen.dart';
 import 'task_quadrant_view.dart';
 import 'task_schedule_view.dart';
 import 'ledger_screen.dart';
@@ -56,6 +61,7 @@ class CloudWorkspaceScreen extends StatefulWidget {
     this.workspaceCache,
     this.workspaceId,
     this.lifeController,
+    this.homeEntryRepository,
   });
 
   final ApiClient api;
@@ -71,6 +77,7 @@ class CloudWorkspaceScreen extends StatefulWidget {
   final WorkspaceCache? workspaceCache;
   final String? workspaceId;
   final LifeController? lifeController;
+  final HomeEntryRepository? homeEntryRepository;
 
   @override
   State<CloudWorkspaceScreen> createState() => _CloudWorkspaceScreenState();
@@ -101,14 +108,23 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         );
     _life =
         widget.lifeController ?? LifeController(HttpLifeRepository(widget.api));
+    _sync.addListener(_applySyncedLifeResources);
     if (widget.syncController == null) _sync.start();
   }
 
   @override
   void dispose() {
+    _sync.removeListener(_applySyncedLifeResources);
     if (widget.syncController == null) _sync.dispose();
     if (widget.lifeController == null) _life.dispose();
     super.dispose();
+  }
+
+  void _applySyncedLifeResources() {
+    _life.applyWorkspaceSnapshot(
+      _sync.state.snapshot,
+      viewerId: widget.session?.user.id ?? _sync.state.snapshot?.viewerUserId,
+    );
   }
 
   @override
@@ -209,7 +225,20 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           categories: categories,
           selectedLabel: _selectedTaskLabel,
           onSelected: (label) => setState(() => _selectedTaskLabel = label),
+          compact: _selectedMatterView == _MatterView.moment,
         ),
+        if (_selectedMatterView == _MatterView.moment)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: MuyuSpacing.xs),
+            child: Center(
+              child: Text(
+                _momentDateLabel(DateTime.now()),
+                key: const Key('matter-current-date'),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(fontSize: 10),
+              ),
+            ),
+          ),
         if (_selectedMatterView == _MatterView.moment) _buildTaskListMoreMenu(),
       ],
     );
@@ -220,6 +249,11 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     _MatterView.quadrant => '四象限',
     _MatterView.schedule => '日程',
   };
+
+  static String _momentDateLabel(DateTime date) {
+    const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+    return '${date.month}月${date.day}日周${weekdays[date.weekday - 1]}';
+  }
 
   Widget _destinationBody(WorkspaceSyncState state) => IndexedStack(
     key: const Key('workspace-destination-stack'),
@@ -263,6 +297,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           sync: _sync,
           canWrite: widget.canWrite,
           showAppBar: false,
+          onOpenAllTasks: _openAllTasks,
         )
       else
         const _UnavailableProfileView(key: PageStorageKey('task-profile-view')),
@@ -271,11 +306,12 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
 
   Widget _mattersBody(WorkspaceSyncState state) => Column(
     children: [
-      _WorkspaceContextHeader(
-        state: state,
-        viewerName: _viewerName(state),
-        onSummaryTap: _openSummary,
-      ),
+      if (_selectedMatterView == _MatterView.moment)
+        _WorkspaceContextHeader(
+          state: state,
+          viewerName: _viewerName(state),
+          onSummaryTap: _openSummary,
+        ),
       Expanded(child: _matterViewStack(state)),
     ],
   );
@@ -296,6 +332,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         showFailed: _showFailed,
         showMomentMetrics: false,
         onTaskTap: _openTask,
+        onViewAll: _openAllTasks,
       ),
       TaskQuadrantView(
         key: const PageStorageKey('task-quadrant-view'),
@@ -382,7 +419,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     return viewerId;
   }
 
-  void _openSummary(_WorkspaceSummaryKind kind) {
+  Future<void> _openSummary(_WorkspaceSummaryKind kind) async {
     final home = _sync.state.home;
     final details = switch (kind) {
       _WorkspaceSummaryKind.needsAction => (
@@ -401,15 +438,63 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         home?.weekDueCount ?? 0,
       ),
     };
-    showModalBottomSheet<void>(
+    final entries = home?.entries;
+    final approvals = switch (kind) {
+      _WorkspaceSummaryKind.needsAction =>
+        entries?.needsMe.items ?? <HomeApprovalItem>[],
+      _WorkspaceSummaryKind.waitingOnOther =>
+        entries?.waitingOnOther.items ?? <HomeApprovalItem>[],
+      _WorkspaceSummaryKind.weekDue => <HomeApprovalItem>[],
+    };
+    final tasks = switch (kind) {
+      _WorkspaceSummaryKind.needsAction =>
+        entries?.needsMe.items
+                .map((item) => item.task)
+                .whereType<TaskItem>()
+                .toList() ??
+            <TaskItem>[],
+      _WorkspaceSummaryKind.waitingOnOther =>
+        entries?.waitingOnOther.items
+                .map((item) => item.task)
+                .whereType<TaskItem>()
+                .toList() ??
+            <TaskItem>[],
+      _WorkspaceSummaryKind.weekDue =>
+        entries?.dueThisWeek.items ?? <TaskItem>[],
+    };
+    final hasMore = switch (kind) {
+      _WorkspaceSummaryKind.needsAction => entries?.needsMe.hasMore ?? false,
+      _WorkspaceSummaryKind.waitingOnOther =>
+        entries?.waitingOnOther.hasMore ?? false,
+      _WorkspaceSummaryKind.weekDue => entries?.dueThisWeek.hasMore ?? false,
+    };
+    final selected = await showModalBottomSheet<TaskItem>(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _WorkspaceSummarySheet(
-        title: details.$1,
-        description: details.$2,
-        count: details.$3,
+      showDragHandle: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * 0.85,
+        child: _WorkspaceSummarySheet(
+          title: details.$1,
+          description: details.$2,
+          count: details.$3,
+          tasks: tasks,
+          approvals: approvals,
+          members: _sync.state.snapshot?.members ?? const [],
+          onOpenApprovals: _openApprovals,
+          hasMore: hasMore,
+          entry: switch (kind) {
+            _WorkspaceSummaryKind.needsAction => 'needs_me',
+            _WorkspaceSummaryKind.waitingOnOther => 'waiting_on_other',
+            _WorkspaceSummaryKind.weekDue => 'due_this_week',
+          },
+          repository:
+              widget.homeEntryRepository ?? HomeEntryRepository(widget.api),
+        ),
       ),
     );
+    if (mounted && selected != null) _openTask(selected);
   }
 
   Widget _buildTaskListMoreMenu() => PopupMenuButton<_TaskListMenuAction>(
@@ -550,12 +635,32 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   }
 
   void _openTask(TaskItem task) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TaskDetailScreen(
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (sheetContext) => SizedBox(
+        key: const Key('task-detail-bottom-sheet'),
+        height: MediaQuery.sizeOf(sheetContext).height * 0.86,
+        child: TaskDetailScreen(
           task: task,
           sync: _sync,
           canWrite: widget.canWrite,
+          inSheet: true,
+        ),
+      ),
+    );
+  }
+
+  void _openAllTasks() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AllTasksScreen(
+          repository: TaskQueryRepository(widget.api),
+          members: _sync.state.snapshot?.members ?? const [],
+          onTaskTap: _openTask,
         ),
       ),
     );
@@ -578,6 +683,9 @@ class _WorkspaceContextHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final horizontalPadding = MediaQuery.sizeOf(context).width >= 360
+        ? MuyuSpacing.xl
+        : MuyuSpacing.lg;
     final home = state.home;
     final extension = theme.extension<MuyuThemeExtension>();
     final status = state.loading
@@ -595,21 +703,21 @@ class _WorkspaceContextHeader extends StatelessWidget {
         'needs-action',
         home?.needsActionCount ?? 0,
         '需要我处理',
-        '待处理请求',
+        '轮到我回应',
       ),
       (
         _WorkspaceSummaryKind.waitingOnOther,
         'waiting-on-other',
         home?.waitingOnOtherCount ?? 0,
         '等对方',
-        '交接中',
+        '交给 TA 的下一棒',
       ),
       (
         _WorkspaceSummaryKind.weekDue,
         'week-due',
         home?.weekDueCount ?? 0,
         '本周到期',
-        '未完成任务',
+        '一起留意截止时间',
       ),
     ];
     return DecoratedBox(
@@ -618,82 +726,37 @@ class _WorkspaceContextHeader extends StatelessWidget {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              MuyuSpacing.lg,
-              MuyuSpacing.sm,
-              MuyuSpacing.lg,
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
               MuyuSpacing.md,
+              horizontalPadding,
+              MuyuSpacing.lg,
             ),
-            child: DecoratedBox(
-              key: const Key('workspace-actor-strip'),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.55,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$viewerName，${home?.needsActionCount == 0 ? '此刻没有待处理的请求' : '有 ${home?.needsActionCount ?? 0} 件事等你回应'}。一起向前一点点。',
+                    key: const Key('workspace-moment-greeting'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ),
-                border: Border.all(color: theme.colorScheme.outline),
-                borderRadius: const BorderRadius.all(Radius.circular(6)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: MuyuSpacing.md,
-                  vertical: MuyuSpacing.sm,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          text: '正在以 ',
-                          children: [
-                            TextSpan(
-                              text: viewerName,
-                              style: TextStyle(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const TextSpan(text: ' 查看'),
-                          ],
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          height: 16 / 12,
-                        ),
-                      ),
+                if (status != '已同步')
+                  Text(
+                    status,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: statusColor,
                     ),
-                    const SizedBox(width: MuyuSpacing.sm),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const SizedBox(width: 6, height: 6),
-                        ),
-                        const SizedBox(width: MuyuSpacing.xs),
-                        Text(
-                          status,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: statusColor,
-                            fontSize: 10,
-                            height: 14 / 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+              ],
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(
-              left: MuyuSpacing.lg,
-              right: MuyuSpacing.lg,
+            padding: EdgeInsets.only(
+              left: horizontalPadding,
+              right: horizontalPadding,
               bottom: MuyuSpacing.md,
             ),
             child: Row(
@@ -707,6 +770,7 @@ class _WorkspaceContextHeader extends StatelessWidget {
                       count: metrics[index].$3,
                       label: metrics[index].$4,
                       caption: metrics[index].$5,
+                      highlighted: index == 0,
                       onTap: () => onSummaryTap(metrics[index].$1),
                     ),
                   ),
@@ -726,12 +790,14 @@ class _WorkspaceSummaryCard extends StatelessWidget {
     required this.count,
     required this.label,
     required this.caption,
+    required this.highlighted,
     required this.onTap,
   });
 
   final int count;
   final String label;
   final String caption;
+  final bool highlighted;
   final VoidCallback onTap;
 
   @override
@@ -741,47 +807,86 @@ class _WorkspaceSummaryCard extends StatelessWidget {
       button: true,
       label: '$label，$count项',
       child: Material(
-        color: theme.colorScheme.surface,
+        color: highlighted
+            ? theme.colorScheme.primary
+            : label == '等对方'
+            ? const Color(0xfff5f8ed)
+            : const Color(0xfffaf6ef),
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-          side: BorderSide(color: theme.colorScheme.outline),
+          borderRadius: const BorderRadius.all(Radius.circular(14)),
+          side: BorderSide(
+            color: highlighted
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outline,
+          ),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 68),
+          child: SizedBox(
+            height: 108,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '$count',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontSize: 20,
-                      height: 20 / 20,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: highlighted
+                                ? theme.colorScheme.onPrimary
+                                : theme.colorScheme.onSurface,
+                            fontSize: 11,
+                            height: 14 / 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_forward,
+                        size: 12,
+                        color: highlighted
+                            ? theme.colorScheme.onPrimary
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: MuyuSpacing.xs),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 11,
-                      height: 14 / 11,
+                  const SizedBox(height: MuyuSpacing.sm),
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(text: '$count'),
+                        const TextSpan(
+                          text: '件',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: highlighted
+                          ? theme.colorScheme.onPrimary
+                          : theme.colorScheme.onSurface,
+                      fontSize: 28,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  const Spacer(),
                   Text(
                     caption,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
+                      color: highlighted
+                          ? theme.colorScheme.onPrimary.withValues(alpha: 0.7)
+                          : theme.colorScheme.onSurfaceVariant,
                       fontSize: 9,
                       height: 12 / 9,
                     ),
@@ -796,20 +901,95 @@ class _WorkspaceSummaryCard extends StatelessWidget {
   }
 }
 
-class _WorkspaceSummarySheet extends StatelessWidget {
+class _WorkspaceSummarySheet extends StatefulWidget {
   const _WorkspaceSummarySheet({
     required this.title,
     required this.description,
     required this.count,
+    required this.tasks,
+    required this.approvals,
+    required this.members,
+    required this.onOpenApprovals,
+    required this.hasMore,
+    required this.entry,
+    required this.repository,
   });
 
   final String title;
   final String description;
   final int count;
+  final List<TaskItem> tasks;
+  final List<HomeApprovalItem> approvals;
+  final List<Map<String, dynamic>> members;
+  final VoidCallback onOpenApprovals;
+  final bool hasMore;
+  final String entry;
+  final HomeEntryRepository repository;
+
+  @override
+  State<_WorkspaceSummarySheet> createState() => _WorkspaceSummarySheetState();
+}
+
+class _WorkspaceSummarySheetState extends State<_WorkspaceSummarySheet> {
+  late List<TaskItem> _tasks;
+  late List<HomeApprovalItem> _approvals;
+  late bool _hasMore;
+  String? _cursor;
+  String? _error;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tasks = List.of(widget.tasks);
+    _approvals = List.of(widget.approvals);
+    _hasMore = widget.hasMore;
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || !_hasMore) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final page = await widget.repository.load(
+        entry: widget.entry,
+        afterCursor: _cursor,
+      );
+      if (!mounted) return;
+      final seenTasks = _tasks.map((task) => task.id).toSet();
+      final seenApprovals = _approvals
+          .map((item) => item.approvalRequest.id)
+          .toSet();
+      setState(() {
+        _tasks = [
+          ..._tasks,
+          for (final task in page.tasks)
+            if (seenTasks.add(task.id)) task,
+        ];
+        _approvals = [
+          ..._approvals,
+          for (final item in page.approvals)
+            if (seenApprovals.add(item.approvalRequest.id)) item,
+        ];
+        _hasMore = page.hasMore;
+        _cursor = page.nextCursor;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _error = error is ApiException ? error.message : '加载失败，请重试',
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isApprovalEntry = widget.entry != 'due_this_week';
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
@@ -824,7 +1004,9 @@ class _WorkspaceSummarySheet extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(child: Text(title, style: theme.textTheme.titleLarge)),
+                Expanded(
+                  child: Text(widget.title, style: theme.textTheme.titleLarge),
+                ),
                 IconButton(
                   key: const Key('workspace-summary-close'),
                   tooltip: '关闭',
@@ -833,19 +1015,171 @@ class _WorkspaceSummarySheet extends StatelessWidget {
                 ),
               ],
             ),
-            Text(description, style: theme.textTheme.bodySmall),
+            Text(
+              isApprovalEntry
+                  ? widget.entry == 'needs_me'
+                        ? '接棒与验收，等你确认。'
+                        : '下一棒已交给对方，回应后会自动更新。'
+                  : widget.description,
+              style: theme.textTheme.bodySmall,
+            ),
             const SizedBox(height: MuyuSpacing.md),
             Text(
-              '$count 项',
+              isApprovalEntry
+                  ? '${widget.count} 件待处理请求'
+                  : '${widget.count} 件本周到期的任务',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.primary,
               ),
             ),
+            Expanded(
+              child: ListView(
+                children: [
+                  if (isApprovalEntry)
+                    for (final item in _approvals) _approvalCard(context, item)
+                  else
+                    for (final task in _tasks)
+                      ListTile(
+                        key: Key('workspace-summary-task-${task.id}'),
+                        title: Text(
+                          task.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(taskStatusLabel(task.status)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).pop(task),
+                      ),
+                  if (isApprovalEntry && _approvals.isEmpty && !_hasMore)
+                    const Padding(
+                      padding: EdgeInsets.all(MuyuSpacing.lg),
+                      child: Text('暂无待处理请求'),
+                    ),
+                ],
+              ),
+            ),
+            if (_error != null)
+              Text(
+                _error!,
+                key: const Key('workspace-summary-error'),
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+            if (_hasMore)
+              TextButton(
+                key: const Key('workspace-summary-load-more'),
+                onPressed: _loading ? null : _loadMore,
+                child: Text(_loading ? '加载中' : '加载更多'),
+              ),
             const SizedBox(height: MuyuSpacing.sm),
           ],
         ),
       ),
     );
+  }
+
+  Widget _approvalCard(BuildContext context, HomeApprovalItem item) {
+    final request = item.approvalRequest;
+    final task = item.task;
+    final theme = Theme.of(context);
+    final type = switch (request.requestType) {
+      'TASK_INVITATION' => '任务邀请',
+      'HANDLER_TRANSFER' => '责任交接',
+      'STATUS_UPDATE'
+          when request.proposedChanges['review_submission'] == true =>
+        '成果验收',
+      _ => '审批请求',
+    };
+    final proposedHandler = request.proposedChanges['current_handler_id'];
+    final summary = request.requestType == 'TASK_INVITATION'
+        ? '同意后才建立任务'
+        : request.requestType == 'HANDLER_TRANSFER' && proposedHandler is String
+        ? '负责人：${_memberName(proposedHandler)}'
+        : request.requestType == 'STATUS_UPDATE'
+        ? '提交验收 · 等待确认'
+        : '请查看申请内容';
+    final proposedTitle =
+        request.proposedChanges['title'] ?? request.proposedChanges['name'];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: MuyuSpacing.sm),
+      child: Material(
+        key: Key('workspace-summary-request-${request.id}'),
+        color: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: theme.colorScheme.outline),
+        ),
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).pop(task);
+            if (task == null) widget.onOpenApprovals();
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(MuyuSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        type,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      widget.entry == 'needs_me' ? '等我回应' : '等 TA 回应',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: MuyuSpacing.sm),
+                Text(
+                  task?.title ??
+                      (proposedTitle is String ? proposedTitle : '申请详情'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: MuyuSpacing.xs),
+                Text(
+                  summary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+                const Divider(height: MuyuSpacing.lg),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_memberName(request.requesterId)} → ${_memberName(request.approverId)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    Text('查看申请', style: theme.textTheme.bodySmall),
+                    const Icon(Icons.chevron_right, size: 16),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _memberName(String id) {
+    for (final member in widget.members) {
+      if (member['user_id'] == id) {
+        final name = member['display_name'];
+        if (name is String && name.trim().isNotEmpty) return name.trim();
+      }
+    }
+    return '协作成员';
   }
 }
 
@@ -905,18 +1239,20 @@ class _TaskCategorySelector extends StatelessWidget {
     required this.categories,
     required this.selectedLabel,
     required this.onSelected,
+    this.compact = false,
   });
 
   final List<TaskListCategory> categories;
   final String? selectedLabel;
   final ValueChanged<String?> onSelected;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final selectedTitle = _selectedTitle();
     return PopupMenuButton<String>(
       key: const Key('task-category-selector'),
-      tooltip: '选择任务分类',
+      tooltip: compact ? '筛选任务分类：$selectedTitle' : '选择任务分类',
       onSelected: (value) => onSelected(value.isEmpty ? null : value),
       itemBuilder: (context) => [
         for (final category in categories)
@@ -941,20 +1277,31 @@ class _TaskCategorySelector extends StatelessWidget {
             ),
           ),
       ],
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              selectedTitle,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
+      child: compact
+          ? Padding(
+              padding: const EdgeInsets.all(MuyuSpacing.md),
+              child: Icon(
+                selectedLabel == null
+                    ? Icons.filter_list_outlined
+                    : Icons.filter_list,
+                size: 20,
+                semanticLabel: '任务分类：$selectedTitle',
+              ),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    selectedTitle,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const Icon(Icons.keyboard_arrow_down, size: 20),
+              ],
             ),
-          ),
-          const Icon(Icons.keyboard_arrow_down, size: 20),
-        ],
-      ),
     );
   }
 
@@ -986,9 +1333,11 @@ class _CreateTaskBar extends StatefulWidget {
 class _CreateTaskBarState extends State<_CreateTaskBar> {
   final _title = TextEditingController();
   final _nextStep = TextEditingController();
+  final _acceptance = TextEditingController();
   final _labels = <String>[];
   DateTime? _dueAt;
   String? _selectedQuadrant;
+  String? _targetHandlerId;
   String? _createError;
   bool _creating = false;
 
@@ -996,6 +1345,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
   void dispose() {
     _title.dispose();
     _nextStep.dispose();
+    _acceptance.dispose();
     super.dispose();
   }
 
@@ -1062,6 +1412,67 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
     return values;
   }
 
+  List<Map<String, dynamic>> _targetChoices() {
+    final snapshot = widget.sync.state.snapshot;
+    final viewerId = snapshot?.viewerUserId;
+    if (snapshot == null || viewerId == null) return const [];
+    return snapshot.members
+        .where((member) {
+          final id = member['user_id'] as String?;
+          final status =
+              (member['membership_status'] ?? member['status'] ?? 'ACTIVE')
+                  .toString()
+                  .toUpperCase();
+          return id != null && id != viewerId && status == 'ACTIVE';
+        })
+        .toList(growable: false);
+  }
+
+  String _memberLabel(Map<String, dynamic> member) {
+    final displayName = member['display_name'] as String?;
+    if (displayName != null && displayName.trim().isNotEmpty) {
+      return displayName.trim();
+    }
+    return 'TA';
+  }
+
+  Future<void> _pickTargetHandler() async {
+    final choices = _targetChoices();
+    if (choices.isEmpty) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (_) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('创建后由谁接棒？')),
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('我负责'),
+              trailing: _targetHandlerId == null
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.of(context).pop(''),
+            ),
+            for (final member in choices)
+              ListTile(
+                leading: const Icon(Icons.swap_horiz),
+                title: Text(_memberLabel(member)),
+                trailing: _targetHandlerId == member['user_id']
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () =>
+                    Navigator.of(context).pop(member['user_id'] as String),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || picked == null) return;
+    setState(() => _targetHandlerId = picked.isEmpty ? null : picked);
+  }
+
   String _dueText(DateTime value) {
     final local = value.toLocal();
     const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
@@ -1099,6 +1510,15 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
       setState(() => _createError = '明确下一步不能超过 90 个字符');
       return;
     }
+    final acceptance = _acceptance.text.trim();
+    if (acceptance.runes.length > 500) {
+      setState(() => _createError = '完成标准不能超过 500 字');
+      return;
+    }
+    if (_targetHandlerId != null && acceptance.isEmpty) {
+      setState(() => _createError = '邀请 TA 时请填写完成标准');
+      return;
+    }
     if (_labels.length != 1) {
       setState(() => _createError = '请选择一个已批准分类');
       return;
@@ -1110,14 +1530,18 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
         quadrant: quadrant,
         labels: List.unmodifiable(_labels),
         nextStepText: nextStep,
+        acceptanceCriteria: acceptance.isEmpty ? null : acceptance,
         dueAt: _dueAt?.toUtc().toIso8601String(),
+        targetHandlerId: _targetHandlerId,
       );
       if (mounted) {
         _title.clear();
         _nextStep.clear();
+        _acceptance.clear();
         _labels.clear();
         _dueAt = null;
         _selectedQuadrant = null;
+        _targetHandlerId = null;
         _createError = null;
         setState(() => _creating = false);
         Navigator.of(context).pop();
@@ -1177,6 +1601,7 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                         !_creating &&
                         _title.text.trim().isNotEmpty &&
                         _nextStep.text.trim().isNotEmpty &&
+                        _acceptance.text.trim().isNotEmpty &&
                         _selectedQuadrant != null &&
                         _labels.length == 1
                     ? _createTask
@@ -1201,6 +1626,16 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
             maxLength: 90,
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(labelText: '明确下一步'),
+            onChanged: (_) => setState(() {}),
+          ),
+          TextField(
+            key: const Key('task-acceptance-input'),
+            controller: _acceptance,
+            enabled: widget.enabled && !_creating,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: 500,
+            decoration: const InputDecoration(labelText: '完成标准'),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: MuyuSpacing.sm),
@@ -1309,6 +1744,37 @@ class _CreateTaskBarState extends State<_CreateTaskBar> {
                         ),
                 ),
               ),
+              if (_targetChoices().isNotEmpty)
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: FilledButton.icon(
+                    key: const Key('task-create-handler-button'),
+                    onPressed: widget.enabled && !_creating
+                        ? _pickTargetHandler
+                        : null,
+                    icon: const Icon(Icons.swap_horiz, size: 18),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _targetHandlerId == null ? '我负责' : '交给 TA',
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _targetHandlerId == null
+                          ? Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                          : Theme.of(context).colorScheme.secondaryContainer,
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      minimumSize: const Size(0, 40),
+                      shape: const StadiumBorder(),
+                    ),
+                  ),
+                ),
               IconButton(
                 key: const Key('task-create-quadrant-button'),
                 tooltip: '选择四象限（必选）',

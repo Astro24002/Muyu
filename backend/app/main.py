@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
         allow_origins=_configured_cors_origins(),
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "X-Muyu-Client-Contract"],
         allow_credentials=True,
     )
     app.state.ready = False

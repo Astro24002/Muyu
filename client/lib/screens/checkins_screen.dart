@@ -37,126 +37,266 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
     animation: widget.controller,
     builder: (context, _) {
       final controller = widget.controller;
-      return RefreshIndicator(
-        onRefresh: controller.loadCheckins,
-        child: ListView(
-          key: const PageStorageKey('checkins-list'),
-          padding: const EdgeInsets.fromLTRB(
-            MuyuSpacing.lg,
-            MuyuSpacing.md,
-            MuyuSpacing.lg,
-            MuyuSpacing.xxl,
-          ),
-          children: [
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('日常打卡')),
-                ButtonSegment(value: true, label: Text('纪念日')),
-              ],
-              selected: {_anniversaries},
-              onSelectionChanged: (values) =>
-                  setState(() => _anniversaries = values.first),
-            ),
-            if (controller.loadingCheckins) const LinearProgressIndicator(),
-            if (controller.checkinsError != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
-                child: Text(
-                  controller.checkinsError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+      return Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: controller.loadCheckins,
+            child: ListView(
+              key: const PageStorageKey('checkins-list'),
+              padding: const EdgeInsets.fromLTRB(
+                MuyuSpacing.lg,
+                MuyuSpacing.md,
+                MuyuSpacing.lg,
+                MuyuSpacing.xxl,
               ),
-            const SizedBox(height: MuyuSpacing.lg),
-            if (_anniversaries) ...[
-              if (controller.anniversaries.isEmpty &&
-                  !controller.loadingCheckins)
-                const Center(child: Text('暂无纪念日')),
-              for (final item in controller.anniversaries) ...[
-                ListTile(
-                  key: Key('anniversary-${item.id}'),
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(item.title),
-                  subtitle: Text(
-                    '${_kind(item.kind)} · ${item.nextOccurrence.year}-${item.nextOccurrence.month.toString().padLeft(2, '0')}-${item.nextOccurrence.day.toString().padLeft(2, '0')} · 提前 ${item.prepareDays} 天',
-                  ),
-                  trailing: Text(
-                    item.daysUntil == 0 ? '就是今天' : '还有 ${item.daysUntil} 天',
-                  ),
-                  onTap: () => _openAnniversary(item),
+              children: [
+                Text(
+                  '好习惯慢慢养，重要的日子好好记。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-                const Divider(height: 1),
-              ],
-              if (widget.canWrite) ...[
                 const SizedBox(height: MuyuSpacing.xl),
-                FilledButton.icon(
-                  onPressed: controller.writing
-                      ? null
-                      : () => _openAnniversary(null),
-                  icon: const Icon(Icons.add),
-                  label: const Text('新增纪念日'),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('日常打卡')),
+                    ButtonSegment(value: true, label: Text('纪念日')),
+                  ],
+                  selected: {_anniversaries},
+                  onSelectionChanged: (values) =>
+                      setState(() => _anniversaries = values.first),
                 ),
-              ],
-            ] else ...[
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'mine', label: Text('我的')),
-                  ButtonSegment(value: 'other', label: Text('TA 的')),
-                  ButtonSegment(value: 'all', label: Text('全部')),
-                ],
-                selected: {controller.habitOwner},
-                onSelectionChanged: controller.loadingCheckins
-                    ? null
-                    : (values) => controller.changeHabitOwner(values.first),
-              ),
-              const SizedBox(height: MuyuSpacing.md),
-              if (controller.habits.isEmpty && !controller.loadingCheckins)
-                const Center(child: Text('暂无打卡项目')),
-              for (final habit in controller.habits) ...[
-                ListTile(
-                  key: Key('habit-${habit.id}'),
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(habit.title),
-                  subtitle: Text(
-                    '${_frequency(habit.frequency)} · ${habit.status == 'PAUSED'
-                        ? '已暂停'
-                        : habit.checkedIn
-                        ? '本期已完成'
-                        : '本期未完成'}',
+                if (controller.loadingCheckins) const LinearProgressIndicator(),
+                if (controller.checkinsError != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: MuyuSpacing.sm,
+                    ),
+                    child: Text(
+                      controller.checkinsError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ),
-                  trailing:
-                      widget.canWrite &&
-                          habit.ownerId == widget.viewerId &&
-                          habit.status == 'ACTIVE'
-                      ? IconButton(
-                          tooltip: habit.checkedIn ? '撤销本期打卡' : '打卡',
-                          icon: Icon(
-                            habit.checkedIn
-                                ? Icons.undo
-                                : Icons.check_circle_outline,
+                const SizedBox(height: MuyuSpacing.lg),
+                if (_anniversaries) ...[
+                  Column(
+                    key: const Key('checkins-anniversary-list'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (controller.anniversaries.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(MuyuSpacing.lg),
+                          decoration: BoxDecoration(
+                            color: const Color(0xfff6ede2),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          onPressed: controller.writing
-                              ? null
-                              : () => _habitAction(
-                                  habit,
-                                  habit.checkedIn ? 'undo' : 'checkin',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '即将到来的日子',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              const SizedBox(height: MuyuSpacing.sm),
+                              Text(
+                                controller.anniversaries
+                                    .reduce(
+                                      (first, next) =>
+                                          first.daysUntil <= next.daysUntil
+                                          ? first
+                                          : next,
+                                    )
+                                    .title,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              Text(
+                                controller.anniversaries
+                                            .map((item) => item.daysUntil)
+                                            .reduce((a, b) => a < b ? a : b) ==
+                                        0
+                                    ? '就是今天'
+                                    : '还有 ${controller.anniversaries.map((item) => item.daysUntil).reduce((a, b) => a < b ? a : b)} 天',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: MuyuSpacing.lg),
+                      Text(
+                        '纪念日',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: MuyuSpacing.md),
+                  if (controller.anniversaries.isEmpty &&
+                      !controller.loadingCheckins)
+                    const Center(child: Text('暂无纪念日')),
+                  for (final item in controller.anniversaries) ...[
+                    Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                      child: ListTile(
+                        key: Key('anniversary-${item.id}'),
+                        leading: const Icon(Icons.card_giftcard_outlined),
+                        title: Text(item.title),
+                        subtitle: Text(
+                          '${_kind(item.kind)} · ${item.nextOccurrence.year}-${item.nextOccurrence.month.toString().padLeft(2, '0')}-${item.nextOccurrence.day.toString().padLeft(2, '0')} · 提前 ${item.prepareDays} 天',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: Text(
+                          item.daysUntil == 0 ? '今天' : '${item.daysUntil} 天',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        onTap: () => _openAnniversary(item),
+                      ),
+                    ),
+                    const SizedBox(height: MuyuSpacing.sm),
+                  ],
+                ] else ...[
+                  Container(
+                    key: const Key('checkins-current-period'),
+                    padding: const EdgeInsets.all(MuyuSpacing.lg),
+                    decoration: BoxDecoration(
+                      color: const Color(0xffeff4e5),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          controller.habitOwner == 'mine'
+                              ? '属于你的，一点小坚持'
+                              : '各自坚持，彼此看见',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: MuyuSpacing.sm),
+                        Text(
+                          '今天，向喜欢的自己靠近。',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: MuyuSpacing.sm),
+                        Text(
+                          '本期已完成 ${controller.habits.where((habit) => habit.checkedIn).length} / ${controller.habits.length} 项',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: MuyuSpacing.lg),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'mine', label: Text('我的')),
+                      ButtonSegment(value: 'other', label: Text('TA 的')),
+                      ButtonSegment(value: 'all', label: Text('全部')),
+                    ],
+                    selected: {controller.habitOwner},
+                    onSelectionChanged: controller.loadingCheckins
+                        ? null
+                        : (values) => controller.changeHabitOwner(values.first),
+                  ),
+                  const SizedBox(height: MuyuSpacing.md),
+                  if (controller.habits.isEmpty && !controller.loadingCheckins)
+                    const Center(child: Text('暂无打卡项目')),
+                  for (final habit in controller.habits) ...[
+                    Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          ListTile(
+                            key: Key('habit-${habit.id}'),
+                            leading: const Icon(Icons.spa_outlined),
+                            title: Text(habit.title),
+                            subtitle: Text(_frequency(habit.frequency)),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _openHabit(habit),
+                          ),
+                          const Divider(
+                            height: 1,
+                            indent: MuyuSpacing.lg,
+                            endIndent: MuyuSpacing.lg,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: MuyuSpacing.lg,
+                              vertical: MuyuSpacing.sm,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    habit.status == 'PAUSED'
+                                        ? '已暂停'
+                                        : habit.checkedIn
+                                        ? '本期已完成'
+                                        : '本期待打卡',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
                                 ),
-                        )
-                      : const Icon(Icons.chevron_right),
-                  onTap: () => _openHabit(habit),
-                ),
-                const Divider(height: 1),
+                                if (widget.canWrite &&
+                                    habit.ownerId == widget.viewerId &&
+                                    habit.status == 'ACTIVE')
+                                  OutlinedButton.icon(
+                                    onPressed: controller.writing
+                                        ? null
+                                        : () => _habitAction(
+                                            habit,
+                                            habit.checkedIn
+                                                ? 'undo'
+                                                : 'checkin',
+                                          ),
+                                    icon: Icon(
+                                      habit.checkedIn ? Icons.undo : Icons.add,
+                                      size: 16,
+                                    ),
+                                    label: Text(habit.checkedIn ? '撤销' : '打卡'),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: MuyuSpacing.sm),
+                  ],
+                ],
               ],
-              if (widget.canWrite) ...[
-                const SizedBox(height: MuyuSpacing.xl),
-                FilledButton.icon(
-                  onPressed: controller.writing ? null : () => _openHabit(null),
-                  icon: const Icon(Icons.add),
-                  label: const Text('新增习惯'),
-                ),
-              ],
-            ],
-          ],
-        ),
+            ),
+          ),
+          if (widget.canWrite)
+            Positioned(
+              right: MuyuSpacing.lg,
+              bottom: MuyuSpacing.lg,
+              child: FloatingActionButton(
+                key: const Key('checkins-create-fab'),
+                heroTag: 'checkins-create',
+                tooltip: _anniversaries ? '新增纪念日' : '新增习惯',
+                onPressed: controller.writing
+                    ? null
+                    : () => _anniversaries
+                          ? _openAnniversary(null)
+                          : _openHabit(null),
+                child: const Icon(Icons.add),
+              ),
+            ),
+        ],
       );
     },
   );

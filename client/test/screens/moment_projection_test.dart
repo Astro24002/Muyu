@@ -131,14 +131,12 @@ void main() {
     expect(find.text('我在推进'), findsOneWidget);
     expect(find.text('TA 在推进'), findsOneWidget);
     expect(find.byKey(const Key('moment-summary')), findsOneWidget);
+    expect(find.byKey(const Key('moment-greeting')), findsOneWidget);
     expect(find.byKey(const Key('moment-view-all')), findsOneWidget);
     expect(find.byKey(const ValueKey('task-card-mine')), findsOneWidget);
     expect(find.byKey(const ValueKey('task-card-status-mine')), findsOneWidget);
     expect(find.byKey(const ValueKey('task-card-due-mine')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('task-card-quadrant-mine')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('task-card-quadrant-mine')), findsNothing);
     expect(find.byKey(const ValueKey('task-card-owner-mine')), findsOneWidget);
     expect(find.text('酒店'), findsOneWidget);
     expect(find.text('等待伙伴确认'), findsOneWidget);
@@ -150,6 +148,11 @@ void main() {
 
     await tester.tap(find.byKey(const Key('moment-view-all')));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('task-section-header-upcoming')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       find.byKey(const Key('task-section-header-upcoming')),
       findsOneWidget,

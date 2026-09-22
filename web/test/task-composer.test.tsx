@@ -20,12 +20,13 @@ describe('TaskComposer', () => {
 
     fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '  写周报  ' } });
     fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先列出本周完成事项' } });
+    fireEvent.change(screen.getByLabelText('完成标准'), { target: { value: '双方确认周报内容' } });
     fireEvent.change(screen.getByLabelText('描述'), { target: { value: '补充本周完成事项' } });
     fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
     fireEvent.click(screen.getByRole('radio', { name: '工作' }));
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
-    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('写周报', '补充本周完成事项', 'Q1', ['工作'], '先列出本周完成事项'));
+    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('写周报', '补充本周完成事项', 'Q1', ['工作'], '先列出本周完成事项', undefined, '双方确认周报内容'));
     expect(screen.getByLabelText('任务标题')).toHaveValue('');
     expect(screen.getByLabelText('明确下一步')).toHaveValue('');
     expect(screen.getByLabelText('描述')).toHaveValue('');
@@ -53,6 +54,25 @@ describe('TaskComposer', () => {
     expect(sync.createTask).not.toHaveBeenCalled();
   });
 
+  it('submits the selected real partner as the target handler', async () => {
+    const { sync } = createFakeSync(makeSnapshot(undefined, [
+      { user_id: 'viewer', display_name: '我', member_slot: 1, membership_status: 'ACTIVE' },
+      { user_id: 'partner', display_name: '小雨', member_slot: 2, membership_status: 'ACTIVE' },
+    ]));
+
+    render(<TaskComposer sync={sync} />);
+    fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
+    fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '交给 TA' } });
+    fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '确认交付时间' } });
+    fireEvent.change(screen.getByLabelText('完成标准'), { target: { value: '双方确认交付日期' } });
+    fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q2' } });
+    fireEvent.click(screen.getByRole('radio', { name: '工作' }));
+    fireEvent.change(screen.getByLabelText('创建后由谁负责'), { target: { value: 'partner' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+
+    await waitFor(() => expect(sync.createTask).toHaveBeenCalledWith('交给 TA', '', 'Q2', ['工作'], '确认交付时间', 'partner', '双方确认交付日期'));
+  });
+
   it('does not submit when the workspace has no approved classifications', () => {
     const { sync } = createFakeSync(makeSnapshot([]));
 
@@ -60,6 +80,7 @@ describe('TaskComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
     fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '没有分类的任务' } });
     fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先确认分类' } });
+    fireEvent.change(screen.getByLabelText('完成标准'), { target: { value: '双方确认分类' } });
     fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q1' } });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
@@ -114,6 +135,7 @@ function fillDraft(): void {
   fireEvent.click(screen.getByRole('button', { name: '记下一件事' }));
   fireEvent.change(screen.getByLabelText('任务标题'), { target: { value: '保留这份草稿' } });
   fireEvent.change(screen.getByLabelText('明确下一步'), { target: { value: '先处理网络' } });
+  fireEvent.change(screen.getByLabelText('完成标准'), { target: { value: '双方确认处理结果' } });
   fireEvent.change(screen.getByLabelText('描述'), { target: { value: '网络恢复后继续' } });
   fireEvent.change(screen.getByLabelText('四象限'), { target: { value: 'Q2' } });
   fireEvent.click(screen.getByRole('radio', { name: '工作' }));
@@ -154,11 +176,11 @@ function createFakeSync(snapshot = makeSnapshot()): {
 
 function makeSnapshot(classifications: WorkspaceClassification[] = [
   { id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'viewer', created_at: null },
-]): WorkspaceSnapshot {
+], members: WorkspaceSnapshot['members'] = []): WorkspaceSnapshot {
   return {
     workspace_id: 'workspace-1',
     workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' },
-    members: [],
+    members,
     tasks: [],
     conflicts: [],
     cursor: 1,

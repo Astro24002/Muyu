@@ -11,10 +11,16 @@ class LedgerItem {
     required this.payerId,
     required this.payerName,
     required this.version,
+    this.workspaceId,
+    this.currency = 'CNY',
+    this.createdBy,
+    this.updatedBy,
+    this.deletedAt,
     this.note,
   });
 
   final String id;
+  final String? workspaceId;
   final String title;
   final String category;
   final String type;
@@ -23,10 +29,15 @@ class LedgerItem {
   final String payerId;
   final String payerName;
   final int version;
+  final String currency;
+  final String? createdBy;
+  final String? updatedBy;
+  final DateTime? deletedAt;
   final String? note;
 
   factory LedgerItem.fromJson(Map<String, dynamic> json) => LedgerItem(
     id: json['id'] as String,
+    workspaceId: json['workspace_id'] as String?,
     title: json['title'] as String,
     category: json['category'] as String,
     type: json['type'] as String,
@@ -35,10 +46,55 @@ class LedgerItem {
     payerId: json['payer_or_payee_id'] as String,
     payerName: json['payer_or_payee_name'] as String? ?? '',
     version: json['version'] as int,
+    currency: json['currency'] as String? ?? 'CNY',
+    createdBy: json['created_by'] as String?,
+    updatedBy: json['updated_by'] as String?,
+    deletedAt: json['deleted_at'] == null
+        ? null
+        : DateTime.parse(json['deleted_at'] as String),
     note: json['note'] as String?,
   );
 
   String get formattedAmount => (amountMinor / 100).toStringAsFixed(2);
+}
+
+class HabitCheckinItem {
+  const HabitCheckinItem({
+    required this.id,
+    required this.habitId,
+    required this.workspaceId,
+    required this.actorId,
+    required this.frequencySnapshot,
+    required this.periodKey,
+    required this.day,
+    required this.occurredAt,
+    this.revokedAt,
+  });
+
+  final String id;
+  final String habitId;
+  final String workspaceId;
+  final String actorId;
+  final String frequencySnapshot;
+  final String periodKey;
+  final DateTime day;
+  final DateTime occurredAt;
+  final DateTime? revokedAt;
+
+  factory HabitCheckinItem.fromJson(Map<String, dynamic> json) =>
+      HabitCheckinItem(
+        id: json['id'] as String,
+        habitId: json['habit_id'] as String,
+        workspaceId: json['workspace_id'] as String,
+        actorId: json['actor_id'] as String,
+        frequencySnapshot: json['frequency_snapshot'] as String,
+        periodKey: json['period_key'] as String,
+        day: DateTime.parse(json['day'] as String),
+        occurredAt: DateTime.parse(json['occurred_at'] as String),
+        revokedAt: json['revoked_at'] == null
+            ? null
+            : DateTime.parse(json['revoked_at'] as String),
+      );
 }
 
 class LedgerSummary {
@@ -79,28 +135,87 @@ class HabitItem {
     required this.checkedIn,
     required this.version,
     required this.periodKey,
+    this.workspaceId,
+    this.note,
+    this.currentCheckin,
+    this.checkins = const [],
+    this.deletedAt,
   });
   final String id;
+  final String? workspaceId;
   final String ownerId;
   final String title;
+  final String? note;
   final String frequency;
   final String status;
   final DateTime startDate;
   final bool checkedIn;
   final int version;
   final String periodKey;
+  final HabitCheckinItem? currentCheckin;
+  final List<HabitCheckinItem> checkins;
+  final DateTime? deletedAt;
 
   factory HabitItem.fromJson(Map<String, dynamic> json) => HabitItem(
     id: json['id'] as String,
+    workspaceId: json['workspace_id'] as String?,
     ownerId: json['owner_id'] as String,
     title: json['title'] as String,
+    note: json['note'] as String?,
     frequency: json['frequency'] as String,
     status: json['status'] as String,
     startDate: DateTime.parse(json['start_date'] as String),
     checkedIn: json['checked_in'] as bool? ?? false,
     version: json['version'] as int,
     periodKey: json['current_period_key'] as String? ?? '',
+    currentCheckin: json['current_checkin'] == null
+        ? null
+        : HabitCheckinItem.fromJson(
+            (json['current_checkin'] as Map).cast<String, dynamic>(),
+          ),
+    checkins: (json['checkins'] as List<dynamic>? ?? const [])
+        .map(
+          (item) =>
+              HabitCheckinItem.fromJson((item as Map).cast<String, dynamic>()),
+        )
+        .toList(),
+    deletedAt: json['deleted_at'] == null
+        ? null
+        : DateTime.parse(json['deleted_at'] as String),
   );
+
+  HabitItem withCheckinHistory(List<HabitCheckinItem> nextCheckins) {
+    final history = List<HabitCheckinItem>.from(nextCheckins);
+    if (currentCheckin != null &&
+        !history.any((item) => item.id == currentCheckin!.id)) {
+      history.add(currentCheckin!);
+    }
+    HabitCheckinItem? current;
+    for (final checkin in history) {
+      if (checkin.frequencySnapshot == frequency &&
+          checkin.periodKey == periodKey &&
+          checkin.revokedAt == null) {
+        current = checkin;
+        break;
+      }
+    }
+    return HabitItem(
+      id: id,
+      workspaceId: workspaceId,
+      ownerId: ownerId,
+      title: title,
+      note: note,
+      frequency: frequency,
+      status: status,
+      startDate: startDate,
+      checkedIn: current != null,
+      version: version,
+      periodKey: periodKey,
+      currentCheckin: current,
+      checkins: history,
+      deletedAt: deletedAt,
+    );
+  }
 }
 
 class AnniversaryItem {
@@ -113,26 +228,46 @@ class AnniversaryItem {
     required this.daysUntil,
     required this.prepareDays,
     required this.version,
+    this.workspaceId,
+    this.note,
+    this.isToday = false,
+    this.deletedAt,
+    this.createdBy,
+    this.updatedBy,
   });
   final String id;
+  final String? workspaceId;
   final String title;
+  final String? note;
   final String kind;
   final DateTime anchorDate;
   final DateTime nextOccurrence;
   final int daysUntil;
   final int prepareDays;
   final int version;
+  final bool isToday;
+  final DateTime? deletedAt;
+  final String? createdBy;
+  final String? updatedBy;
 
   factory AnniversaryItem.fromJson(Map<String, dynamic> json) =>
       AnniversaryItem(
         id: json['id'] as String,
+        workspaceId: json['workspace_id'] as String?,
         title: json['title'] as String,
+        note: json['note'] as String?,
         kind: json['kind'] as String,
         anchorDate: DateTime.parse(json['anchor_date'] as String),
         nextOccurrence: DateTime.parse(json['next_occurrence'] as String),
         daysUntil: json['days_until'] as int,
         prepareDays: json['prepare_days'] as int,
         version: json['version'] as int,
+        isToday: json['is_today'] as bool? ?? false,
+        deletedAt: json['deleted_at'] == null
+            ? null
+            : DateTime.parse(json['deleted_at'] as String),
+        createdBy: json['created_by'] as String?,
+        updatedBy: json['updated_by'] as String?,
       );
 }
 

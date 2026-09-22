@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+SUPPORTED_CLIENT_CONTRACT = "2026-09-v1"
+
 
 class ApiError(Exception):
     def __init__(self, status_code: int, code: str, message: str, details: object | None = None) -> None:
@@ -23,6 +25,9 @@ def register_error_handlers(app: FastAPI) -> None:
     async def request_id_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("X-Request-ID") or str(uuid4())
         request.state.request_id = request_id
+        contract = request.headers.get("X-Muyu-Client-Contract")
+        if contract is not None and contract.strip() not in ("", SUPPORTED_CLIENT_CONTRACT):
+            return _json_error(request, 400, "unsupported_client_contract", "unsupported client contract", {})
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response

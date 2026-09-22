@@ -41,139 +41,323 @@ class _LedgerScreenState extends State<LedgerScreen> {
       final entries = controller.entries
           .where((item) => _filter == 'ALL' || item.type == _filter)
           .toList();
-      return RefreshIndicator(
-        onRefresh: controller.loadLedger,
-        child: ListView(
-          key: const PageStorageKey('ledger-list'),
-          padding: const EdgeInsets.fromLTRB(
-            MuyuSpacing.lg,
-            MuyuSpacing.md,
-            MuyuSpacing.lg,
-            MuyuSpacing.xxl,
-          ),
-          children: [
-            Row(
+      return Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: controller.loadLedger,
+            child: ListView(
+              key: const PageStorageKey('ledger-list'),
+              padding: const EdgeInsets.fromLTRB(
+                MuyuSpacing.lg,
+                MuyuSpacing.md,
+                MuyuSpacing.lg,
+                MuyuSpacing.xxl,
+              ),
               children: [
-                IconButton(
-                  tooltip: '上个月',
-                  onPressed: () => controller.changeMonth(-1),
-                  icon: const Icon(Icons.chevron_left),
+                Text(
+                  '把共同的日常，一笔一笔记下来。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-                Expanded(
-                  child: Text(
-                    '${controller.month.year} 年 ${controller.month.month} 月',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleMedium,
+                const SizedBox(height: MuyuSpacing.xl),
+                _monthlySummary(context, controller, summary),
+                if (controller.loadingLedger) const LinearProgressIndicator(),
+                if (controller.ledgerError != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: MuyuSpacing.sm,
+                    ),
+                    child: Text(
+                      controller.ledgerError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ),
+                const SizedBox(height: MuyuSpacing.xl),
+                _categoryDistribution(context, controller, summary),
+                const SizedBox(height: MuyuSpacing.xl),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '每一笔日常',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    Text(
+                      '${entries.length} 笔记录',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: '下个月',
-                  onPressed: () => controller.changeMonth(1),
-                  icon: const Icon(Icons.chevron_right),
+                const SizedBox(height: MuyuSpacing.md),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'ALL', label: Text('全部')),
+                    ButtonSegment(value: 'EXPENSE', label: Text('支出')),
+                    ButtonSegment(value: 'INCOME', label: Text('收入')),
+                  ],
+                  selected: {_filter},
+                  onSelectionChanged: (value) =>
+                      setState(() => _filter = value.first),
                 ),
+                const SizedBox(height: MuyuSpacing.md),
+                if (entries.isEmpty && !controller.loadingLedger)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xl),
+                    child: Center(child: Text('本月暂无账目')),
+                  ),
+                for (var index = 0; index < entries.length; index++) ...[
+                  if (index == 0 ||
+                      entries[index].date != entries[index - 1].date)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        top: MuyuSpacing.lg,
+                        bottom: MuyuSpacing.sm,
+                      ),
+                      child: Text(
+                        '${entries[index].date.month}月${entries[index].date.day}日',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                    child: ListTile(
+                      key: Key('ledger-entry-${entries[index].id}'),
+                      leading: const Icon(
+                        Icons.account_balance_wallet_outlined,
+                      ),
+                      title: Text(
+                        entries[index].title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${entries[index].category} · ${entries[index].payerName}${entries[index].type == 'EXPENSE' ? ' 付款' : ' 收款'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: Text(
+                        '${entries[index].type == 'EXPENSE' ? '-' : '+'}¥${entries[index].formattedAmount}',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      onTap: () => _openEntry(entries[index]),
+                    ),
+                  ),
+                  const SizedBox(height: MuyuSpacing.sm),
+                ],
               ],
             ),
-            if (controller.loadingLedger) const LinearProgressIndicator(),
-            if (controller.ledgerError != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.sm),
-                child: Text(
-                  controller.ledgerError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-            const SizedBox(height: MuyuSpacing.md),
-            Wrap(
-              spacing: MuyuSpacing.lg,
-              runSpacing: MuyuSpacing.md,
-              children: [
-                _amount(context, '共同支出', summary?.expenseMinor),
-                _amount(context, '共同收入', summary?.incomeMinor),
-                _amount(context, '收支结余', summary?.balanceMinor),
-              ],
-            ),
-            const SizedBox(height: MuyuSpacing.lg),
-            if (summary != null && summary.payerTotals.isNotEmpty) ...[
-              Text('双方付款', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: MuyuSpacing.sm),
-              for (final row in summary.payerTotals)
-                Text(
-                  '${row['display_name']}  ¥${_format(row['amount_minor'] as int)}',
-                ),
-              const SizedBox(height: MuyuSpacing.lg),
-            ],
-            if (summary != null && summary.categories.isNotEmpty) ...[
-              Text('支出分类', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: MuyuSpacing.sm),
-              for (final row in summary.categories)
-                Text(
-                  '${row['category']}  ¥${_format(row['amount_minor'] as int)}',
-                ),
-              const SizedBox(height: MuyuSpacing.lg),
-            ],
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'ALL', label: Text('全部')),
-                ButtonSegment(value: 'EXPENSE', label: Text('支出')),
-                ButtonSegment(value: 'INCOME', label: Text('收入')),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (value) =>
-                  setState(() => _filter = value.first),
-            ),
-            const SizedBox(height: MuyuSpacing.md),
-            if (entries.isEmpty && !controller.loadingLedger)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xl),
-                child: Center(child: Text('本月暂无账目')),
-              ),
-            for (final item in entries) ...[
-              ListTile(
-                key: Key('ledger-entry-${item.id}'),
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  item.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${item.category} · ${item.payerName} · ${item.date.month}月${item.date.day}日',
-                ),
-                trailing: Text(
-                  '${item.type == 'EXPENSE' ? '-' : '+'}¥${item.formattedAmount}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                onTap: () => _openEntry(item),
-              ),
-              const Divider(height: 1),
-            ],
-            if (widget.canWrite) ...[
-              const SizedBox(height: MuyuSpacing.xl),
-              FilledButton.icon(
+          ),
+          if (widget.canWrite)
+            Positioned(
+              right: MuyuSpacing.lg,
+              bottom: MuyuSpacing.lg,
+              child: FloatingActionButton(
+                key: const Key('ledger-create-fab'),
+                tooltip: '记一笔',
+                heroTag: 'ledger-create',
                 onPressed: controller.writing ? null : () => _openEntry(null),
-                icon: const Icon(Icons.add),
-                label: const Text('记一笔'),
+                child: const Icon(Icons.add),
               ),
-            ],
-          ],
-        ),
+            ),
+        ],
       );
     },
   );
 
-  Widget _amount(BuildContext context, String label, int? amount) => SizedBox(
-    width: 100,
-    child: Column(
+  Widget _monthlySummary(
+    BuildContext context,
+    LifeController controller,
+    LedgerSummary? summary,
+  ) {
+    final onDark = Theme.of(context).colorScheme.onPrimary;
+    return Container(
+      key: const Key('ledger-monthly-summary'),
+      padding: const EdgeInsets.all(MuyuSpacing.lg),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: '上个月',
+                onPressed: () => controller.changeMonth(-1),
+                icon: Icon(Icons.chevron_left, color: onDark),
+              ),
+              Expanded(
+                child: Text(
+                  '${controller.month.year} 年 ${controller.month.month.toString().padLeft(2, '0')} 月',
+                  style: TextStyle(color: onDark, fontWeight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                tooltip: '下个月',
+                onPressed: () => controller.changeMonth(1),
+                icon: Icon(Icons.chevron_right, color: onDark),
+              ),
+            ],
+          ),
+          const SizedBox(height: MuyuSpacing.sm),
+          Text('共同支出', style: TextStyle(color: onDark.withValues(alpha: 0.8))),
+          const SizedBox(height: MuyuSpacing.sm),
+          Text(
+            summary == null ? '¥ --' : '¥ ${_format(summary.expenseMinor)}',
+            style: TextStyle(
+              color: onDark,
+              fontSize: 32,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: MuyuSpacing.md),
+          Wrap(
+            spacing: MuyuSpacing.lg,
+            runSpacing: MuyuSpacing.sm,
+            children: [
+              _amount(context, '收入', summary?.incomeMinor),
+              _amount(context, '收支结余', summary?.balanceMinor),
+            ],
+          ),
+          if (summary != null && summary.payerTotals.isNotEmpty) ...[
+            Divider(
+              height: MuyuSpacing.xxl,
+              color: onDark.withValues(alpha: 0.2),
+            ),
+            Wrap(
+              spacing: MuyuSpacing.lg,
+              runSpacing: MuyuSpacing.sm,
+              children: [
+                for (final row in summary.payerTotals)
+                  _amount(
+                    context,
+                    '${row['display_name']}支出',
+                    row['amount_minor'] as int,
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _amount(BuildContext context, String label, int? amount) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onPrimary
+              .withValues(alpha: 0.75),
+          fontSize: 11,
+        ),
+      ),
+      Text(
+        amount == null ? '¥ --' : '¥${_format(amount)}',
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ],
+  );
+
+  Widget _categoryDistribution(
+    BuildContext context,
+    LifeController controller,
+    LedgerSummary? summary,
+  ) {
+    const colors = [
+      Color(0xff6b8565),
+      Color(0xffadbfa0),
+      Color(0xffd2b796),
+      Color(0xffc7d3c5),
+    ];
+    final categories =
+        summary?.categories
+            .where((row) => (row['amount_minor'] as int) > 0)
+            .toList() ??
+        [];
+    final total = categories.fold<int>(
+      0,
+      (sum, row) => sum + (row['amount_minor'] as int),
+    );
+    return Column(
+      key: const Key('ledger-category-distribution'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-        Text(
-          '¥${_format(amount ?? 0)}',
-          style: Theme.of(context).textTheme.titleMedium,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '支出去向',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            Text(
+              '${controller.month.month} 月 · ${controller.entries.where((item) => item.type == 'EXPENSE').length} 笔',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
+        const SizedBox(height: MuyuSpacing.md),
+        if (total > 0) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 8,
+              child: Row(
+                children: [
+                  for (var index = 0; index < categories.length; index++)
+                    Expanded(
+                      flex: categories[index]['amount_minor'] as int,
+                      child: ColoredBox(
+                        color: colors[index % colors.length],
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: MuyuSpacing.md),
+          Wrap(
+            spacing: MuyuSpacing.md,
+            runSpacing: MuyuSpacing.sm,
+            children: [
+              for (var index = 0; index < categories.length; index++)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.circle,
+                      size: 7,
+                      color: colors[index % colors.length],
+                    ),
+                    const SizedBox(width: MuyuSpacing.xs),
+                    Text(
+                      '${categories[index]['category']} ${(100 * (categories[index]['amount_minor'] as int) / total).round()}%',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ] else
+          Text('本月暂无支出分类', style: Theme.of(context).textTheme.bodySmall),
       ],
-    ),
-  );
+    );
+  }
 
   Future<void> _openEntry(LedgerItem? item) async {
     await showDialog<void>(

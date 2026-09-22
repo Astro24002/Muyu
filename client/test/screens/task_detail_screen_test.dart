@@ -39,7 +39,12 @@ TaskItem detailTask({
   createdAt: DateTime.utc(2026, 8, 27),
   updatedAt: DateTime.utc(2026, 8, 27),
   labels: labels,
-  fieldVersions: const {'title': 3, 'description': 2},
+  fieldVersions: const {
+    'title': 3,
+    'description': 2,
+    'current_handler_id': 1,
+    'next_step_text': 2,
+  },
   resumeHandlerId: resumeHandlerId,
 );
 
@@ -85,11 +90,13 @@ class RecordingRepository implements WorkspaceSyncRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
+    String? targetHandlerId,
   }) => throw UnimplementedError();
 
   @override
@@ -258,6 +265,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('transfer-note-input')), findsOneWidget);
+    expect(find.byKey(const Key('transfer-next-step-input')), findsOneWidget);
     await tester.tap(find.byKey(const Key('transfer-note-submit')));
     await tester.pump();
     expect(find.text('请填写交接说明'), findsOneWidget);
@@ -266,12 +274,17 @@ void main() {
       find.byKey(const Key('transfer-note-input')),
       '请继续跟进合同',
     );
+    await tester.enterText(
+      find.byKey(const Key('transfer-next-step-input')),
+      '联系供应商确认交付日期',
+    );
     await tester.tap(find.byKey(const Key('transfer-note-submit')));
     await tester.pumpAndSettle();
 
     expect(repository.updatedFields, {
       'current_handler_id': 'user-2',
       'transfer_note': '请继续跟进合同',
+      'proposed_next_step': '联系供应商确认交付日期',
     });
   });
 

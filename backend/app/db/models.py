@@ -355,6 +355,7 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     next_step_text: Mapped[str | None] = mapped_column(String(90))
+    acceptance_criteria: Mapped[str | None] = mapped_column(String(500))
     source_key: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[TaskStatus] = mapped_column(_enum(TaskStatus), nullable=False, default=TaskStatus.TODO, server_default="TODO")
     quadrant: Mapped[TaskQuadrant] = mapped_column(_enum(TaskQuadrant), nullable=False)

@@ -80,8 +80,18 @@ class ApiClient {
     Map<String, String>? requestHeaders,
     required bool authenticated,
   }) async {
-    final headers = <String, String>{'accept': 'application/json'};
-    if (requestHeaders != null) headers.addAll(requestHeaders);
+    final headers = <String, String>{
+      'accept': 'application/json',
+      'X-Muyu-Client-Contract': '2026-09-v1',
+    };
+    if (requestHeaders != null) {
+      for (final entry in requestHeaders.entries) {
+        if (entry.key.toLowerCase() != 'x-muyu-client-contract') {
+          headers[entry.key] = entry.value;
+        }
+      }
+    }
+    headers['X-Muyu-Client-Contract'] = '2026-09-v1';
     if (body != null) headers['content-type'] = 'application/json';
     if (authenticated) {
       final accessToken = await tokenStore?.readAccessToken();

@@ -101,6 +101,7 @@ def test_task_approval_tables_columns_and_enum_values(db_engine) -> None:
             "COMMENT_DELETE",
             "HANDLER_TRANSFER",
             "CLASSIFICATION_CREATE",
+            "TASK_INVITATION",
         ],
         "task_quadrant": ["Q1", "Q2", "Q3", "Q4"],
         "task_status": ["TODO", "IN_PROGRESS", "BLOCKED", "REVIEW", "DONE", "CANCELLED"],

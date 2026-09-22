@@ -1,4 +1,5 @@
 import 'classification.dart';
+import '../life/life_repository.dart';
 import 'task.dart';
 import 'task_approval_request.dart';
 
@@ -14,6 +15,11 @@ class WorkspaceSnapshot {
     this.approvalRequests = const [],
     this.classifications = const [],
     this.hasClassificationContract = false,
+    this.ledgerEntries = const [],
+    this.habits = const [],
+    this.habitCheckins = const [],
+    this.anniversaries = const [],
+    this.hasLifeDomainContract = false,
     this.fetchedAt,
   });
 
@@ -33,6 +39,14 @@ class WorkspaceSnapshot {
   /// readable until the next authoritative refresh, while every current API
   /// snapshot must prove non-empty task classifications are approved.
   final bool hasClassificationContract;
+  final List<LedgerItem> ledgerEntries;
+  final List<HabitItem> habits;
+  final List<HabitCheckinItem> habitCheckins;
+  final List<AnniversaryItem> anniversaries;
+
+  /// Whether this snapshot explicitly carried the life-domain resources.
+  /// Older cached snapshots remain readable until an authoritative refresh.
+  final bool hasLifeDomainContract;
   final DateTime? fetchedAt;
 
   factory WorkspaceSnapshot.fromJson(Map<String, dynamic> json) {
@@ -64,6 +78,35 @@ class WorkspaceSnapshot {
           )
           .toList(),
       hasClassificationContract: json.containsKey('classifications'),
+      ledgerEntries: (json['ledger_entries'] as List<dynamic>? ?? const [])
+          .map(
+            (item) =>
+                LedgerItem.fromJson((item as Map).cast<String, dynamic>()),
+          )
+          .toList(),
+      habits: (json['habits'] as List<dynamic>? ?? const [])
+          .map(
+            (item) => HabitItem.fromJson((item as Map).cast<String, dynamic>()),
+          )
+          .toList(),
+      habitCheckins: (json['habit_checkins'] as List<dynamic>? ?? const [])
+          .map(
+            (item) => HabitCheckinItem.fromJson(
+              (item as Map).cast<String, dynamic>(),
+            ),
+          )
+          .toList(),
+      anniversaries: (json['anniversaries'] as List<dynamic>? ?? const [])
+          .map(
+            (item) =>
+                AnniversaryItem.fromJson((item as Map).cast<String, dynamic>()),
+          )
+          .toList(),
+      hasLifeDomainContract:
+          json.containsKey('ledger_entries') ||
+          json.containsKey('habits') ||
+          json.containsKey('habit_checkins') ||
+          json.containsKey('anniversaries'),
       fetchedAt: json['fetched_at'] == null
           ? null
           : DateTime.parse(json['fetched_at'] as String),
@@ -111,6 +154,32 @@ class WorkspaceSnapshot {
         )) {
       return false;
     }
+    if (!ledgerEntries.every(
+      (entry) => entry.workspaceId == null || entry.workspaceId == workspaceId,
+    )) {
+      return false;
+    }
+    if (!habits.every(
+      (habit) => habit.workspaceId == null || habit.workspaceId == workspaceId,
+    )) {
+      return false;
+    }
+    if (!habitCheckins.every((checkin) => checkin.workspaceId == workspaceId)) {
+      return false;
+    }
+    if (!anniversaries.every(
+      (anniversary) =>
+          anniversary.workspaceId == null ||
+          anniversary.workspaceId == workspaceId,
+    )) {
+      return false;
+    }
+    if (!habits.every(
+      (habit) =>
+          habit.checkins.every((checkin) => checkin.workspaceId == workspaceId),
+    )) {
+      return false;
+    }
     if (!hasClassificationContract) return true;
 
     final approvedNames = <String>{};
@@ -140,8 +209,81 @@ class WorkspaceSnapshot {
       'classifications': classifications
           .map((classification) => classification.toJson())
           .toList(),
+    if (hasLifeDomainContract) ...{
+      'ledger_entries': ledgerEntries.map(_ledgerJson).toList(),
+      'habits': habits.map(_habitJson).toList(),
+      'habit_checkins': habitCheckins.map(_checkinJson).toList(),
+      'anniversaries': anniversaries.map(_anniversaryJson).toList(),
+    },
     'fetched_at': fetchedAt?.toUtc().toIso8601String(),
   };
 
   static Map<String, Object?> _taskJson(TaskItem task) => task.toJson();
+
+  static Map<String, Object?> _ledgerJson(LedgerItem item) => {
+    'id': item.id,
+    'workspace_id': item.workspaceId,
+    'type': item.type,
+    'amount_minor': item.amountMinor,
+    'amount': item.formattedAmount,
+    'currency': item.currency,
+    'title': item.title,
+    'category': item.category,
+    'payer_or_payee_id': item.payerId,
+    'payer_or_payee_name': item.payerName,
+    'date': item.date.toIso8601String().split('T').first,
+    'note': item.note,
+    'created_by': item.createdBy,
+    'updated_by': item.updatedBy,
+    'version': item.version,
+    'deleted_at': item.deletedAt?.toUtc().toIso8601String(),
+  };
+
+  static Map<String, Object?> _checkinJson(HabitCheckinItem item) => {
+    'id': item.id,
+    'habit_id': item.habitId,
+    'workspace_id': item.workspaceId,
+    'actor_id': item.actorId,
+    'frequency_snapshot': item.frequencySnapshot,
+    'period_key': item.periodKey,
+    'day': item.day.toIso8601String().split('T').first,
+    'occurred_at': item.occurredAt.toUtc().toIso8601String(),
+    'revoked_at': item.revokedAt?.toUtc().toIso8601String(),
+  };
+
+  static Map<String, Object?> _habitJson(HabitItem item) => {
+    'id': item.id,
+    'workspace_id': item.workspaceId,
+    'owner_id': item.ownerId,
+    'title': item.title,
+    'note': item.note,
+    'frequency': item.frequency,
+    'start_date': item.startDate.toIso8601String().split('T').first,
+    'status': item.status,
+    'version': item.version,
+    'current_period_key': item.periodKey,
+    'checked_in': item.checkedIn,
+    'current_checkin': item.currentCheckin == null
+        ? null
+        : _checkinJson(item.currentCheckin!),
+    'checkins': item.checkins.map(_checkinJson).toList(),
+    'deleted_at': item.deletedAt?.toUtc().toIso8601String(),
+  };
+
+  static Map<String, Object?> _anniversaryJson(AnniversaryItem item) => {
+    'id': item.id,
+    'workspace_id': item.workspaceId,
+    'title': item.title,
+    'anchor_date': item.anchorDate.toIso8601String().split('T').first,
+    'kind': item.kind,
+    'prepare_days': item.prepareDays,
+    'note': item.note,
+    'next_occurrence': item.nextOccurrence.toIso8601String().split('T').first,
+    'days_until': item.daysUntil,
+    'is_today': item.isToday,
+    'version': item.version,
+    'deleted_at': item.deletedAt?.toUtc().toIso8601String(),
+    'created_by': item.createdBy,
+    'updated_by': item.updatedBy,
+  };
 }

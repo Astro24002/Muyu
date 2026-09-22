@@ -83,11 +83,13 @@ class LabelRecordingRepository implements WorkspaceSyncRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
+    String? targetHandlerId,
   }) async {
     createdQuadrant = quadrant;
     createdLabels = labels;
@@ -233,6 +235,10 @@ void main() {
       find.byKey(const Key('task-next-step-input')),
       '确认计划中的第一个动作',
     );
+    await tester.enterText(
+      find.byKey(const Key('task-acceptance-input')),
+      '双方确认完成',
+    );
     await tester.pump();
     expect(
       tester
@@ -258,6 +264,10 @@ void main() {
   });
 
   testWidgets('detail edits exactly one classification', (tester) async {
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final repository = LabelRecordingRepository(
       tasks: [
         sampleTask(labels: const ['工作']),
@@ -285,8 +295,11 @@ void main() {
       120,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(weddingLabel);
     await tester.pumpAndSettle();
     await tester.tap(weddingLabel);
+    await tester.ensureVisible(find.byKey(const Key('task-save-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('task-save-button')));
     await tester.pumpAndSettle();
 

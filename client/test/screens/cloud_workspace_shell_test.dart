@@ -82,13 +82,22 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('ledger-destination')));
     await tester.pumpAndSettle();
     expect(find.text('共同支出'), findsOneWidget);
-    expect(find.text('记一笔'), findsOneWidget);
+    expect(find.byTooltip('记一笔'), findsOneWidget);
+    expect(find.byKey(const Key('ledger-monthly-summary')), findsOneWidget);
+    expect(
+      find.byKey(const Key('ledger-category-distribution')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('task-list-scroll')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('checkins-destination')));
     await tester.pumpAndSettle();
     expect(find.text('日常打卡'), findsOneWidget);
     expect(find.text('纪念日'), findsOneWidget);
+    expect(find.byKey(const Key('checkins-current-period')), findsOneWidget);
+    await tester.tap(find.text('纪念日').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('checkins-anniversary-list')), findsOneWidget);
     expect(find.byKey(const Key('task-list-scroll')), findsNothing);
   });
 }

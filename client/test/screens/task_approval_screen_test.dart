@@ -90,11 +90,13 @@ class ApprovalScreenRepository implements WorkspaceSyncRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
+    String? targetHandlerId,
   }) => throw UnimplementedError();
 
   @override

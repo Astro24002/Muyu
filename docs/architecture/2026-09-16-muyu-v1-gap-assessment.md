@@ -2,7 +2,13 @@
 
 日期：2026-09-16；文档与定点代码复核：2026-09-17
 
-2026-09-17 施工复核：Android 与 Web 的四入口壳层、事项标题视图菜单、Home v1 回应指标过滤、任务查询 API 和 `next_step_text` 字段/表单已在本地实现并通过专项/全量回归；记账、打卡、纪念日仍为未开放状态，交接拟议下一步和创建给 TA 的原子流程仍缺失。原型 URL 在当前浏览器工具中被安全策略拒绝打开，未形成原型截图或交互证据；`adb devices` 没有授权设备，因此真机安装、截图和双设备人工验收仍为 pending。
+2026-09-22 生活领域同步、全量门禁与线上更新：账目、习惯、打卡和纪念日已由服务端统一 snapshot/changes 返回；Android/Web 客户端已增加资源模型、workspace cursor 合并、删除/撤销 tombstone 处理（包括无正文的 `DELETED` 事件按资源 ID 清除），增量打卡会更新习惯本期投影，记账和打卡页面消费同步快照，写入仍走正式 REST。隔离 PostgreSQL 上 `make verify` 通过：本地 head 迁移升级、后端 `303 passed, 3 skipped, 2 warnings`、Flutter 全量 `261 passed`、Web 全量 `288 passed`、typecheck/build、部署拓扑和边界检查均通过；生产已在备份后升至 `0018_task_invitations`，API/Web/Caddy healthy，公网 live/ready 为 200。并发、可配置时区、重启、线上回滚恢复、双用户和真实设备验收仍 pending。
+
+2026-09-21 新版“事项”原型协议施工：当前站点新增按独立申请展示的“需要我处理”、任务邀请、整组约定修改/取消以及独立完成标准。Android/Web 已完成 `acceptance_criteria` 独立持久化、`TASK_INVITATION` 无任务申请和 agreement/cancellation 专用申请的本地实现：批准后才建 TA 负责任务或应用整组约定，拒绝/撤回不改任务事实，字段/生命周期并发和终态失效返回冲突，Home action count/page 识别申请；四象限新增负责人过滤，四象限/日程限开放任务，日程支持回到今天。后端全量 `303 passed, 3 skipped, 2 warnings`，Web API 专项 `15 passed`，Flutter 仓储专项 `9 passed`；新迁移尚未部署生产，真机和真实双人验收仍 pending。
+
+2026-09-20 视觉复核：直接浏览器访问私密 v4 仍受限制，但只读代理取得了该 URL 的 HTML/CSS/JS，隔离 Chromium 已形成 393×851 的页面和交互参考。Android 已恢复原型问候、调整此刻指标与任务卡，并将记账/打卡/纪念日改为正式领域数据驱动的原型式布局；Flutter 248 passed，debug APK 已重建。没有授权真机、逐日打卡历史 API、真实双人和像素对照，视觉与产品验收继续 pending。以下 2026-09-18 审计反映当时状态，不能再将“没有原型参照”作为当前事实。
+
+2026-09-18 施工复核：Android 与 Web 的四入口壳层、事项标题视图菜单、Home v1 回应指标过滤、任务查询 API、`next_step_text` 字段/表单、`HANDLER_TRANSFER.proposed_next_step`、客户端契约 Header 和创建给 TA 原子流程已在本地实现并通过专项回归；记账、打卡、纪念日后端/API、Android 页面及 Web 正式 REST 页面已局部接入，统一 snapshot/changes 客户端资源模型、完整领域并发/时区回归、Workspace 可配置时区、完整来源筛选、线上真实双账户和设备验收仍未完成。原型 URL 在当时浏览器工具中被安全策略拒绝打开，未形成原型截图或交互证据；`adb devices` 没有授权设备，因此真机安装、截图和双设备人工验收仍为 pending。
 
 ## 当前工程
 
@@ -15,19 +21,19 @@
 
 | 领域 | 现状 | v1 施工决定 |
 | --- | --- | --- |
-| 底部导航 | 原实现为 `清单 / 四象限 / 日程 / 我的` | Android/Web 本地壳层已改为 `事项 / 记账 / 打卡 / 我的`；四象限和日程成为事项标题内视图，账本/打卡仍未开放。 |
+| 底部导航 | 原实现为 `清单 / 四象限 / 日程 / 我的` | Android/Web 本地壳层已改为 `事项 / 记账 / 打卡 / 我的`；四象限和日程成为事项标题内视图，账本/打卡已接入正式 REST 页面和统一 snapshot/changes 消费，完整领域验收仍待完成。 |
 | 事项标题 | 原实现为 `清单→此刻`、品牌栏和抽屉 | Android/Web 已改为可点击的 `此刻` 标题菜单并移除主事项页品牌/抽屉入口；真机视觉证据仍 pending。 |
-| 首页 | 已有三指标和互斥 `blocked/mine/other` 投影 | 后端 canonical 计数/分页已收敛到交接/验收，旧广义审批字段继续兼容；Android/Web 已消费目标三段，业务时区仍待冻结。 |
+| 首页 | 已有三指标和互斥 `blocked/mine/other` 投影 | 后端 canonical 计数/分页已收敛到交接/验收，旧广义审批字段继续兼容；Android/Web 已消费目标三段，首版业务时区已冻结为 `Asia/Shanghai`，Workspace 可配置时区仍待设计。 |
 | 任务状态 | 历史兼容的 `TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED` 加审批请求 | 暂不破坏生产状态与迁移；Android 展示层先映射为 v1 文案。`CANCELLED`、重开和旧兼容路径保留；若收敛需另行设计，v1 不新增这些操作。 |
-| 任务字段 | 现有分类、象限、`due_at`、负责人、审批与活动事实；已新增可空 `next_step_text` | 字段、snapshot/changes、查询和 Android/Web 创建/编辑已落地；`proposed_next_step`、header 强制和创建给 TA 原子交接仍待批次 2。 |
-| 记账、打卡、纪念日 | 尚未实现数据模型、API 或 Android 界面 | 实施计划批次 3/4（主设计阶段 3）新增独立领域模块；不能用任务数据或浏览器本地存储替代。 |
+| 任务字段 | 现有分类、象限、`due_at`、负责人、审批与活动事实；已新增可空 `next_step_text` 和 `acceptance_criteria` | 字段、snapshot/changes、查询、Header、`proposed_next_step`、独立完成标准、创建邀请和整组 agreement/cancellation 申请已落地；业务时区可配置和完整来源筛选仍待后续批次。 |
+| 记账、打卡、纪念日 | 后端独立模型/API、Android 页面和 Web 正式 REST 页面已存在；两端已补齐四类资源的 snapshot/changes 模型和游标合并 | 继续沿用独立领域模块；补齐并发/恢复/无障碍回归和线上/双用户验收，不能用任务数据或浏览器本地存储替代。 |
 | 全部事情 | 原有列表可显示终态任务，但没有规范化查询入口 | 已增加服务端搜索/状态/负责人/历史/keyset 查询、`next_step_text` 搜索和事项次级入口；完整来源筛选和查询 UI 依赖批次 2。 |
 
 ## 复用与阻塞
 
 - 复用：认证、双人 Workspace、设备会话、FastAPI 事务、乐观版本、幂等请求、cursor 同步、任务详情、审批服务和 Android 主题基础。
-- 文档同步没有阻塞；功能施工仍有下表的协议/迁移设计前置项。记账、打卡和纪念日需要新的 PostgreSQL schema、API、客户端仓储和迁移，不能作为纯 UI 功能接入。
-- 私密参考原型未在本次审计中被绕过；实现以本次交付文档为准。
+- 文档同步没有阻塞；功能施工仍有下表的协议/迁移设计前置项。记账、打卡和纪念日已接入独立 PostgreSQL schema、API 和客户端仓储，剩余同步与验收不能作为纯 UI 功能处理。
+- 私密 v4 已通过只读代理在隔离浏览器审计；Android 真机像素和授权交互仍 pending。
 
 ## 补充差异与证据
 
@@ -35,12 +41,12 @@
 
 | 目标 | 复核证据/现状 | 后续方案 |
 | --- | --- | --- |
-| 回应指标只统计接棒与验收 | `backend/app/home/routes.py` 的 `_pending_approval_page` 读取广义 PENDING，含无 task_id 审批 | 同步约束 count/page 和旧字段兼容；其他审批保留审批中心入口 |
-| 统一业务时区自然周 | 同文件返回 `HomeWeek(timezone="UTC")` | 冻结 Workspace 时区和日期转换，跨端一致，注入时钟验证 |
-| 明确下一步、新建给 TA | `CreateTaskRequest`、任务表、snapshot/changes 和跨端创建/编辑已支持可空 `next_step_text`；无目标成员字段 | 已完成用户文本的持久化和兼容窗口；仍需 `proposed_next_step`、创建给 TA 原子交接和 header 强制，保留创建者 owner，失败整笔回滚 |
+| 回应指标按申请计数 | Home 对 `TASK_INVITATION` 无 task_id 申请和带 marker 的 `TASK_UPDATE`/`TASK_DELETE` 使用同一申请 ID 口径纳入 action count/page；本周到期仍只查询已成立任务 | 保留申请谓词、去重和旧字段兼容；线上双用户和旧运行时回归仍待执行 |
+| 统一业务时区自然周 | Home 返回 `HomeWeek(timezone="Asia/Shanghai")`，周边界以 UTC 瞬时表示 | 首版冻结时区和集中日期转换已落地并通过跨 UTC 日期测试；Workspace 可配置时区、LocalDate/时间点兼容和完整 DST 验证仍待施工 |
+| 明确下一步、新建给 TA、完成标准、整组约定 | `next_step_text`、`acceptance_criteria`、目标成员、Header、交接拟议值和 agreement/cancellation endpoint 均已接入；新客户端邀请使用独立 `/task-invitations` | 邀请接受与约定批准的任务/审批/活动/Operation/cursor/幂等本地回归通过；业务时区可配置、线上双用户和设备验收仍 pending |
 | 70/90/500/1000 长度 | 当前标题 200、描述 10000、review_content 5000 | 客户端/服务端统一计数，兼容历史长文本 |
 | important/urgent | `backend/app/tasks/service.py` 使用 quadrant Q1～Q4 | 布尔输入与 quadrant 单源映射，不随日期改变 |
 | 无截止与新建进行中 | 现有默认截止与 TODO 路径不同于目标 | 先设计新旧命令兼容，不直接改变旧 API |
 | 打卡删除与纪念日生成 | 原方案缺少关联记录删除语义、未来原始日期、生成者/状态/截止定义 | 已补入契约第 3/6 节；领域 schema 与迁移仍待实施 |
 
-最新方案见 [v1 契约](../superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md)，验收与批次依赖见 [实施计划](../superpowers/plans/2026-09-16-muyu-v1.md)。2026-09-17 已执行后端 PostgreSQL、Flutter 和 Web 本地回归；原型浏览器交互、真实设备和线上核验仍未执行。
+最新方案见 [v1 契约](../superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md)，验收与批次依赖见 [实施计划](../superpowers/plans/2026-09-16-muyu-v1.md)。2026-09-17 已执行后端 PostgreSQL、Flutter 和 Web 本地回归；2026-09-20 已经由代理完成 v4 浏览器参照对照，但真实 Android 设备截图和本轮线上核验仍未执行。

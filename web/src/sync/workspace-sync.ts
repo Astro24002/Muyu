@@ -1,5 +1,5 @@
 import { ApiError, type ApiClient, type TaskWriteResult } from '../api/client';
-import type { ApprovalActionResult, HomeApprovalItem, HomeApprovalSection, HomeEntries, HomeEntryCounts, HomeMoment, HomeResponse, HomeTaskSection, HomeWeek, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceClassification, WorkspaceSnapshot } from '../api/types';
+import type { Anniversary, ApprovalActionResult, Habit, HabitCheckin, HomeApprovalItem, HomeApprovalSection, HomeEntries, HomeEntryCounts, HomeMoment, HomeResponse, HomeTaskSection, HomeWeek, LedgerEntry, PendingApproval, TaskApprovalRequest, TaskComment, TaskItem, WorkspaceChange, WorkspaceChanges, WorkspaceClassification, WorkspaceSnapshot } from '../api/types';
 import type { EditableTaskChanges, TaskConflict } from '../tasks/task-model';
 import { classificationNames as approvedClassificationNames } from '../tasks/classification';
 import { isCanonicalTaskStatus, isTaskQuadrant, isTaskTransitionAllowed, normalizeTaskStatus, parseTaskItem, parseTaskLabels, upsertTask } from '../tasks/task-model';
@@ -50,6 +50,7 @@ export type WorkspaceSyncApi = Pick<ApiClient,
   | 'getWorkspaceSnapshot'
   | 'getWorkspaceChanges'
   | 'createTask'
+  | 'createTaskInvitation'
   | 'patchTask'
   | 'resolveConflict'
   | 'transitionTask'
@@ -57,6 +58,8 @@ export type WorkspaceSyncApi = Pick<ApiClient,
   | 'addTaskDelay'
 > & Partial<Pick<ApiClient,
   | 'getHome'
+  | 'requestAgreementUpdate'
+  | 'requestTaskCancellation'
   | 'createApprovalRequest'
   | 'listApprovalRequests'
   | 'approveApproval'
@@ -182,10 +185,15 @@ export class WorkspaceSyncController {
     }
   }
 
-  async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = [], nextStepText?: string): Promise<void> {
+  async createTask(title: string, description: string, quadrant: TaskItem['quadrant'], labels: string[] = [], nextStepText?: string, targetHandlerId?: string, acceptanceCriteria?: string): Promise<void> {
     const normalizedNextStepText = nextStepText === undefined ? undefined : nextStepText.trim();
     if (nextStepText !== undefined && (!normalizedNextStepText || Array.from(normalizedNextStepText).length > 90)) {
       this.setState({ error: '明确下一步不能为空且不能超过 90 个字符。' });
+      return;
+    }
+    const normalizedCriteria = acceptanceCriteria?.trim();
+    if (acceptanceCriteria !== undefined && (!normalizedCriteria || Array.from(normalizedCriteria).length > 500)) {
+      this.setState({ error: '完成标准不能为空且不能超过 500 个字符。' });
       return;
     }
     const classifications = this.currentState.snapshot?.classifications ?? [];
@@ -200,13 +208,32 @@ export class WorkspaceSyncController {
       return;
     }
     const approvedName = available.find((name) => name.toLocaleLowerCase() === classification.toLocaleLowerCase())!;
+    const requestId = this.requestIdFactory();
+    if (targetHandlerId !== undefined) {
+      if (!normalizedNextStepText || !normalizedCriteria) {
+        this.setState({ error: '邀请 TA 必须填写明确下一步和完成标准。' });
+        return;
+      }
+      await this.write('无法发送任务邀请，请检查网络后重试。', () => this.api.createTaskInvitation({
+        requestId,
+        title,
+        description,
+        quadrant,
+        labels: [approvedName],
+        nextStepText: normalizedNextStepText,
+        acceptanceCriteria: normalizedCriteria,
+        targetHandlerId,
+      }));
+      return;
+    }
     await this.write('无法创建任务，请检查网络后重试。', () => this.api.createTask({
-      requestId: this.requestIdFactory(),
+      requestId,
       title,
       description,
       quadrant,
       labels: [approvedName],
       ...(normalizedNextStepText === undefined ? {} : { nextStepText: normalizedNextStepText }),
+      ...(normalizedCriteria === undefined ? {} : { acceptanceCriteria: normalizedCriteria }),
     }));
   }
 
@@ -389,6 +416,92 @@ export class WorkspaceSyncController {
       }
     });
     return created;
+  }
+
+  async requestAgreementUpdate(taskId: string, acceptanceCriteria: string): Promise<PendingApproval | undefined> {
+    const snapshot = this.currentState.snapshot;
+    const task = snapshot?.tasks.find((item) => item.id === taskId);
+    if (!snapshot || !task) return undefined;
+    const criteria = acceptanceCriteria.trim();
+    if (!criteria || Array.from(criteria).length > 500) {
+      this.setState({ error: '完成标准不能为空且不能超过 500 个字符。' });
+      return undefined;
+    }
+    const cursorBeforeWrite = this.currentState.cursor;
+    let result: PendingApproval | undefined;
+    await this.run('无法提交约定修改，请检查网络后重试。', async (isCurrent) => {
+      const requestId = this.requestIdFactory();
+      const response = this.api.requestAgreementUpdate
+        ? await this.api.requestAgreementUpdate(taskId, {
+          requestId,
+          acceptanceCriteria: criteria,
+          baseFieldVersion: task.field_versions.acceptance_criteria ?? 1,
+        })
+        : this.api.createApprovalRequest
+          ? {
+            pending: true as const,
+            approval_request: await this.api.createApprovalRequest({
+              workspaceId: snapshot.workspace_id,
+              requestId,
+              taskId,
+              requestType: 'TASK_UPDATE',
+              proposedChanges: { acceptance_criteria: criteria, agreement_update: true },
+              baseFieldVersions: { acceptance_criteria: task.field_versions.acceptance_criteria ?? 1 },
+            }),
+            cursor: 0,
+          }
+          : undefined;
+      if (!response || !isCurrent()) return;
+      const approval = normalizeApprovalResource(response.approval_request, snapshot.workspace_id);
+      result = { ...response, approval_request: approval };
+      this.mergeApproval(approval);
+      const cursor = cursorFrom(response);
+      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite, isCurrent, cursor);
+    });
+    return result;
+  }
+
+  async requestTaskCancellation(taskId: string, reason: string): Promise<PendingApproval | undefined> {
+    const snapshot = this.currentState.snapshot;
+    const task = snapshot?.tasks.find((item) => item.id === taskId);
+    if (!snapshot || !task) return undefined;
+    const normalizedReason = reason.trim();
+    if (!normalizedReason || Array.from(normalizedReason).length > 2000) {
+      this.setState({ error: '取消原因不能为空且不能超过 2000 个字符。' });
+      return undefined;
+    }
+    const cursorBeforeWrite = this.currentState.cursor;
+    let result: PendingApproval | undefined;
+    await this.run('无法提交取消申请，请检查网络后重试。', async (isCurrent) => {
+      const requestId = this.requestIdFactory();
+      const response = this.api.requestTaskCancellation
+        ? await this.api.requestTaskCancellation(taskId, {
+          requestId,
+          reason: normalizedReason,
+          baseLifecycleVersion: task.lifecycle_version,
+        })
+        : this.api.createApprovalRequest
+          ? {
+            pending: true as const,
+            approval_request: await this.api.createApprovalRequest({
+              workspaceId: snapshot.workspace_id,
+              requestId,
+              taskId,
+              requestType: 'TASK_DELETE',
+              proposedChanges: { cancellation_request: true, cancel_reason: normalizedReason },
+              baseFieldVersions: { lifecycle_version: task.lifecycle_version },
+            }),
+            cursor: 0,
+          }
+          : undefined;
+      if (!response || !isCurrent()) return;
+      const approval = normalizeApprovalResource(response.approval_request, snapshot.workspace_id);
+      result = { ...response, approval_request: approval };
+      this.mergeApproval(approval);
+      const cursor = cursorFrom(response);
+      if (cursor > cursorBeforeWrite) await this.pullFrom(cursorBeforeWrite, isCurrent, cursor);
+    });
+    return result;
   }
 
   async listApprovalRequests(box?: 'incoming' | 'outgoing'): Promise<TaskApprovalRequest[]> {
@@ -574,7 +687,15 @@ export class WorkspaceSyncController {
       }
       return;
     }
-    if (!change.resource) return;
+    if (!change.resource) {
+      if (change.action.toUpperCase() === 'DELETED') {
+        if (change.resource_type === 'ledger_entry') this.removeLedgerEntry(change.resource_id);
+        else if (change.resource_type === 'habit') this.removeHabit(change.resource_id);
+        else if (change.resource_type === 'habit_checkin') this.removeHabitCheckin(change.resource_id);
+        else if (change.resource_type === 'anniversary') this.removeAnniversary(change.resource_id);
+      }
+      return;
+    }
     if (change.resource_type === 'task' && isTaskItem(change.resource)) {
       this.mergeTask(change.resource, change.cursor, false);
     } else if (change.resource_type === 'approval_request' && isApprovalRequest(change.resource)) {
@@ -584,6 +705,14 @@ export class WorkspaceSyncController {
     } else if (change.resource_type === 'classification' && isWorkspaceClassification(change.resource)) {
       if (change.action.toUpperCase() === 'DELETED') this.removeClassification(change.resource_id);
       else this.mergeClassification(change.resource, change.cursor, false);
+    } else if (change.resource_type === 'ledger_entry' && isLedgerEntry(change.resource)) {
+      this.mergeLedgerEntry(change.resource, change.action, change.cursor, false);
+    } else if (change.resource_type === 'habit' && isHabit(change.resource)) {
+      this.mergeHabit(change.resource, change.action, change.cursor, false);
+    } else if (change.resource_type === 'habit_checkin' && isHabitCheckin(change.resource)) {
+      this.mergeHabitCheckin(change.resource, change.action, change.cursor, false);
+    } else if (change.resource_type === 'anniversary' && isAnniversary(change.resource)) {
+      this.mergeAnniversary(change.resource, change.action, change.cursor, false);
     }
   }
 
@@ -655,6 +784,87 @@ export class WorkspaceSyncController {
     const classifications = (snapshot.classifications ?? []).filter((item) => item.id !== classificationId);
     if (classifications.length === (snapshot.classifications ?? []).length) return;
     const nextSnapshot = { ...snapshot, classifications };
+    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeLedgerEntry(entry: LedgerEntry, action: string, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || entry.workspace_id !== snapshot.workspace_id) return;
+    const entries = [...(snapshot.ledger_entries ?? [])].filter((item) => item.id !== entry.id);
+    if (action.toUpperCase() !== 'DELETED') entries.push(entry);
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, ledger_entries: entries, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private removeLedgerEntry(entryId: string): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const entries = (snapshot.ledger_entries ?? []).filter((item) => item.id !== entryId);
+    if (entries.length === (snapshot.ledger_entries ?? []).length) return;
+    const nextSnapshot = { ...snapshot, ledger_entries: entries };
+    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeHabit(habit: Habit, action: string, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || habit.workspace_id !== snapshot.workspace_id) return;
+    const habits = [...(snapshot.habits ?? [])].filter((item) => item.id !== habit.id);
+    if (action.toUpperCase() !== 'DELETED') habits.push(habit);
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, habits, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private removeHabit(habitId: string): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const habits = (snapshot.habits ?? []).filter((item) => item.id !== habitId);
+    if (habits.length === (snapshot.habits ?? []).length) return;
+    const nextSnapshot = { ...snapshot, habits };
+    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeHabitCheckin(checkin: HabitCheckin, action: string, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || checkin.workspace_id !== snapshot.workspace_id) return;
+    const checkins = [...(snapshot.habit_checkins ?? [])].filter((item) => item.id !== checkin.id);
+    if (action.toUpperCase() !== 'DELETED' && checkin.revoked_at === null) checkins.push(checkin);
+    const habits = (snapshot.habits ?? []).map((habit) => action.toUpperCase() === 'DELETED'
+      ? removeCheckinFromHabit(habit, checkin.id)
+      : mergeCheckinIntoHabit(habit, checkin));
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, habits, habit_checkins: checkins, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private removeHabitCheckin(checkinId: string): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const checkins = (snapshot.habit_checkins ?? []).filter((item) => item.id !== checkinId);
+    const habits = (snapshot.habits ?? []).map((habit) => removeCheckinFromHabit(habit, checkinId));
+    if (checkins.length === (snapshot.habit_checkins ?? []).length
+      && habits.every((habit, index) => habit === snapshot.habits?.[index])) return;
+    const nextSnapshot = { ...snapshot, habits, habit_checkins: checkins };
+    this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private mergeAnniversary(anniversary: Anniversary, action: string, cursor = this.currentState.cursor, updateCursor = false): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot || anniversary.workspace_id !== snapshot.workspace_id) return;
+    const anniversaries = [...(snapshot.anniversaries ?? [])].filter((item) => item.id !== anniversary.id);
+    if (action.toUpperCase() !== 'DELETED') anniversaries.push(anniversary);
+    const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
+    const nextSnapshot = { ...snapshot, anniversaries, cursor: nextCursor };
+    this.setState({ snapshot: nextSnapshot, cursor: updateCursor ? Math.max(this.currentState.cursor, nextCursor) : this.currentState.cursor, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
+  }
+
+  private removeAnniversary(anniversaryId: string): void {
+    const snapshot = this.currentState.snapshot;
+    if (!snapshot) return;
+    const anniversaries = (snapshot.anniversaries ?? []).filter((item) => item.id !== anniversaryId);
+    if (anniversaries.length === (snapshot.anniversaries ?? []).length) return;
+    const nextSnapshot = { ...snapshot, anniversaries };
     this.setState({ snapshot: nextSnapshot, approvals: nextSnapshot.approval_requests, comments: nextSnapshot.comments, stale: false, error: null, authRequired: false });
   }
 
@@ -962,7 +1172,7 @@ function areContiguous(changes: unknown[], afterCursor: number, workspaceId: str
       || change.resource_id.length === 0
       || !isChangeAction(change.action)
       || (change.operation_id !== null && typeof change.operation_id !== 'string')) return false;
-    return isValidChangeResource(change.resource_type, change.resource, workspaceId)
+    return isValidChangeResource(change.resource_type, change.resource, workspaceId, change.action)
       && (change.resource === null
         || !isRecord(change.resource)
         || !('id' in change.resource)
@@ -1010,6 +1220,10 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
   const comments = value.comments ?? [];
   const approvalRequests = value.approval_requests ?? [];
   const classifications = value.classifications;
+  const ledgerEntries = value.ledger_entries;
+  const habits = value.habits;
+  const habitCheckins = value.habit_checkins;
+  const anniversaries = value.anniversaries;
 
   if (typeof workspaceId !== 'string'
     || workspaceId.length === 0
@@ -1027,7 +1241,11 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
     || !Array.isArray(comments)
     || !comments.every((item) => isTaskComment(item) && item.workspace_id === workspaceId)
     || !Array.isArray(approvalRequests)
-    || !approvalRequests.every((item) => isApprovalRequest(item) && item.workspace_id === workspaceId)) {
+    || !approvalRequests.every((item) => isApprovalRequest(item) && item.workspace_id === workspaceId)
+    || (ledgerEntries !== undefined && (!Array.isArray(ledgerEntries) || !ledgerEntries.every((item) => isLedgerEntry(item) && item.workspace_id === workspaceId)))
+    || (habits !== undefined && (!Array.isArray(habits) || !habits.every((item) => isHabit(item) && item.workspace_id === workspaceId)))
+    || (habitCheckins !== undefined && (!Array.isArray(habitCheckins) || !habitCheckins.every((item) => isHabitCheckin(item) && item.workspace_id === workspaceId)))
+    || (anniversaries !== undefined && (!Array.isArray(anniversaries) || !anniversaries.every((item) => isAnniversary(item) && item.workspace_id === workspaceId)))) {
     throw new Error('workspace snapshot is invalid');
   }
 
@@ -1062,6 +1280,10 @@ function normalizeSnapshot(value: unknown): WorkspaceSnapshot {
     comments,
     approval_requests: approvalRequests,
     classifications: parsedClassifications,
+    ledger_entries: ledgerEntries as LedgerEntry[] | undefined,
+    habits: habits as Habit[] | undefined,
+    habit_checkins: habitCheckins as HabitCheckin[] | undefined,
+    anniversaries: anniversaries as Anniversary[] | undefined,
   };
 }
 
@@ -1431,7 +1653,7 @@ function isApprovalRequest(value: unknown): value is TaskApprovalRequest {
     && typeof value.workspace_id === 'string'
     && value.workspace_id.length > 0
     && ((typeof value.task_id === 'string' && value.task_id.length > 0)
-      || (value.task_id === null && value.request_type === 'CLASSIFICATION_CREATE'))
+      || (value.task_id === null && (value.request_type === 'CLASSIFICATION_CREATE' || value.request_type === 'TASK_INVITATION')))
     && isNullableString(value.comment_id)
     && typeof value.requester_id === 'string'
     && value.requester_id.length > 0
@@ -1481,6 +1703,85 @@ function isTaskComment(value: unknown): value is TaskComment {
     && (value.created_at === null || typeof value.created_at === 'string');
 }
 
+function isLedgerEntry(value: unknown): value is LedgerEntry {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
+    && (value.type === 'EXPENSE' || value.type === 'INCOME')
+    && isPositiveSafeInteger(value.amount_minor)
+    && typeof value.amount === 'string'
+    && typeof value.currency === 'string'
+    && typeof value.title === 'string'
+    && typeof value.category === 'string'
+    && typeof value.payer_or_payee_id === 'string'
+    && typeof value.date === 'string'
+    && isNullableString(value.note)
+    && typeof value.created_by === 'string'
+    && typeof value.updated_by === 'string'
+    && isPositiveSafeInteger(value.version)
+    && isNullableString(value.deleted_at);
+}
+
+function isHabitCheckin(value: unknown): value is HabitCheckin {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.habit_id === 'string'
+    && value.habit_id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
+    && typeof value.actor_id === 'string'
+    && value.actor_id.length > 0
+    && (value.frequency_snapshot === 'DAILY' || value.frequency_snapshot === 'WEEKLY' || value.frequency_snapshot === 'MONTHLY')
+    && typeof value.period_key === 'string'
+    && value.period_key.length > 0
+    && typeof value.day === 'string'
+    && typeof value.occurred_at === 'string'
+    && isNullableString(value.revoked_at);
+}
+
+function isHabit(value: unknown): value is Habit {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
+    && typeof value.owner_id === 'string'
+    && value.owner_id.length > 0
+    && typeof value.title === 'string'
+    && isNullableString(value.note)
+    && (value.frequency === 'DAILY' || value.frequency === 'WEEKLY' || value.frequency === 'MONTHLY')
+    && typeof value.start_date === 'string'
+    && (value.status === 'ACTIVE' || value.status === 'PAUSED' || value.status === 'DELETED')
+    && isPositiveSafeInteger(value.version)
+    && typeof value.current_period_key === 'string'
+    && typeof value.checked_in === 'boolean'
+    && (value.current_checkin === null || isHabitCheckin(value.current_checkin))
+    && Array.isArray(value.checkins)
+    && value.checkins.every(isHabitCheckin)
+    && isNullableString(value.deleted_at);
+}
+
+function isAnniversary(value: unknown): value is Anniversary {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.workspace_id === 'string'
+    && value.workspace_id.length > 0
+    && typeof value.title === 'string'
+    && typeof value.anchor_date === 'string'
+    && (value.kind === 'ANNIVERSARY' || value.kind === 'BIRTHDAY' || value.kind === 'IMPORTANT_DAY')
+    && isNonNegativeSafeInteger(value.prepare_days)
+    && isNullableString(value.note)
+    && typeof value.next_occurrence === 'string'
+    && isNonNegativeSafeInteger(value.days_until)
+    && typeof value.is_today === 'boolean'
+    && isPositiveSafeInteger(value.version)
+    && isNullableString(value.deleted_at);
+}
+
 function isWorkspaceMember(value: unknown): value is WorkspaceSnapshot['members'][number] {
   if (!isRecord(value)
     || typeof value.user_id !== 'string'
@@ -1490,9 +1791,13 @@ function isWorkspaceMember(value: unknown): value is WorkspaceSnapshot['members'
     && (value.status === undefined || typeof value.status === 'string');
 }
 
-function isValidChangeResource(resourceType: string, resource: unknown, workspaceId: string): boolean {
-  // A null resource is only meaningful for action-first conflict tombstones.
-  if (resource === null) return resourceType === 'task_conflict';
+function isValidChangeResource(resourceType: string, resource: unknown, workspaceId: string, action?: string): boolean {
+  // Action-first tombstones carry only a resource id. Life resources use this
+  // form when the deleted row is no longer readable from the changes query.
+  if (resource === null) {
+    return resourceType === 'task_conflict'
+      || (action?.toUpperCase() === 'DELETED' && isLifeResourceType(resourceType));
+  }
   if (!isRecord(resource)) return false;
   if (resourceType === 'task') return isTaskItem(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'task_conflict') {
@@ -1501,7 +1806,37 @@ function isValidChangeResource(resourceType: string, resource: unknown, workspac
   if (resourceType === 'approval_request') return isApprovalRequest(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'comment') return isTaskComment(resource) && resource.workspace_id === workspaceId;
   if (resourceType === 'classification') return isWorkspaceClassification(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'ledger_entry') return isLedgerEntry(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'habit') return isHabit(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'habit_checkin') return isHabitCheckin(resource) && resource.workspace_id === workspaceId;
+  if (resourceType === 'anniversary') return isAnniversary(resource) && resource.workspace_id === workspaceId;
   return false;
+}
+
+function isLifeResourceType(resourceType: string): boolean {
+  return resourceType === 'ledger_entry'
+    || resourceType === 'habit'
+    || resourceType === 'habit_checkin'
+    || resourceType === 'anniversary';
+}
+
+function mergeCheckinIntoHabit(habit: Habit, checkin: HabitCheckin): Habit {
+  if (habit.id !== checkin.habit_id) return habit;
+  const checkins = [...habit.checkins.filter((item) => item.id !== checkin.id), checkin];
+  const current = checkins.find((item) => item.frequency_snapshot === habit.frequency
+    && item.period_key === habit.current_period_key
+    && item.revoked_at === null) ?? null;
+  return { ...habit, checkins, current_checkin: current, checked_in: current !== null };
+}
+
+function removeCheckinFromHabit(habit: Habit, checkinId: string): Habit {
+  if (!habit.checkins.some((item) => item.id === checkinId)
+    && habit.current_checkin?.id !== checkinId) return habit;
+  const checkins = habit.checkins.filter((item) => item.id !== checkinId);
+  const current = checkins.find((item) => item.frequency_snapshot === habit.frequency
+    && item.period_key === habit.current_period_key
+    && item.revoked_at === null) ?? null;
+  return { ...habit, checkins, current_checkin: current, checked_in: current !== null };
 }
 
 function isTaskConflict(value: unknown, workspaceId?: string, requireStatus = true): value is TaskConflict {

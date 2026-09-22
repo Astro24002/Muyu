@@ -47,7 +47,10 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
   @override
   Widget build(BuildContext context) {
     final tasks = widget.state.snapshot?.tasks ?? const <TaskItem>[];
-    final filtered = TaskView.filterByLabel(tasks, widget.selectedLabel);
+    final filtered = TaskView.filterByLabel(
+      tasks,
+      widget.selectedLabel,
+    ).where(TaskView.isOpen).toList();
     final rows = _calendarRows();
     final grouped = _agendaGroups(filtered);
     return RefreshIndicator(
@@ -55,10 +58,14 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
       child: ListView(
         key: const Key('task-schedule-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(
-          MuyuSpacing.md,
+        padding: EdgeInsets.fromLTRB(
+          MediaQuery.sizeOf(context).width >= 360
+              ? MuyuSpacing.xl
+              : MuyuSpacing.lg,
           MuyuSpacing.sm,
-          MuyuSpacing.md,
+          MediaQuery.sizeOf(context).width >= 360
+              ? MuyuSpacing.xl
+              : MuyuSpacing.lg,
           MuyuSpacing.xl,
         ),
         children: [
@@ -70,6 +77,22 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
                 key: const Key('task-schedule-error'),
               ),
             ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '把日子看清楚，一起从容一点。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              TextButton(
+                key: const Key('task-schedule-today'),
+                onPressed: _goToToday,
+                child: const Text('回到今天'),
+              ),
+            ],
+          ),
+          const SizedBox(height: MuyuSpacing.md),
           _MonthCalendar(
             month: _visibleMonth,
             today: _today,
@@ -132,6 +155,17 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
           selected.month != _visibleMonth.month) {
         _visibleMonth = DateTime(selected.year, selected.month);
       }
+    });
+  }
+
+  void _goToToday() {
+    final today = _dateOnly(DateTime.now().toLocal());
+    setState(() {
+      _today = today;
+      _selectedDate = today;
+      _selectedWeekStart = _weekStart(today);
+      _visibleMonth = DateTime(today.year, today.month);
+      _selectionMode = _ScheduleSelectionMode.day;
     });
   }
 

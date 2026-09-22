@@ -32,6 +32,7 @@ class TaskItem implements TaskMutationResult {
     this.reviewedAt,
     this.reviewRejectionReason,
     this.nextStepText,
+    this.acceptanceCriteria,
     this.nextStep,
     required this.plannedStartAt,
     required this.dueAt,
@@ -79,6 +80,7 @@ class TaskItem implements TaskMutationResult {
   final DateTime? reviewedAt;
   final String? reviewRejectionReason;
   final String? nextStepText;
+  final String? acceptanceCriteria;
   final MomentNextStep? nextStep;
   final DateTime? plannedStartAt;
   final DateTime? dueAt;
@@ -123,6 +125,7 @@ class TaskItem implements TaskMutationResult {
       reviewedAt: _date(json['reviewed_at']),
       reviewRejectionReason: json['review_rejection_reason'] as String?,
       nextStepText: json['next_step_text'] as String?,
+      acceptanceCriteria: json['acceptance_criteria'] as String?,
       nextStep: json['next_step'] == null
           ? null
           : MomentNextStep.fromJson(json['next_step']),
@@ -161,6 +164,7 @@ class TaskItem implements TaskMutationResult {
     DateTime? reviewedAt,
     String? reviewRejectionReason,
     String? nextStepText,
+    String? acceptanceCriteria,
     MomentNextStep? nextStep,
     Map<String, int>? fieldVersions,
     int? lifecycleVersion,
@@ -186,6 +190,7 @@ class TaskItem implements TaskMutationResult {
     reviewedAt: reviewedAt ?? this.reviewedAt,
     reviewRejectionReason: reviewRejectionReason ?? this.reviewRejectionReason,
     nextStepText: nextStepText ?? this.nextStepText,
+    acceptanceCriteria: acceptanceCriteria ?? this.acceptanceCriteria,
     nextStep: nextStep ?? this.nextStep,
     plannedStartAt: plannedStartAt,
     dueAt: dueAt,
@@ -224,6 +229,7 @@ class TaskItem implements TaskMutationResult {
     'reviewed_at': reviewedAt?.toUtc().toIso8601String(),
     'review_rejection_reason': reviewRejectionReason,
     'next_step_text': nextStepText,
+    'acceptance_criteria': acceptanceCriteria,
     if (nextStep != null) 'next_step': nextStep!.toJson(),
     'planned_start_at': plannedStartAt?.toUtc().toIso8601String(),
     'due_at': dueAt?.toUtc().toIso8601String(),

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import 'life_repository.dart';
+import '../models/workspace_snapshot.dart';
 
 class LifeController extends ChangeNotifier {
   LifeController(this.repository, {DateTime Function()? now})
@@ -67,6 +68,38 @@ class LifeController extends ChangeNotifier {
     }
   }
 
+  /// Applies the authoritative life resources carried by workspace sync.
+  ///
+  /// Writes still use the life REST commands, while reads converge through the
+  /// same snapshot/cursor stream as tasks. Older snapshots without these
+  /// resources are left untouched for compatibility.
+  void applyWorkspaceSnapshot(WorkspaceSnapshot? snapshot, {String? viewerId}) {
+    if (_disposed || snapshot == null || !snapshot.hasLifeDomainContract) {
+      return;
+    }
+    final monthEntries = snapshot.ledgerEntries
+        .where(
+          (entry) =>
+              entry.date.year == month.year && entry.date.month == month.month,
+        )
+        .toList();
+    final visibleHabits = snapshot.habits.where((habit) {
+      if (habitOwner == 'all' || viewerId == null) return true;
+      return habitOwner == 'mine'
+          ? habit.ownerId == viewerId
+          : habit.ownerId != viewerId;
+    }).toList();
+    final changed =
+        !_sameLedger(entries, monthEntries) ||
+        !_sameHabits(habits, visibleHabits) ||
+        !_sameAnniversaries(anniversaries, snapshot.anniversaries);
+    if (!changed) return;
+    entries = monthEntries;
+    habits = visibleHabits;
+    anniversaries = List<AnniversaryItem>.from(snapshot.anniversaries);
+    _notify();
+  }
+
   Future<void> changeHabitOwner(String value) async {
     habitOwner = value;
     await loadCheckins();
@@ -123,5 +156,45 @@ class LifeController extends ChangeNotifier {
         .map((value) => value.toRadixString(16).padLeft(2, '0'))
         .join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  static bool _sameLedger(List<LedgerItem> left, List<LedgerItem> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index].id != right[index].id ||
+          left[index].version != right[index].version ||
+          left[index].deletedAt != right[index].deletedAt) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _sameHabits(List<HabitItem> left, List<HabitItem> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index].id != right[index].id ||
+          left[index].version != right[index].version ||
+          left[index].checkedIn != right[index].checkedIn ||
+          left[index].status != right[index].status) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _sameAnniversaries(
+    List<AnniversaryItem> left,
+    List<AnniversaryItem> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index].id != right[index].id ||
+          left[index].version != right[index].version ||
+          left[index].nextOccurrence != right[index].nextOccurrence) {
+        return false;
+      }
+    }
+    return true;
   }
 }

@@ -6,6 +6,20 @@ The following checks were run against the repository and a disposable
 PostgreSQL instance. They do not constitute production deployment or real
 device acceptance.
 
+## 2026-09-22 Runtime Update (Not Release)
+
+- [x] Production backup `/root/backups/muyu-pre-0018-20260922T024646Z.dump`
+      was created before migration, retained with mode `600`, and verified by
+      `pg_restore --list`; SHA-256 is recorded in `docs/05-development-status.md`.
+- [x] Production Alembic head advanced from `0016_life_domains` to
+      `0018_task_invitations`; existing production data was retained.
+- [x] API, Web-session-cleanup and Caddy were replaced with the staged images;
+      `/health/live` and `/health/ready` returned HTTP 200, and unauthenticated
+      life-domain and invitation requests returned the expected authentication
+      boundary.
+- [ ] Rollback/restore drill, real-account writes, two-person E2E, device
+      acceptance and signed APK/AAB release remain pending.
+
 - `RUN_CLOUD_PROTOCOL=1` focused two-user task E2E: `1 passed`.
 - `make backend-test` with disposable PostgreSQL: `64 passed, 3 skipped`;
   `compileall` completed successfully. One existing Starlette/httpx
@@ -78,7 +92,8 @@ The same focused tests were then run in the prepared Python 3.12 dependency imag
 - [ ] Confirm Guoyangyun AppCode, SMS sign/template identifiers,
       cookie-secure mode, allowed origin, backup repository credentials, and
       backup encryption key are injected from the secret store.
-- [ ] Run `make verify` and inspect the generated Android/Web artifacts.
+- [x] Run `make verify` in the isolated PostgreSQL environment and inspect the
+      generated Android/Web artifacts; the 2026-09-22 result is recorded above.
 - [ ] Configure the fixed release keystore only in the CI secret store:
       `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
       `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
@@ -90,6 +105,8 @@ The same focused tests were then run in the prepared Python 3.12 dependency imag
 
 - [x] Android debug APK: `Muyu-5e1fa66.apk` for internal installation/testing;
       SHA-256 is recorded above.
+- [x] 2026-09-22 internal debug APK: `Muyu-c4f6f71.apk`; size and SHA-256 are
+      recorded in `docs/05-development-status.md`. This is not a signed release.
 - [ ] Signed Android version APK: `Muyu-v<version>.apk`, built by the fixed
       release keystore workflow and attached as the only APK release asset.
 - [ ] Signed Android App Bundle: `app-release.aab`, produced only by the

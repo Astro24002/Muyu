@@ -27,6 +27,7 @@ class MyProfileScreen extends StatefulWidget {
     this.showAppBar = true,
     this.onApprovalCenter,
     this.onWebQrLogin,
+    this.onOpenAllTasks,
   });
 
   final MobileSession session;
@@ -40,6 +41,7 @@ class MyProfileScreen extends StatefulWidget {
   final bool showAppBar;
   final VoidCallback? onApprovalCenter;
   final VoidCallback? onWebQrLogin;
+  final VoidCallback? onOpenAllTasks;
 
   @override
   State<MyProfileScreen> createState() => _MyProfileScreenState();
@@ -165,6 +167,16 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       _personalProfile(context, data),
+      if (widget.onOpenAllTasks != null) ...[
+        const SizedBox(height: MuyuSpacing.md),
+        ListTile(
+          key: const Key('profile-all-tasks'),
+          leading: const Icon(Icons.list_alt_outlined),
+          title: const Text('全部事情'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: widget.onOpenAllTasks,
+        ),
+      ],
       const SizedBox(height: MuyuSpacing.md),
       _workspaceMatch(data),
       const SizedBox(height: MuyuSpacing.md),

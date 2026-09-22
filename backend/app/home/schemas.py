@@ -32,7 +32,7 @@ class HomeApprovalSection(BaseModel):
 
 
 class HomeWeek(BaseModel):
-    """The UTC natural-week boundaries used by the home projection."""
+    """Business-calendar week boundaries serialized as UTC instants."""
 
     timezone: str
     start: datetime

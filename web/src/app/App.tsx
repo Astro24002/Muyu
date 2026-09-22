@@ -11,11 +11,12 @@ import type { TaskActivityState } from '../components/tasks/TaskTimeline';
 import type { WebSessionApi } from '../components/account/web-session-api';
 import { ActivityPage } from '../pages/ActivityPage';
 import { AllTasksPage } from '../pages/AllTasksPage';
+import { CheckinsPage } from '../pages/CheckinsPage';
+import { LedgerPage } from '../pages/LedgerPage';
 import { MattersPage, type MatterView } from '../pages/MattersPage';
 import { MyPage } from '../pages/MyPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
-import { UnavailableDomainPage } from '../pages/UnavailableDomainPage';
 import type { WebSocketFactory } from '../realtime/workspace-socket';
 import type { TaskDetailActions } from '../tasks/task-detail-actions';
 import type { WorkspaceSyncController, WorkspaceSyncState } from '../sync/workspace-sync';
@@ -315,14 +316,18 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const closeTask = useCallback((): void => {
     navigate(taskListRouteRef.current);
   }, []);
-  const createTask = useCallback<CreateTaskHandler>((title: string, description: string, quadrant: TaskQuadrant, labels: string[], nextStepText?: string): Promise<void> => {
-    return sync.createTask(title, description, quadrant, labels, nextStepText);
+  const createTask = useCallback<CreateTaskHandler>((title: string, description: string, quadrant: TaskQuadrant, labels: string[], nextStepText?: string, targetHandlerId?: string, acceptanceCriteria?: string): Promise<void> => {
+    return targetHandlerId
+      ? sync.createTask(title, description, quadrant, labels, nextStepText, targetHandlerId, acceptanceCriteria)
+      : sync.createTask(title, description, quadrant, labels, nextStepText, undefined, acceptanceCriteria);
   }, [sync]);
   const taskActions: TaskDetailActions | undefined = selectedTask ? {
     onTransition: (status, payload) => sync.transitionTask(selectedTask.id, status, payload),
     onComment: (body) => sync.addComment(selectedTask.id, body),
     onDelay: (date, reason, note) => sync.addDelay(selectedTask.id, date, reason, note),
     onSave: (changes) => sync.patchTask(selectedTask.id, changes),
+    onRequestAgreementUpdate: (acceptanceCriteria) => sync.requestAgreementUpdate(selectedTask.id, acceptanceCriteria),
+    onRequestCancellation: (reason) => sync.requestTaskCancellation(selectedTask.id, reason),
     onDeleteComment: (commentId, baseVersion) => sync.deleteTaskComment(selectedTask.id, commentId, baseVersion),
     onResolveConflict: (conflictId, resolution) => sync.resolveConflict(selectedTask.id, conflictId, resolution),
     currentUserId: workspaceState.snapshot?.viewer_user_id ?? undefined,
@@ -353,9 +358,21 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
             ) : route.kind === 'today' ? (
               <MattersPage sync={sync} view="moment" onOpenTask={openTask} onCreateTask={createTask} />
             ) : route.kind === 'ledger' ? (
-              <UnavailableDomainPage title="记账尚未开放" />
+              <LedgerPage
+                api={api}
+                members={workspaceState.snapshot?.members ?? []}
+                viewerId={workspaceState.snapshot?.viewer_user_id}
+                canWrite={!workspaceState.loading && !workspaceState.stale && !workspaceState.authRequired}
+                snapshotEntries={workspaceState.snapshot?.ledger_entries}
+              />
             ) : route.kind === 'checkins' ? (
-              <UnavailableDomainPage title="打卡尚未开放" />
+              <CheckinsPage
+                api={api}
+                viewerId={workspaceState.snapshot?.viewer_user_id}
+                canWrite={!workspaceState.loading && !workspaceState.stale && !workspaceState.authRequired}
+                snapshotHabits={workspaceState.snapshot?.habits}
+                snapshotAnniversaries={workspaceState.snapshot?.anniversaries}
+              />
             ) : route.kind === 'me' ? (
               <MyPage sessionApi={webSessionApi(api)} onAuthRequired={recoverAuthRequired} />
             ) : route.kind === 'approvals' ? (

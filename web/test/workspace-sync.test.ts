@@ -22,6 +22,21 @@ function snapshot(cursor = 5) {
     conflicts: [],
     cursor,
     classifications: [{ id: 'classification-work', workspace_id: 'workspace-1', name: '工作', created_by: 'user-1', created_at: null }],
+    ledger_entries: [{
+      id: 'ledger-1', workspace_id: 'workspace-1', type: 'EXPENSE', amount_minor: 1234, amount: '12.34', currency: 'CNY',
+      title: '早餐', category: '餐饮', payer_or_payee_id: 'user-1', payer_or_payee_name: '我', date: '2026-09-21',
+      note: null, created_by: 'user-1', updated_by: 'user-1', version: 1, deleted_at: null,
+    }],
+    habits: [{
+      id: 'habit-1', workspace_id: 'workspace-1', owner_id: 'user-1', title: '阅读', note: null, frequency: 'DAILY',
+      start_date: '2026-09-01', status: 'ACTIVE', version: 1, current_period_key: '2026-09-21', checked_in: false,
+      current_checkin: null, checkins: [], deleted_at: null,
+    }],
+    habit_checkins: [],
+    anniversaries: [{
+      id: 'anniversary-1', workspace_id: 'workspace-1', title: '纪念日', anchor_date: '2020-10-01', kind: 'ANNIVERSARY',
+      prepare_days: 7, note: null, next_occurrence: '2026-10-01', days_until: 10, is_today: false, version: 1, deleted_at: null,
+    }],
   };
 }
 
@@ -30,6 +45,7 @@ function apiStub() {
     getWorkspaceSnapshot: vi.fn().mockResolvedValue(snapshot()),
     getWorkspaceChanges: vi.fn().mockResolvedValue({ workspace_id: 'workspace-1', cursor: 5, changes: [] }),
     createTask: vi.fn(),
+    createTaskInvitation: vi.fn(),
     patchTask: vi.fn(),
     resolveConflict: vi.fn(),
     addTaskComment: vi.fn(),
@@ -64,6 +80,84 @@ describe('WorkspaceSyncController', () => {
     expect(controller.state.snapshot?.cursor).toBe(6);
     expect(controller.state.snapshot?.tasks[0]?.title).toBe('Updated');
     expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
+  });
+
+  it('keeps life resources in the authoritative snapshot and applies life changes incrementally', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'ledger_entry',
+        resource_id: 'ledger-1',
+        action: 'UPDATED',
+        operation_id: 'op-life-1',
+        resource: { ...snapshot().ledger_entries[0], title: '午餐', version: 2 },
+      }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    expect(controller.state.snapshot?.ledger_entries?.[0]?.title).toBe('早餐');
+    expect(controller.state.snapshot?.habits?.[0]?.title).toBe('阅读');
+    expect(controller.state.snapshot?.anniversaries?.[0]?.title).toBe('纪念日');
+
+    await controller.pull();
+
+    expect(controller.state.snapshot?.ledger_entries?.[0]?.title).toBe('午餐');
+    expect(controller.state.cursor).toBe(6);
+  });
+
+  it('applies a null life tombstone and removes the resource by id', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'ledger_entry',
+        resource_id: 'ledger-1',
+        action: 'DELETED',
+        operation_id: 'op-life-delete-1',
+        resource: null,
+      }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(controller.state.snapshot?.ledger_entries).toEqual([]);
+    expect(controller.state.cursor).toBe(6);
+  });
+
+  it('projects an incremental check-in onto the habit consumed by the page', async () => {
+    const api = apiStub();
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'habit_checkin',
+        resource_id: 'checkin-1',
+        action: 'CREATED',
+        operation_id: 'op-life-checkin-1',
+        resource: {
+          id: 'checkin-1', habit_id: 'habit-1', workspace_id: 'workspace-1', actor_id: 'user-1',
+          frequency_snapshot: 'DAILY', period_key: '2026-09-21', day: '2026-09-21',
+          occurred_at: '2026-09-21T08:00:00Z', revoked_at: null,
+        },
+      }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    const habit = controller.state.snapshot?.habits?.[0];
+    expect(habit?.checked_in).toBe(true);
+    expect(habit?.current_checkin?.id).toBe('checkin-1');
   });
 
   it('rejects a snapshot containing a task from another workspace', async () => {
@@ -176,6 +270,33 @@ describe('WorkspaceSyncController', () => {
     expect(controller.state.snapshot?.tasks).toContainEqual(expect.objectContaining({ id: 'task-2', title: 'New task' }));
     expect(controller.state.cursor).toBe(6);
     expect(api.getWorkspaceChanges).toHaveBeenCalledWith(5);
+  });
+
+  it('passes a selected real workspace member through create for TA', async () => {
+    const api = apiStub();
+    const approval = {
+      pending: true,
+      approval_request: {
+        id: 'approval-3', workspace_id: 'workspace-1', task_id: null, comment_id: null,
+        requester_id: 'user-1', approver_id: 'user-2', request_type: 'TASK_INVITATION',
+        proposed_changes: { title: '交给 TA' }, base_field_versions: {}, request_id: 'request-3',
+        status: 'PENDING', created_at: '2026-08-25T00:00:00.000Z', reviewed_at: null,
+        reviewed_by: null, rejection_reason: null, resolved_cursor: 6,
+      },
+      cursor: 6,
+    } as const;
+    api.createTaskInvitation.mockResolvedValue(approval);
+    const controller = new WorkspaceSyncController(api as never, { requestIdFactory: () => '00000000-0000-4000-8000-000000000003' });
+    await controller.loadSnapshot();
+
+    await controller.createTask('交给 TA', '', 'Q2', ['工作'], '确认交付时间', 'user-2', '对方确认交付物');
+
+    expect(api.createTaskInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      targetHandlerId: 'user-2',
+      nextStepText: '确认交付时间',
+      acceptanceCriteria: '对方确认交付物',
+    }));
+    expect(api.createTask).not.toHaveBeenCalled();
   });
 
   it('refreshes the authoritative home projection after a reconciled write', async () => {

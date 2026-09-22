@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react';
 import { useId, useState, type FormEvent, type JSX } from 'react';
-import type { TaskItem, TaskQuadrant } from '../../api/types';
+import type { TaskItem, TaskQuadrant, WorkspaceSnapshot } from '../../api/types';
 import { useWorkspaceState } from '../../app/use-external-state';
 import { classificationNames, classificationNameSet } from '../../tasks/classification';
 import { TASK_QUADRANTS } from '../../tasks/task-model';
@@ -13,6 +13,8 @@ export type CreateTaskHandler = (
   quadrant: TaskQuadrant,
   labels: string[],
   nextStepText?: string,
+  targetHandlerId?: string,
+  acceptanceCriteria?: string,
 ) => void | Promise<void>;
 
 export interface TaskComposerProps {
@@ -25,12 +27,14 @@ export interface TaskComposerProps {
 interface TaskDraft {
   title: string;
   nextStepText: string;
+  acceptanceCriteria: string;
   description: string;
   quadrant: TaskItem['quadrant'] | '';
   labels: string[];
+  targetHandlerId: string;
 }
 
-const EMPTY_DRAFT: TaskDraft = { title: '', nextStepText: '', description: '', quadrant: '', labels: [] };
+const EMPTY_DRAFT: TaskDraft = { title: '', nextStepText: '', acceptanceCriteria: '', description: '', quadrant: '', labels: [], targetHandlerId: '' };
 
 export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand }: TaskComposerProps): JSX.Element {
   const state = useWorkspaceState(sync);
@@ -40,6 +44,7 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
   const [error, setError] = useState<string | null>(null);
   const titleId = useId();
   const nextStepId = useId();
+  const acceptanceId = useId();
   const descriptionId = useId();
   const quadrantId = useId();
   const errorId = useId();
@@ -76,6 +81,15 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
       setError('明确下一步不能超过 90 个字符。');
       return;
     }
+    const acceptanceCriteria = draft.acceptanceCriteria.trim();
+    if (Array.from(acceptanceCriteria).length > 500) {
+      setError('完成标准不能超过 500 字。');
+      return;
+    }
+    if (draft.targetHandlerId && !acceptanceCriteria) {
+      setError('邀请 TA 时请填写完成标准。');
+      return;
+    }
     if (draft.labels.length !== 1) {
       setError('请选择一个已批准分类。');
       return;
@@ -90,8 +104,12 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
     setSubmitting(true);
     setError(null);
     try {
-      const create = onCreateTask ?? ((title: string, description: string, quadrant: TaskQuadrant, nextLabels: string[], nextStep: string) => sync.createTask(title, description, quadrant, nextLabels, nextStep));
-      await create(draft.title.trim(), draft.description, draft.quadrant, draft.labels, nextStepText);
+      const create = onCreateTask ?? ((title: string, description: string, quadrant: TaskQuadrant, nextLabels: string[], nextStep: string, targetHandlerId?: string, criteria?: string) => sync.createTask(title, description, quadrant, nextLabels, nextStep, targetHandlerId, criteria));
+      if (draft.targetHandlerId) {
+        await create(draft.title.trim(), draft.description, draft.quadrant, draft.labels, nextStepText, draft.targetHandlerId, acceptanceCriteria);
+      } else {
+        await create(draft.title.trim(), draft.description, draft.quadrant, draft.labels, nextStepText, undefined, acceptanceCriteria || undefined);
+      }
       const currentError = sync.state.error;
       if (currentError && currentError !== previousError) {
         setError(currentError);
@@ -163,6 +181,27 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
           />
         </div>
         <div className="task-composer__field">
+          <label htmlFor={acceptanceId}>完成标准</label>
+          <textarea id={acceptanceId} maxLength={500} value={draft.acceptanceCriteria} disabled={disabled} onChange={(event) => updateDraft('acceptanceCriteria', event.target.value)} />
+        </div>
+        {activePartner(state.snapshot) ? (
+          <div className="task-composer__field">
+            <label htmlFor="task-target-handler">创建后由谁负责</label>
+            <select
+              id="task-target-handler"
+              value={draft.targetHandlerId}
+              disabled={disabled}
+              onChange={(event) => updateDraft('targetHandlerId', event.target.value)}
+            >
+              <option value="">我负责</option>
+              <option value={activePartner(state.snapshot)!.user_id}>
+                {memberName(activePartner(state.snapshot)!)}
+              </option>
+            </select>
+            <p className="task-composer__hint">选择 TA 后会先由我创建，再等待 TA 确认接棒。</p>
+          </div>
+        ) : null}
+        <div className="task-composer__field">
           <label htmlFor={quadrantId}>四象限</label>
           <select
             id={quadrantId}
@@ -206,4 +245,16 @@ export function TaskComposer({ sync, onCreateTask, busy = false, onRequestExpand
       </form>
     </div>
   );
+}
+
+function activePartner(snapshot: WorkspaceSnapshot | null): WorkspaceSnapshot['members'][number] | null {
+  if (!snapshot?.viewer_user_id) return null;
+  return snapshot.members.find((member) => {
+    const status = (member.membership_status ?? member.status ?? 'ACTIVE').toUpperCase();
+    return member.user_id !== snapshot.viewer_user_id && status === 'ACTIVE';
+  }) ?? null;
+}
+
+function memberName(member: WorkspaceSnapshot['members'][number]): string {
+  return member.display_name?.trim() || 'TA';
 }

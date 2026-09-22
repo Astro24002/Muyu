@@ -1,4 +1,5 @@
 import 'classification.dart';
+import '../life/life_repository.dart';
 import 'task.dart';
 import 'task_approval_request.dart';
 
@@ -13,6 +14,10 @@ class WorkspaceChange {
     this.approvalRequest,
     this.comment,
     this.classification,
+    this.ledgerEntry,
+    this.habit,
+    this.habitCheckin,
+    this.anniversary,
     this.operationId,
   });
 
@@ -25,6 +30,10 @@ class WorkspaceChange {
   final TaskApprovalRequest? approvalRequest;
   final TaskComment? comment;
   final WorkspaceClassification? classification;
+  final LedgerItem? ledgerEntry;
+  final HabitItem? habit;
+  final HabitCheckinItem? habitCheckin;
+  final AnniversaryItem? anniversary;
   final String? operationId;
 
   factory WorkspaceChange.taskUpdated({
@@ -86,6 +95,18 @@ class WorkspaceChange {
     classification: classification,
   );
 
+  factory WorkspaceChange.ledgerEntryUpdated({
+    required int cursor,
+    required LedgerItem ledgerEntry,
+    String action = 'updated',
+  }) => WorkspaceChange(
+    cursor: cursor,
+    resourceType: 'ledger_entry',
+    resourceId: ledgerEntry.id,
+    action: action,
+    ledgerEntry: ledgerEntry,
+  );
+
   factory WorkspaceChange.fromJson(Map<String, dynamic> json) {
     final rawCursor = json['cursor'];
     if (rawCursor is! int || rawCursor < 0) {
@@ -117,7 +138,12 @@ class WorkspaceChange {
     }
     final resource = json['resource'];
     Map<String, dynamic>? resourceMap;
-    if (resource == null && resourceType != 'task_conflict') {
+    final isLifeTombstone =
+        rawAction.toUpperCase() == 'DELETED' &&
+        WorkspaceChanges._lifeResourceTypes.contains(resourceType);
+    if (resource == null &&
+        resourceType != 'task_conflict' &&
+        !isLifeTombstone) {
       throw const FormatException('non-conflict change resource is required');
     }
     if (resource != null) {
@@ -153,6 +179,14 @@ class WorkspaceChange {
           'classification change workspace_id is required',
         );
       }
+      if ((resourceType == 'ledger_entry' ||
+              resourceType == 'habit' ||
+              resourceType == 'habit_checkin' ||
+              resourceType == 'anniversary') &&
+          (resourceMap['workspace_id'] is! String ||
+              (resourceMap['workspace_id'] as String).isEmpty)) {
+        throw const FormatException('life change workspace_id is required');
+      }
     }
     try {
       return WorkspaceChange(
@@ -175,6 +209,18 @@ class WorkspaceChange {
             : null,
         classification: resourceType == 'classification' && resourceMap != null
             ? WorkspaceClassification.fromJson(resourceMap)
+            : null,
+        ledgerEntry: resourceType == 'ledger_entry' && resourceMap != null
+            ? LedgerItem.fromJson(resourceMap)
+            : null,
+        habit: resourceType == 'habit' && resourceMap != null
+            ? HabitItem.fromJson(resourceMap)
+            : null,
+        habitCheckin: resourceType == 'habit_checkin' && resourceMap != null
+            ? HabitCheckinItem.fromJson(resourceMap)
+            : null,
+        anniversary: resourceType == 'anniversary' && resourceMap != null
+            ? AnniversaryItem.fromJson(resourceMap)
             : null,
         operationId: operationId as String?,
       );
@@ -310,6 +356,38 @@ class WorkspaceChanges {
           change.classification!.id == change.resourceId &&
           change.classification!.workspaceId == workspaceId;
     }
+    if (change.resourceType == 'ledger_entry') {
+      if (change.ledgerEntry == null) {
+        return change.action.toUpperCase() == 'DELETED';
+      }
+      return change.ledgerEntry != null &&
+          change.ledgerEntry!.id == change.resourceId &&
+          change.ledgerEntry!.workspaceId == workspaceId;
+    }
+    if (change.resourceType == 'habit') {
+      if (change.habit == null) {
+        return change.action.toUpperCase() == 'DELETED';
+      }
+      return change.habit != null &&
+          change.habit!.id == change.resourceId &&
+          change.habit!.workspaceId == workspaceId;
+    }
+    if (change.resourceType == 'habit_checkin') {
+      if (change.habitCheckin == null) {
+        return change.action.toUpperCase() == 'DELETED';
+      }
+      return change.habitCheckin != null &&
+          change.habitCheckin!.id == change.resourceId &&
+          change.habitCheckin!.workspaceId == workspaceId;
+    }
+    if (change.resourceType == 'anniversary') {
+      if (change.anniversary == null) {
+        return change.action.toUpperCase() == 'DELETED';
+      }
+      return change.anniversary != null &&
+          change.anniversary!.id == change.resourceId &&
+          change.anniversary!.workspaceId == workspaceId;
+    }
     return true;
   }
 
@@ -319,6 +397,16 @@ class WorkspaceChanges {
     'approval_request',
     'comment',
     'classification',
+    'ledger_entry',
+    'habit',
+    'habit_checkin',
+    'anniversary',
+  };
+  static const _lifeResourceTypes = {
+    'ledger_entry',
+    'habit',
+    'habit_checkin',
+    'anniversary',
   };
   static const _conflictStatuses = {'OPEN', 'RESOLVED', 'REJECTED'};
   static const _actions = {'CREATED', 'UPDATED', 'DELETED', 'RESTORED'};

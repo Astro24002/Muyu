@@ -33,10 +33,29 @@ abstract class WorkspaceSyncRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
+    required String requestId,
+    String? targetHandlerId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  Future<TaskApprovalRequest> createTaskInvitation({
+    required String title,
+    required String quadrant,
+    required List<String> labels,
+    String? description,
+    required String nextStepText,
+    required String acceptanceCriteria,
+    String? dueAt,
+    String? parentTaskId,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+    required String targetHandlerId,
     required String requestId,
   }) {
     throw UnimplementedError();
@@ -104,6 +123,39 @@ abstract class WorkspaceSyncRepository {
     throw UnimplementedError();
   }
 
+  Future<TaskApprovalRequest> requestAgreementUpdate({
+    String? workspaceId,
+    required String taskId,
+    required String acceptanceCriteria,
+    required int baseFieldVersion,
+    required String requestId,
+  }) => createApprovalRequest(
+    workspaceId: workspaceId,
+    taskId: taskId,
+    requestType: 'TASK_UPDATE',
+    proposedChanges: {
+      'acceptance_criteria': acceptanceCriteria,
+      'agreement_update': true,
+    },
+    baseFieldVersions: {'acceptance_criteria': baseFieldVersion},
+    requestId: requestId,
+  );
+
+  Future<TaskApprovalRequest> requestCancellation({
+    String? workspaceId,
+    required String taskId,
+    required String reason,
+    required int baseLifecycleVersion,
+    required String requestId,
+  }) => createApprovalRequest(
+    workspaceId: workspaceId,
+    taskId: taskId,
+    requestType: 'TASK_DELETE',
+    proposedChanges: {'cancellation_request': true, 'cancel_reason': reason},
+    baseFieldVersions: {'lifecycle_version': baseLifecycleVersion},
+    requestId: requestId,
+  );
+
   Future<List<TaskApprovalRequest>> listApprovalRequests({
     String? workspaceId,
     String? box,
@@ -168,11 +220,13 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
+    String? targetHandlerId,
   }) async {
     final body = <String, Object?>{
       'request_id': requestId,
@@ -186,6 +240,9 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     if (nextStepText != null) {
       body['next_step_text'] = nextStepText;
     }
+    if (acceptanceCriteria != null) {
+      body['acceptance_criteria'] = acceptanceCriteria;
+    }
     if (dueAt != null) {
       body['due_at'] = dueAt;
     }
@@ -198,6 +255,9 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
     if (estimatedMinutes != null) {
       body['estimated_minutes'] = estimatedMinutes;
     }
+    if (targetHandlerId != null) {
+      body['target_handler_id'] = targetHandlerId;
+    }
     final value = await _api.request(
       'POST',
       '/api/v1/tasks',
@@ -206,6 +266,50 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
       headers: {'x-request-id': requestId},
     );
     return TaskItem.fromJson(value as Map<String, dynamic>);
+  }
+
+  @override
+  Future<TaskApprovalRequest> createTaskInvitation({
+    required String title,
+    required String quadrant,
+    required List<String> labels,
+    String? description,
+    required String nextStepText,
+    required String acceptanceCriteria,
+    String? dueAt,
+    String? parentTaskId,
+    String? plannedStartAt,
+    int? estimatedMinutes,
+    required String targetHandlerId,
+    required String requestId,
+  }) async {
+    final body = <String, Object?>{
+      'request_id': requestId,
+      'title': title,
+      'quadrant': quadrant,
+      'labels': labels,
+      'next_step_text': nextStepText,
+      'acceptance_criteria': acceptanceCriteria,
+      'target_handler_id': targetHandlerId,
+    };
+    if (description != null) body['description'] = description;
+    if (dueAt != null) body['due_at'] = dueAt;
+    if (parentTaskId != null) body['parent_task_id'] = parentTaskId;
+    if (plannedStartAt != null) body['planned_start_at'] = plannedStartAt;
+    if (estimatedMinutes != null) body['estimated_minutes'] = estimatedMinutes;
+    final value = await _api.request(
+      'POST',
+      '/api/v1/task-invitations',
+      body: body,
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const FormatException('服务器返回了无效任务邀请');
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
   }
 
   @override
@@ -416,6 +520,64 @@ class HttpWorkspaceSyncRepository implements WorkspaceSyncRepository {
       );
     }
     return TaskApprovalRequest.fromJson(value.cast<String, dynamic>());
+  }
+
+  @override
+  Future<TaskApprovalRequest> requestAgreementUpdate({
+    String? workspaceId,
+    required String taskId,
+    required String acceptanceCriteria,
+    required int baseFieldVersion,
+    required String requestId,
+  }) async {
+    final value = await _api.request(
+      'POST',
+      '/api/v1/tasks/$taskId/agreement-requests',
+      body: {
+        'request_id': requestId,
+        'acceptance_criteria': acceptanceCriteria,
+        'base_field_version': baseFieldVersion,
+      },
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const FormatException(
+        'server returned an invalid agreement request',
+      );
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
+  }
+
+  @override
+  Future<TaskApprovalRequest> requestCancellation({
+    String? workspaceId,
+    required String taskId,
+    required String reason,
+    required int baseLifecycleVersion,
+    required String requestId,
+  }) async {
+    final value = await _api.request(
+      'POST',
+      '/api/v1/tasks/$taskId/cancellation-requests',
+      body: {
+        'request_id': requestId,
+        'reason': reason,
+        'base_lifecycle_version': baseLifecycleVersion,
+      },
+      authenticated: true,
+      headers: {'x-request-id': requestId},
+    );
+    if (value is! Map || value['approval_request'] is! Map) {
+      throw const FormatException(
+        'server returned an invalid cancellation request',
+      );
+    }
+    return TaskApprovalRequest.fromJson(
+      (value['approval_request'] as Map).cast<String, dynamic>(),
+    );
   }
 
   @override

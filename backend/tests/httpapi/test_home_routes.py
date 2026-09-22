@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from zoneinfo import ZoneInfo
 
 from app.db.enums import TaskStatus
 from app.db.models import Task, Workspace
@@ -524,13 +525,14 @@ def test_home_canonical_projection_exposes_request_directions_and_legacy_aliases
     assert body["viewer_user_id"] == owner["user"]["id"]
     as_of = datetime.fromisoformat(body["as_of"].replace("Z", "+00:00"))
     week = body["week"]
-    assert week["timezone"] == "UTC"
+    assert week["timezone"] == "Asia/Shanghai"
     week_start_response = datetime.fromisoformat(week["start"].replace("Z", "+00:00"))
     week_end_response = datetime.fromisoformat(week["end"].replace("Z", "+00:00"))
     assert as_of.tzinfo is not None
     assert week_start_response.tzinfo is not None
-    assert week_start_response.weekday() == 0
-    assert week_start_response.time() == datetime.min.time()
+    assert week_start_response.astimezone(ZoneInfo("Asia/Shanghai")).weekday() == 0
+    assert week_start_response.hour == 16
+    assert week_start_response.minute == 0
     assert week_end_response - week_start_response == timedelta(days=7)
     assert week_start_response < week_end_response
 
@@ -618,24 +620,25 @@ def test_home_entry_counts_only_include_pending_handoffs_and_review_acceptance(d
     # Legacy approval totals remain broad for existing approval-center clients.
     assert body["pending_approval_count"] == 4
     assert body["needs_action_count"] == 4
-    # The v1 entry is intentionally narrower: only the next actor for a
-    # handoff or review acceptance is counted as needing a response.
-    assert body["entry_counts"]["needs_me"] == 2
+    # The updated Matters prototype counts pending agreement changes together
+    # with handoffs and review acceptance requests.
+    assert body["entry_counts"]["needs_me"] == 3
     needs_me = body["entries"]["needs_me"]
     assert {
         item["approval_request"]["request_type"] for item in needs_me["items"]
-    } == {"HANDLER_TRANSFER", "STATUS_UPDATE"}
+    } == {"HANDLER_TRANSFER", "STATUS_UPDATE", "TASK_UPDATE"}
     assert {item["task"]["id"] for item in needs_me["items"]} == {
         transfer_task["id"],
         review_task["id"],
+        field_update_task["id"],
     }
 
     page = client.get("/api/v1/home/entries/needs_me", headers=owner_headers)
     assert page.status_code == 200, page.text
-    assert page.json()["count"] == 2
+    assert page.json()["count"] == 3
     assert {
         item["approval_request"]["request_type"] for item in page.json()["items"]
-    } == {"HANDLER_TRANSFER", "STATUS_UPDATE"}
+    } == {"HANDLER_TRANSFER", "STATUS_UPDATE", "TASK_UPDATE"}
 
 
 def test_home_task_action_entries_exclude_taskless_and_deleted_approval_targets(db_engine) -> None:

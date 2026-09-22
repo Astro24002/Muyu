@@ -29,17 +29,21 @@ class ApprovalRequestCreate(BaseModel):
 
     @model_validator(mode="after")
     def versions_match_changed_fields(self) -> "ApprovalRequestCreate":
-        if self.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+        if self.request_type in {TaskApprovalRequestType.CLASSIFICATION_CREATE, TaskApprovalRequestType.TASK_INVITATION}:
             if self.task_id is not None or self.comment_id is not None:
-                raise ValueError("classification approval cannot target a task or comment")
-            if set(self.proposed_changes) != {"name"} or self.base_field_versions:
+                raise ValueError("untargeted approval cannot target an existing task or comment")
+            if self.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE and (set(self.proposed_changes) != {"name"} or self.base_field_versions):
                 raise ValueError("classification approval requires only a name")
+            if self.request_type == TaskApprovalRequestType.TASK_INVITATION and self.base_field_versions:
+                raise ValueError("task invitation has no task field versions")
             return self
         if self.task_id is None:
             raise ValueError("task_id is required for task approvals")
         versioned_changes = set(self.proposed_changes)
         if self.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
             versioned_changes -= {"transfer_note"}
+        if self.request_type == TaskApprovalRequestType.TASK_UPDATE:
+            versioned_changes -= {"agreement_update"}
         if self.request_type in {
             TaskApprovalRequestType.TASK_UPDATE,
             TaskApprovalRequestType.QUADRANT_UPDATE,

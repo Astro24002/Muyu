@@ -345,9 +345,14 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   }
 
   String _approvalTypeLabel(TaskApprovalRequest request) =>
-      _isReviewSubmission(request)
+      request.proposedChanges['agreement_update'] == true
+      ? '修改完成标准'
+      : request.proposedChanges['cancellation_request'] == true
+      ? '取消任务'
+      : _isReviewSubmission(request)
       ? '任务验收'
       : switch (request.requestType.toUpperCase()) {
+          'TASK_INVITATION' => '任务邀请',
           'TASK_UPDATE' => '任务修改',
           'QUADRANT_UPDATE' => '四象限修改',
           'STATUS_UPDATE' => '状态修改',
@@ -366,7 +371,12 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     required bool pending,
   }) {
     final entries = _orderedChanges(request.proposedChanges)
-        .where((entry) => entry.key != 'review_submission')
+        .where(
+          (entry) =>
+              entry.key != 'review_submission' &&
+              entry.key != 'agreement_update' &&
+              entry.key != 'cancellation_request',
+        )
         .toList();
     if (entries.isEmpty) {
       return [Text('无字段变更', style: Theme.of(context).textTheme.bodyMedium)];
@@ -452,6 +462,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     return switch (field) {
       'title' => task.title,
       'description' => task.description,
+      'acceptance_criteria' => task.acceptanceCriteria,
       'due_at' => task.dueAt,
       'planned_start_at' => task.plannedStartAt,
       'estimated_minutes' => task.estimatedMinutes,
@@ -501,6 +512,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     const order = [
       'title',
       'description',
+      'acceptance_criteria',
       'due_at',
       'planned_start_at',
       'estimated_minutes',
@@ -515,6 +527,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
       'waiting_for_user_id',
       'blocked_reason',
       'review_rejection_reason',
+      'cancel_reason',
       'name',
     ];
     final ordered = <MapEntry<String, dynamic>>[];
@@ -568,6 +581,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
   static String _fieldLabel(String field) => switch (field) {
     'title' => '任务标题',
     'description' => '任务描述',
+    'acceptance_criteria' => '完成标准',
     'due_at' => '截止时间',
     'planned_start_at' => '计划开始',
     'estimated_minutes' => '预计时长',
@@ -581,6 +595,7 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
     'waiting_for_user_id' => '等待成员',
     'blocked_reason' => '阻塞原因',
     'review_rejection_reason' => '退回原因',
+    'cancel_reason' => '取消原因',
     'name' => '分类名称',
     _ => '变更项',
   };
@@ -649,7 +664,8 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
 
   Future<void> _reject(TaskApprovalRequest request) async {
     String? reason;
-    if (_isReviewSubmission(request)) {
+    if (_isReviewSubmission(request) ||
+        request.requestType.toUpperCase() == 'TASK_INVITATION') {
       final controller = TextEditingController();
       reason = await showDialog<String>(
         context: context,
@@ -657,13 +673,20 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen> {
           String? errorText;
           return StatefulBuilder(
             builder: (context, setDialogState) => AlertDialog(
-              title: const Text('退回待验收任务'),
+              title: Text(
+                request.requestType.toUpperCase() == 'TASK_INVITATION'
+                    ? '暂不同意任务邀请'
+                    : '退回待验收任务',
+              ),
               content: TextField(
                 controller: controller,
                 autofocus: true,
                 maxLines: 3,
                 decoration: InputDecoration(
-                  labelText: '退回原因',
+                  labelText:
+                      request.requestType.toUpperCase() == 'TASK_INVITATION'
+                      ? '回应与建议'
+                      : '退回原因',
                   errorText: errorText,
                 ),
               ),

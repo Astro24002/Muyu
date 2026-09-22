@@ -37,8 +37,18 @@ _NEW_APPROVAL_REQUEST_TYPES = [
     "COMMENT_DELETE",
     "HANDLER_TRANSFER",
     "CLASSIFICATION_CREATE",
+    "TASK_INVITATION",
 ]
-_OLD_APPROVAL_REQUEST_TYPES = [*_NEW_APPROVAL_REQUEST_TYPES[:6], "ASSIGNEE_UPDATE", "HANDLER_TRANSFER"]
+_OLD_APPROVAL_REQUEST_TYPES = [
+    "TASK_UPDATE",
+    "QUADRANT_UPDATE",
+    "STATUS_UPDATE",
+    "TASK_DELETE",
+    "TASK_RESTORE",
+    "COMMENT_DELETE",
+    "ASSIGNEE_UPDATE",
+    "HANDLER_TRANSFER",
+]
 
 
 def _config(database_url: str, schema: str) -> Config:
@@ -409,6 +419,7 @@ def test_upgrade_rejects_null_owner_before_destructive_steps(
     # PostgreSQL may retain the 0009 enum value even though the earlier
     # destructive migration is aborted and its schema changes are rolled back.
     assert _enum_labels(at_0004, "task_approval_request_type") == [
+        "TASK_INVITATION",
         *_OLD_APPROVAL_REQUEST_TYPES,
         "CLASSIFICATION_CREATE",
     ]

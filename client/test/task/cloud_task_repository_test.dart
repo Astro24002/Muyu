@@ -106,6 +106,33 @@ void main() {
     },
   );
 
+  test('create includes the real target handler id when handing off', () async {
+    late http.Request request;
+    final repository = CloudTaskRepository(
+      ApiClient(
+        baseUrl: 'https://api.example',
+        httpClient: MockClient((incoming) async {
+          request = incoming;
+          return http.Response(
+            jsonEncode(taskJson),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      ),
+    );
+    await repository.create(
+      title: '交给 TA',
+      quadrant: 'Q2',
+      labels: const ['工作'],
+      nextStepText: '确认交付时间',
+      targetHandlerId: 'user-2',
+      requestId: 'request-1',
+    );
+    final body = jsonDecode(request.body) as Map<String, dynamic>;
+    expect(body['target_handler_id'], 'user-2');
+  });
+
   test('409 preserves conflict details as CloudTaskFailure', () async {
     final repository = CloudTaskRepository(
       ApiClient(
@@ -373,6 +400,85 @@ void main() {
       expect(jsonDecode(requests[1].body), {'request_id': 'action-1'});
       expect(requests[1].headers['x-request-id'], 'action-1');
       expect(approved.approvalRequest.status, 'APPROVED');
+    },
+  );
+
+  test(
+    'agreement and cancellation requests use dedicated endpoints and versions',
+    () async {
+      final requests = <http.Request>[];
+      final repository = CloudTaskRepository(
+        ApiClient(
+          baseUrl: 'https://api.example',
+          httpClient: MockClient((incoming) async {
+            requests.add(incoming);
+            final isCancellation = incoming.url.path.endsWith(
+              '/cancellation-requests',
+            );
+            final approval = {
+              'id': isCancellation ? 'approval-2' : 'approval-1',
+              'workspace_id': 'workspace-1',
+              'task_id': 'task-1',
+              'comment_id': null,
+              'requester_id': 'user-b',
+              'approver_id': 'user-a',
+              'request_type': isCancellation ? 'TASK_DELETE' : 'TASK_UPDATE',
+              'proposed_changes': isCancellation
+                  ? {'cancellation_request': true, 'cancel_reason': '需求已取消'}
+                  : {
+                      'acceptance_criteria': '双方确认交付物',
+                      'agreement_update': true,
+                    },
+              'base_field_versions': isCancellation
+                  ? {'lifecycle': 6}
+                  : {'acceptance_criteria': 4},
+              'request_id': isCancellation ? 'request-3' : 'request-2',
+              'status': 'PENDING',
+              'created_at': '2026-08-28T00:00:00Z',
+              'reviewed_at': null,
+              'reviewed_by': null,
+              'rejection_reason': null,
+              'resolved_cursor': null,
+            };
+            return http.Response(
+              jsonEncode({'approval_request': approval, 'pending': true}),
+              202,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        ),
+      );
+
+      await repository.requestAgreementUpdate(
+        taskId: 'task-1',
+        acceptanceCriteria: '双方确认交付物',
+        baseFieldVersion: 4,
+        requestId: 'request-2',
+      );
+      await repository.requestCancellation(
+        taskId: 'task-1',
+        reason: '需求已取消',
+        baseLifecycleVersion: 6,
+        requestId: 'request-3',
+      );
+
+      expect(requests[0].url.path, '/api/v1/tasks/task-1/agreement-requests');
+      expect(jsonDecode(requests[0].body), {
+        'request_id': 'request-2',
+        'acceptance_criteria': '双方确认交付物',
+        'base_field_version': 4,
+      });
+      expect(requests[0].headers['x-request-id'], 'request-2');
+      expect(
+        requests[1].url.path,
+        '/api/v1/tasks/task-1/cancellation-requests',
+      );
+      expect(jsonDecode(requests[1].body), {
+        'request_id': 'request-3',
+        'reason': '需求已取消',
+        'base_lifecycle_version': 6,
+      });
+      expect(requests[1].headers['x-request-id'], 'request-3');
     },
   );
 }

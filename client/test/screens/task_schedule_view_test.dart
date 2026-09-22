@@ -59,6 +59,53 @@ int weekNumber(DateTime value) {
 }
 
 void main() {
+  testWidgets('omits completed tasks from the active calendar', (tester) async {
+    final today = dateOnly(DateTime.now().toLocal());
+    final active = scheduleTask('active', '今天要做', dueAt: today);
+    final done = scheduleTask(
+      'done',
+      '此前已完成',
+      dueAt: today,
+    ).copyWith(status: 'DONE');
+    await tester.pumpWidget(
+      scheduleApp(
+        TaskScheduleView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: scheduleState([active, done]),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+    expect(find.text('今天要做'), findsOneWidget);
+    expect(find.text('此前已完成'), findsNothing);
+  });
+
+  testWidgets('returns to today from another month in the same schedule view', (
+    tester,
+  ) async {
+    final today = dateOnly(DateTime.now().toLocal());
+    await tester.pumpWidget(
+      scheduleApp(
+        TaskScheduleView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: scheduleState([scheduleTask('today', '今天到期的事', dueAt: today)]),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('task-schedule-month-next')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('task-schedule-today')));
+    await tester.pumpAndSettle();
+    expect(find.text('今天到期的事'), findsOneWidget);
+    expect(
+      find.byKey(Key('task-schedule-day-${_dateKey(today)}')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('defaults to today, dims adjacent dates, and marks task dates', (
     tester,
   ) async {

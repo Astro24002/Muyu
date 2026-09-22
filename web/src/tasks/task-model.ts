@@ -4,6 +4,7 @@ export type EditableTaskChanges = Pick<Partial<TaskItem>,
   | 'title'
   | 'description'
   | 'next_step_text'
+  | 'acceptance_criteria'
   | 'due_at'
   | 'planned_start_at'
   | 'estimated_minutes'

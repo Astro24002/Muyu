@@ -6,6 +6,8 @@ export interface TaskDetailActions {
   onComment: (body: string) => Promise<unknown>;
   onDelay: (date: string, reason: string, note?: string) => Promise<unknown>;
   onSave: (changes: EditableTaskChanges) => Promise<unknown>;
+  onRequestAgreementUpdate?: (acceptanceCriteria: string) => Promise<unknown>;
+  onRequestCancellation?: (reason: string) => Promise<unknown>;
   onDeleteComment?: (commentId: string, baseVersion: number) => Promise<unknown>;
   onResolveConflict?: (conflictId: string, resolution: 'current' | 'proposed') => Promise<void>;
   onClose?: () => void;

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Literal, Mapping
-from uuid import UUID, uuid4
+from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -34,7 +34,8 @@ from app.db.models import (
 )
 from app.db.repositories.base import Repository
 from app.tasks.conflicts import TaskConflictError
-from app.tasks.service import MUTABLE_FIELDS, TRANSITIONS, TaskService, normalize_next_step_text, normalize_task_labels
+from app.tasks.service import MUTABLE_FIELDS, TRANSITIONS, TaskService, normalize_acceptance_criteria, normalize_next_step_text, normalize_task_labels
+from app.tasks.schemas import CreateTaskInvitationRequest
 from app.workspaces.classifications import (
     ClassificationError,
     ClassificationService,
@@ -45,6 +46,9 @@ from app.workspaces.classifications import (
 
 TASK_UPDATE_FIELDS = MUTABLE_FIELDS - {"quadrant", "current_handler_id"}
 CLASSIFICATION_CREATE_FIELDS = {"name"}
+AGREEMENT_UPDATE_MARKER = "agreement_update"
+CANCELLATION_REQUEST_MARKER = "cancellation_request"
+CANCELLATION_REASON_FIELD = "cancel_reason"
 STATUS_CHANGE_FIELDS = {
     "target_status",
     "blocked_reason",
@@ -174,7 +178,7 @@ class TaskApprovalService:
             raise TaskApprovalError("approval_not_allowed", "requester must be an active workspace member")
 
         task: Task | None = None
-        if request_type != TaskApprovalRequestType.CLASSIFICATION_CREATE:
+        if request_type not in {TaskApprovalRequestType.CLASSIFICATION_CREATE, TaskApprovalRequestType.TASK_INVITATION}:
             task = self.session.scalar(
                 select(Task)
                 .where(Task.id == task_id, Task.workspace_id == workspace_id)
@@ -182,7 +186,7 @@ class TaskApprovalService:
             )
             if task is None:
                 raise TaskApprovalError("approval_not_allowed", "task does not belong to the workspace")
-        else:
+        elif request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
             self._validate_classification_request(workspace_id, requester_id, changes)
         if (
             request_type == TaskApprovalRequestType.TASK_UPDATE
@@ -197,6 +201,25 @@ class TaskApprovalService:
                 )
             except ClassificationError as error:
                 raise TaskApprovalError(error.code, str(error)) from error
+        if task is not None and self._is_agreement_request(request_type, changes):
+            if task.deleted_at is not None or task.status in {
+                TaskStatus.DONE,
+                TaskStatus.CANCELLED,
+            }:
+                raise TaskApprovalError(
+                    "approval_not_allowed",
+                    "终态任务不能申请修改约定或取消",
+                )
+            pending = self._pending_agreement_request(
+                workspace_id,
+                task.id,
+                with_for_update=True,
+            )
+            if pending is not None and pending.request_id != request_id:
+                raise TaskApprovalError(
+                    "approval_already_pending",
+                    "task agreement request is already pending",
+                )
         if request_type == TaskApprovalRequestType.HANDLER_TRANSFER and task is not None and task.status == TaskStatus.REVIEW:
             raise TaskApprovalError(
                 "approval_not_allowed",
@@ -260,6 +283,25 @@ class TaskApprovalService:
                     "task review approval is already pending",
                 )
             approver_id = reviewer_id
+        elif request_type == TaskApprovalRequestType.TASK_INVITATION:
+            proposed_handler = self._uuid(changes["target_handler_id"], "target_handler_id")
+            if proposed_handler == requester_id or proposed_handler not in member_ids:
+                raise TaskApprovalError("approval_not_allowed", "task invitation requires the other active member")
+            try:
+                changes["labels"] = validate_active_classifications(
+                    self.session, workspace_id, changes["labels"], require_one=True,
+                )
+            except ClassificationError as error:
+                raise TaskApprovalError(error.code, str(error)) from error
+            if changes.get("parent_task_id"):
+                parent = self.session.scalar(select(Task).where(
+                    Task.id == self._uuid(changes["parent_task_id"], "parent_task_id"),
+                    Task.workspace_id == workspace_id, Task.deleted_at.is_(None),
+                    Task.parent_task_id.is_(None),
+                ))
+                if parent is None:
+                    raise TaskApprovalError("approval_not_allowed", "parent task is not available")
+            approver_id = proposed_handler
         elif request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
             if comment_id is not None:
                 raise TaskApprovalError("approval_not_allowed", "classification approval cannot target a comment")
@@ -591,7 +633,7 @@ class TaskApprovalService:
                 changes,
                 {member.user_id for member in self._active_members(request.workspace_id)},
             )
-        if review_acceptance or request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+        if review_acceptance or request.request_type in {TaskApprovalRequestType.CLASSIFICATION_CREATE, TaskApprovalRequestType.TASK_INVITATION}:
             target_actor = request.approver_id
         elif request.request_type == TaskApprovalRequestType.COMMENT_DELETE and comment:
             target_actor = comment.author_user_id
@@ -601,6 +643,8 @@ class TaskApprovalService:
             target_actor = task.current_handler_id
         if request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
             stale_target = target_actor is None or target_actor != task.current_handler_id
+        elif request.request_type == TaskApprovalRequestType.TASK_INVITATION:
+            stale_target = False
         else:
             stale_target = target_actor is None or target_actor != request.approver_id
         if stale_target:
@@ -611,6 +655,9 @@ class TaskApprovalService:
             self._mark_conflicted(request, task, comment, action_request_id, str(error))
             raise TaskApprovalError("approval_conflicted", str(error)) from error
 
+        if request.request_type == TaskApprovalRequestType.TASK_INVITATION:
+            request.task_id = target_task.id
+            task = target_task
         if request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
             self._cancel_pending_for_task(workspace_id, task.id, "task handler changed", exclude={request.id})
         elif request.request_type == TaskApprovalRequestType.TASK_DELETE:
@@ -675,10 +722,10 @@ class TaskApprovalService:
         task, comment = self._lock_target(request)
         review_acceptance = self._is_review_acceptance_request(request, task)
         normalized_reason = reason.strip() if isinstance(reason, str) else None
-        if review_acceptance and not normalized_reason:
+        if (review_acceptance or request.request_type == TaskApprovalRequestType.TASK_INVITATION) and not normalized_reason:
             raise TaskApprovalError(
                 "invalid_request",
-                "review rejection reason is required",
+                "rejection reason is required",
             )
         if review_acceptance:
             self._check_freshness(request, task, comment, action_request_id)
@@ -859,17 +906,38 @@ class TaskApprovalService:
             except ClassificationError as error:
                 raise TaskApprovalError(error.code, str(error)) from error
             return None, None, classification
+        if request_type == TaskApprovalRequestType.TASK_INVITATION:
+            if target_actor != request.approver_id or task is not None:
+                raise TaskApprovalError("approval_conflicted", "invitation target changed")
+            try:
+                created = service.create(
+                    request.workspace_id, request.approver_id,
+                    uuid5(NAMESPACE_URL, f"muyu:invitation-task:{request.id}"),
+                    changes["title"], changes.get("description", ""),
+                    changes.get("due_at"), self._optional_uuid(changes.get("parent_task_id")),
+                    changes.get("planned_start_at"), changes.get("estimated_minutes"),
+                    changes["quadrant"], changes["labels"], changes["next_step_text"],
+                    acceptance_criteria=changes["acceptance_criteria"],
+                    invitation_requester_id=request.requester_id,
+                    initial_status=TaskStatus.IN_PROGRESS,
+                )
+            except TaskConflictError as error:
+                raise TaskApprovalError("approval_conflicted", str(error)) from error
+            return created, None, None
         if target_actor is None or task is None:
             raise TaskApprovalError("approval_conflicted", "approved target has no owner")
         if request_type == TaskApprovalRequestType.TASK_UPDATE:
+            changes.pop(AGREEMENT_UPDATE_MARKER, None)
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.QUADRANT_UPDATE:
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
-            # ``transfer_note`` is immutable request context, not a task
-            # column. Keep it on the approval/activity payload while applying
-            # only the versioned handler change.
+            # Request context remains on the approval/activity payload. Apply
+            # the proposed next step only when the recipient accepts.
             changes.pop("transfer_note", None)
+            proposed_next_step = changes.pop("proposed_next_step", None)
+            if proposed_next_step is not None:
+                changes["next_step_text"] = proposed_next_step
             return service.patch(task.workspace_id, target_actor, task.id, request.id, changes, versions), None, None
         if request_type == TaskApprovalRequestType.STATUS_UPDATE:
             status_version = self._base_version(request, "status_version", "status")
@@ -922,6 +990,11 @@ class TaskApprovalService:
         comment: TaskComment | None,
         action_request_id: UUID,
     ) -> None:
+        if request.request_type == TaskApprovalRequestType.TASK_INVITATION:
+            members = {member.user_id for member in self._active_members(request.workspace_id)}
+            if request.requester_id not in members or request.approver_id not in members:
+                self._cancel_for_stale_owner(request, task, comment, action_request_id, "invitation member left workspace")
+            return
         if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
             try:
                 if ClassificationService(self.session).find(
@@ -959,6 +1032,10 @@ class TaskApprovalService:
                 self._mark_conflicted(request, task, comment, action_request_id, "task status version changed")
             return
 
+        if self._is_agreement_request(request.request_type, request.proposed_changes or {}):
+            if task.status in {TaskStatus.DONE, TaskStatus.CANCELLED}:
+                self._mark_conflicted(request, task, comment, action_request_id, "task reached a terminal state")
+
         if request.request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
             expected_owner = self._handler_transfer_owner(request)
             if task.current_handler_id != expected_owner:
@@ -985,11 +1062,21 @@ class TaskApprovalService:
             return
         current_versions = dict(task.field_versions or {})
         for field in request.proposed_changes:
-            if field == "transfer_note":
+            if field in {"transfer_note", "proposed_next_step", AGREEMENT_UPDATE_MARKER, CANCELLATION_REQUEST_MARKER, CANCELLATION_REASON_FIELD}:
                 continue
             expected = (request.base_field_versions or {}).get(field)
             if expected is None or int(current_versions.get(field, 1)) != int(expected):
                 self._mark_conflicted(request, task, comment, action_request_id, f"task field {field} changed")
+        if "proposed_next_step" in request.proposed_changes:
+            expected = (request.base_field_versions or {}).get("next_step_text")
+            if expected is None or int(current_versions.get("next_step_text", 1)) != int(expected):
+                self._mark_conflicted(
+                    request,
+                    task,
+                    comment,
+                    action_request_id,
+                    "task field next_step_text changed",
+                )
 
     def _mark_conflicted(
         self,
@@ -1078,7 +1165,7 @@ class TaskApprovalService:
         return request
 
     def _lock_target(self, request: TaskApprovalRequest) -> tuple[Task | None, TaskComment | None]:
-        if request.request_type == TaskApprovalRequestType.CLASSIFICATION_CREATE:
+        if request.request_type in {TaskApprovalRequestType.CLASSIFICATION_CREATE, TaskApprovalRequestType.TASK_INVITATION}:
             return None, None
         task = self.session.scalar(
             select(Task)
@@ -1341,8 +1428,30 @@ class TaskApprovalService:
                 normalize_classification_name(changes["name"])
             except ClassificationError as error:
                 raise TaskApprovalError(error.code, str(error)) from error
+        elif request_type == TaskApprovalRequestType.TASK_INVITATION:
+            if versions or comment_id is not None:
+                raise TaskApprovalError("invalid_request", "invitation has no existing task")
+            try:
+                draft = CreateTaskInvitationRequest.model_validate({"request_id": str(uuid4()), **changes})
+                if not draft.title.strip() or draft.quadrant not in {item.value for item in TaskQuadrant}:
+                    raise ValueError("title and quadrant are required")
+                changes["next_step_text"] = normalize_next_step_text(draft.next_step_text, allow_none=False)
+                changes["acceptance_criteria"] = normalize_acceptance_criteria(draft.acceptance_criteria)
+                for field in ("due_at", "planned_start_at"):
+                    if getattr(draft, field) is not None:
+                        datetime.fromisoformat(getattr(draft, field))
+            except (ValueError, TaskConflictError) as error:
+                raise TaskApprovalError("invalid_request", str(error)) from error
         elif request_type == TaskApprovalRequestType.TASK_UPDATE:
-            if not changes or set(changes) - TASK_UPDATE_FIELDS or set(changes) != set(versions):
+            is_agreement_update = changes.get(AGREEMENT_UPDATE_MARKER) is True
+            versioned_changes = set(changes) - {AGREEMENT_UPDATE_MARKER}
+            if is_agreement_update:
+                if versioned_changes != {"acceptance_criteria"} or set(versions) != {"acceptance_criteria"}:
+                    raise TaskApprovalError(
+                        "approval_not_allowed",
+                        "agreement update requires the acceptance criteria field version",
+                    )
+            elif not changes or set(changes) - TASK_UPDATE_FIELDS or set(changes) != set(versions):
                 raise TaskApprovalError("approval_not_allowed", "task update fields and versions are invalid")
             if "due_at" in changes and (
                 changes["due_at"] is None
@@ -1361,6 +1470,11 @@ class TaskApprovalService:
                     changes["next_step_text"] = normalize_next_step_text(
                         changes["next_step_text"], allow_none=False
                     )
+                except TaskConflictError as error:
+                    raise TaskApprovalError(error.code, str(error)) from error
+            if "acceptance_criteria" in changes:
+                try:
+                    changes["acceptance_criteria"] = normalize_acceptance_criteria(changes["acceptance_criteria"])
                 except TaskConflictError as error:
                     raise TaskApprovalError(error.code, str(error)) from error
         elif request_type == TaskApprovalRequestType.QUADRANT_UPDATE:
@@ -1394,13 +1508,38 @@ class TaskApprovalService:
                 if len(changes["review_content"]) > 5000:
                     raise TaskApprovalError("approval_not_allowed", "review_content is too long")
         elif request_type in {TaskApprovalRequestType.TASK_DELETE, TaskApprovalRequestType.TASK_RESTORE}:
-            if changes or set(versions) not in ({"lifecycle_version"}, {"lifecycle"}):
+            if request_type == TaskApprovalRequestType.TASK_DELETE:
+                allowed_cancellation_fields = {CANCELLATION_REQUEST_MARKER, CANCELLATION_REASON_FIELD}
+                if set(changes) not in (set(), allowed_cancellation_fields):
+                    raise TaskApprovalError("approval_not_allowed", "cancellation request fields are invalid")
+                if set(changes) == allowed_cancellation_fields:
+                    if changes.get(CANCELLATION_REQUEST_MARKER) is not True:
+                        raise TaskApprovalError("approval_not_allowed", "cancellation request marker is invalid")
+                    reason = changes.get(CANCELLATION_REASON_FIELD)
+                    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 2000:
+                        raise TaskApprovalError("invalid_request", "cancellation reason is required")
+                    changes[CANCELLATION_REASON_FIELD] = reason.strip()
+            elif changes:
+                raise TaskApprovalError("approval_not_allowed", "lifecycle approval fields are invalid")
+            if set(versions) not in ({"lifecycle_version"}, {"lifecycle"}):
                 raise TaskApprovalError("approval_not_allowed", "lifecycle approval fields are invalid")
         elif request_type == TaskApprovalRequestType.COMMENT_DELETE:
             if comment_id is None or changes or set(versions) not in ({"version"}, {"comment_version"}):
                 raise TaskApprovalError("approval_not_allowed", "comment deletion requires the comment version")
         elif request_type == TaskApprovalRequestType.HANDLER_TRANSFER:
-            if set(changes) - {"current_handler_id", "transfer_note"} or "current_handler_id" not in changes or set(versions) != {"current_handler_id"}:
+            allowed_changes = {
+                "current_handler_id",
+                "transfer_note",
+                "proposed_next_step",
+            }
+            expected_versions = {"current_handler_id"}
+            if "proposed_next_step" in changes:
+                expected_versions.add("next_step_text")
+            if (
+                set(changes) - allowed_changes
+                or "current_handler_id" not in changes
+                or set(versions) != expected_versions
+            ):
                 raise TaskApprovalError("approval_not_allowed", "handler transfer requires current_handler_id")
             self._uuid(changes["current_handler_id"], "current_handler_id")
             if "transfer_note" in changes:
@@ -1409,6 +1548,13 @@ class TaskApprovalService:
                 changes["transfer_note"] = changes["transfer_note"].strip()
                 if len(changes["transfer_note"]) > 2000:
                     raise TaskApprovalError("approval_not_allowed", "transfer_note is too long")
+            if "proposed_next_step" in changes:
+                try:
+                    changes["proposed_next_step"] = normalize_next_step_text(
+                        changes["proposed_next_step"], allow_none=False
+                    )
+                except TaskConflictError as error:
+                    raise TaskApprovalError(error.code, str(error)) from error
         if request_type != TaskApprovalRequestType.COMMENT_DELETE and comment_id is not None:
             raise TaskApprovalError("approval_not_allowed", "comment_id is only valid for comment deletion")
 
@@ -1466,6 +1612,38 @@ class TaskApprovalService:
         for request in self.session.scalars(statement.order_by(TaskApprovalRequest.created_at.asc())).all():
             task = self.session.get(Task, task_id)
             if task is not None and self._is_review_acceptance_request(request, task):
+                return request
+        return None
+
+    def _is_agreement_request(
+        self,
+        request_type: TaskApprovalRequestType,
+        changes: Mapping[str, Any],
+    ) -> bool:
+        return request_type == TaskApprovalRequestType.TASK_DELETE or (
+            request_type == TaskApprovalRequestType.TASK_UPDATE
+            and changes.get(AGREEMENT_UPDATE_MARKER) is True
+        )
+
+    def _pending_agreement_request(
+        self,
+        workspace_id: UUID,
+        task_id: UUID,
+        *,
+        with_for_update: bool = False,
+    ) -> TaskApprovalRequest | None:
+        statement = select(TaskApprovalRequest).where(
+            TaskApprovalRequest.workspace_id == workspace_id,
+            TaskApprovalRequest.task_id == task_id,
+            TaskApprovalRequest.status == TaskApprovalRequestStatus.PENDING,
+            TaskApprovalRequest.request_type.in_(
+                [TaskApprovalRequestType.TASK_UPDATE, TaskApprovalRequestType.TASK_DELETE]
+            ),
+        )
+        if with_for_update:
+            statement = statement.with_for_update()
+        for request in self.session.scalars(statement.order_by(TaskApprovalRequest.created_at.asc())).all():
+            if self._is_agreement_request(request.request_type, request.proposed_changes or {}):
                 return request
         return None
 
@@ -1570,7 +1748,7 @@ class TaskApprovalService:
     ) -> bool:
         return (
             request.requester_id == requester_id
-            and request.task_id == task_id
+            and (request.task_id == task_id or (request_type == TaskApprovalRequestType.TASK_INVITATION and task_id is None))
             and request.comment_id == comment_id
             and request.request_type == request_type
             and (request.proposed_changes or {}) == changes

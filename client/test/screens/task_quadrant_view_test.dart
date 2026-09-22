@@ -52,6 +52,59 @@ Widget quadrantApp(TaskQuadrantView view) => MaterialApp(
 );
 
 void main() {
+  testWidgets('omits completed tasks from the active quadrant view', (
+    tester,
+  ) async {
+    final active = quadrantTask('active', '正在推进');
+    final done = quadrantTask('done', '已经完成').copyWith(status: 'DONE');
+    await tester.pumpWidget(
+      quadrantApp(
+        TaskQuadrantView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: quadrantState([active, done]),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+    expect(find.text('正在推进'), findsOneWidget);
+    expect(find.text('已经完成'), findsNothing);
+  });
+
+  testWidgets('filters the same quadrant tasks by the current handler', (
+    tester,
+  ) async {
+    final mine = quadrantTask('mine', '我负责的事');
+    final other = quadrantTask(
+      'other',
+      'TA 负责的事',
+    ).copyWith(currentHandlerId: 'user-2');
+    await tester.pumpWidget(
+      quadrantApp(
+        TaskQuadrantView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: quadrantState([mine, other]),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+    expect(find.text('我负责的事'), findsOneWidget);
+    expect(find.text('TA 负责的事'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('quadrant-owner-mine')));
+    await tester.pumpAndSettle();
+    expect(find.text('我负责的事'), findsOneWidget);
+    expect(find.text('TA 负责的事'), findsNothing);
+    await tester.tap(find.byKey(const Key('quadrant-owner-other')));
+    await tester.pumpAndSettle();
+    expect(find.text('我负责的事'), findsNothing);
+    expect(find.text('TA 负责的事'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('quadrant-owner-all')));
+    await tester.pumpAndSettle();
+    expect(find.text('我负责的事'), findsOneWidget);
+    expect(find.text('TA 负责的事'), findsOneWidget);
+  });
+
   testWidgets('renders a two-column grid with tinted quadrant headers', (
     tester,
   ) async {

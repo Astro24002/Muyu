@@ -79,6 +79,7 @@ class TaskQuadrant(StrEnum):
 
 
 class TaskApprovalRequestType(StrEnum):
+    TASK_INVITATION = "TASK_INVITATION"
     TASK_UPDATE = "TASK_UPDATE"
     QUADRANT_UPDATE = "QUADRANT_UPDATE"
     STATUS_UPDATE = "STATUS_UPDATE"

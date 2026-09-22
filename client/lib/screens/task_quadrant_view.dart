@@ -28,11 +28,23 @@ class TaskQuadrantView extends StatefulWidget {
 
 class _TaskQuadrantViewState extends State<TaskQuadrantView> {
   String? _expandedQuadrant;
+  String _ownerFilter = 'all';
 
   @override
   Widget build(BuildContext context) {
     final tasks = widget.state.snapshot?.tasks ?? const <TaskItem>[];
-    final filtered = TaskView.filterByLabel(tasks, widget.selectedLabel);
+    final viewerId =
+        widget.state.snapshot?.viewerUserId ?? widget.state.home?.viewerUserId;
+    final filtered = TaskView.filterByLabel(tasks, widget.selectedLabel)
+        .where(TaskView.isOpen)
+        .where(
+          (task) =>
+              _ownerFilter == 'all' ||
+              (viewerId != null &&
+                  (task.currentHandlerId == viewerId) ==
+                      (_ownerFilter == 'mine')),
+        )
+        .toList();
     final grouped = TaskView.byQuadrant(filtered);
     final expandedQuadrant = _expandedQuadrant;
 
@@ -43,10 +55,14 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
       child: ListView(
         key: const Key('task-quadrant-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(
-          MuyuSpacing.md,
+        padding: EdgeInsets.fromLTRB(
+          MediaQuery.sizeOf(context).width >= 360
+              ? MuyuSpacing.xl
+              : MuyuSpacing.lg,
           MuyuSpacing.sm,
-          MuyuSpacing.md,
+          MediaQuery.sizeOf(context).width >= 360
+              ? MuyuSpacing.xl
+              : MuyuSpacing.lg,
           MuyuSpacing.xl,
         ),
         children: [
@@ -58,6 +74,31 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
                 key: const Key('task-quadrant-error'),
               ),
             ),
+          Text('让重要的事，有它的位置。', style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: MuyuSpacing.md),
+          Wrap(
+            key: const Key('quadrant-owner-filter'),
+            spacing: MuyuSpacing.sm,
+            children: [
+              for (final (value, label) in [
+                ('all', '我们'),
+                ('mine', '我负责'),
+                ('other', 'TA 负责'),
+              ])
+                ChoiceChip(
+                  key: Key('quadrant-owner-$value'),
+                  label: Text(label),
+                  selected: _ownerFilter == value,
+                  onSelected: viewerId == null && value != 'all'
+                      ? null
+                      : (_) => setState(() {
+                          _ownerFilter = value;
+                          _expandedQuadrant = null;
+                        }),
+                ),
+            ],
+          ),
+          const SizedBox(height: MuyuSpacing.md),
           AnimatedSize(
             key: const Key('task-quadrant-content'),
             duration: const Duration(milliseconds: 260),

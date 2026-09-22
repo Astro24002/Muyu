@@ -46,6 +46,7 @@ class TaskListView extends StatefulWidget {
     required this.state,
     required this.canWrite,
     required this.onTaskTap,
+    this.onViewAll,
     this.selectedLabel,
     this.sort = TaskListSort.dueAt,
     this.showSubtitle = true,
@@ -58,6 +59,7 @@ class TaskListView extends StatefulWidget {
   final WorkspaceSyncState state;
   final bool canWrite;
   final TaskNavigationCallback onTaskTap;
+  final VoidCallback? onViewAll;
   final String? selectedLabel;
   final TaskListSort sort;
   final bool showSubtitle;
@@ -101,10 +103,14 @@ class _TaskListViewState extends State<TaskListView> {
       child: ListView(
         key: const Key('task-list-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(
-          MuyuSpacing.md,
+        padding: EdgeInsets.fromLTRB(
+          MediaQuery.sizeOf(context).width >= 360
+              ? MuyuSpacing.xl
+              : MuyuSpacing.lg,
           MuyuSpacing.sm,
-          MuyuSpacing.md,
+          MediaQuery.sizeOf(context).width >= 360
+              ? MuyuSpacing.xl
+              : MuyuSpacing.lg,
           96,
         ),
         children: [
@@ -121,22 +127,35 @@ class _TaskListViewState extends State<TaskListView> {
                 key: const Key('task-list-error'),
               ),
             ),
+          if (hasMomentProjection && !_showAllTasks)
+            Padding(
+              padding: const EdgeInsets.only(bottom: MuyuSpacing.lg),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '每件事，都有下一步',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  TextButton.icon(
+                    key: const Key('moment-view-all'),
+                    onPressed:
+                        widget.onViewAll ??
+                        () => setState(() => _showAllTasks = true),
+                    iconAlignment: IconAlignment.end,
+                    icon: const Icon(Icons.chevron_right, size: 18),
+                    label: const Text('全部事情'),
+                  ),
+                ],
+              ),
+            ),
           if (hasMomentProjection)
             _MomentSummary(
               home: home!,
               state: widget.state,
               onTaskTap: widget.onTaskTap,
               showMetrics: widget.showMomentMetrics,
-            ),
-          if (hasMomentProjection && !_showAllTasks)
-            Padding(
-              padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
-              child: TextButton.icon(
-                key: const Key('moment-view-all'),
-                onPressed: () => setState(() => _showAllTasks = true),
-                icon: const Icon(Icons.list_alt_outlined, size: 18),
-                label: const Text('查看全部事情'),
-              ),
             ),
           if (!hasMomentProjection && widget.state.home != null)
             _HomeActionSummary(
@@ -202,12 +221,29 @@ class _MomentSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (showMetrics)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                0,
+                MuyuSpacing.sm,
+                0,
+                MuyuSpacing.lg,
+              ),
+              child: Text(
+                '${_memberDisplayName(state, state.snapshot?.viewerUserId ?? '')}，${home.needsActionCount == 0 ? '此刻没有待处理的请求' : '有 ${home.needsActionCount} 件事等你回应'}。一起向前一点点。',
+                key: const Key('moment-greeting'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           if (showMetrics) _MomentMetrics(home: home),
           const SizedBox(height: MuyuSpacing.sm),
           _MomentTaskSection(
             key: const Key('moment-section-blocked'),
             sectionKey: 'blocked',
             title: '卡住的事情',
+            description: '先把这一步走通',
             section: blocked,
             state: state,
             onTaskTap: onTaskTap,
@@ -216,6 +252,7 @@ class _MomentSummary extends StatelessWidget {
             key: const Key('moment-section-mine'),
             sectionKey: 'mine',
             title: '我在推进',
+            description: '稳稳地，向前走',
             section: mine,
             state: state,
             onTaskTap: onTaskTap,
@@ -224,6 +261,7 @@ class _MomentSummary extends StatelessWidget {
             key: const Key('moment-section-other'),
             sectionKey: 'other',
             title: 'TA 在推进',
+            description: '彼此看见，各自负责',
             section: other,
             state: state,
             onTaskTap: onTaskTap,
@@ -241,33 +279,28 @@ class _MomentMetrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final metrics = [
-      ('needs-action', '需要我处理', home.needsActionCount),
-      ('waiting-on-other', '等对方', home.waitingOnOtherCount),
-      ('week-due', '本周到期', home.weekDueCount),
+      ('needs-action', '需要我处理', home.needsActionCount, '轮到我回应'),
+      ('waiting-on-other', '等对方', home.waitingOnOtherCount, '交给 TA 的下一棒'),
+      ('week-due', '本周到期', home.weekDueCount, '一起留意截止时间'),
     ];
-    return DecoratedBox(
+    return Row(
       key: const Key('moment-metrics'),
-      decoration: BoxDecoration(
-        border: Border.symmetric(
-          horizontal: BorderSide(color: theme.colorScheme.outline),
-        ),
-      ),
-      child: Row(
-        children: [
-          for (var index = 0; index < metrics.length; index++)
-            Expanded(
-              child: _MomentMetric(
-                key: Key('moment-metric-${metrics[index].$1}'),
-                metricKey: metrics[index].$1,
-                label: metrics[index].$2,
-                count: metrics[index].$3,
-                showDivider: index < metrics.length - 1,
-              ),
+      children: [
+        for (var index = 0; index < metrics.length; index++) ...[
+          if (index > 0) const SizedBox(width: MuyuSpacing.sm),
+          Expanded(
+            child: _MomentMetric(
+              key: Key('moment-metric-${metrics[index].$1}'),
+              metricKey: metrics[index].$1,
+              label: metrics[index].$2,
+              count: metrics[index].$3,
+              subtitle: metrics[index].$4,
+              highlighted: index == 0,
             ),
+          ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -278,47 +311,64 @@ class _MomentMetric extends StatelessWidget {
     required this.metricKey,
     required this.label,
     required this.count,
-    required this.showDivider,
+    required this.subtitle,
+    required this.highlighted,
   });
 
   final String metricKey;
   final String label;
   final int count;
-  final bool showDivider;
+  final String subtitle;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DecoratedBox(
+    final foreground = highlighted
+        ? theme.colorScheme.onPrimary
+        : theme.colorScheme.onSurface;
+    return Container(
+      height: 108,
       decoration: BoxDecoration(
-        border: showDivider
-            ? Border(right: BorderSide(color: theme.colorScheme.outline))
-            : null,
+        color: highlighted ? theme.colorScheme.primary : indexColor(metricKey),
+        border: highlighted
+            ? null
+            : Border.all(color: theme.colorScheme.outline),
+        borderRadius: BorderRadius.circular(15),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: MuyuSpacing.xs,
-          vertical: MuyuSpacing.sm,
+          horizontal: MuyuSpacing.sm,
+          vertical: MuyuSpacing.md,
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              style: theme.textTheme.labelMedium?.copyWith(color: foreground),
             ),
-            const SizedBox(height: 2),
             Text(
               _taskCountLabel(count),
               key: Key('moment-count-$metricKey'),
               style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.primary,
+                color: foreground,
+                fontSize: 28,
                 fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: highlighted
+                    ? theme.colorScheme.onPrimary.withValues(alpha: 0.7)
+                    : theme.colorScheme.onSurfaceVariant,
+                fontSize: 10,
               ),
             ),
           ],
@@ -326,6 +376,10 @@ class _MomentMetric extends StatelessWidget {
       ),
     );
   }
+
+  Color indexColor(String key) => key == 'waiting-on-other'
+      ? const Color(0xfff5f8ed)
+      : const Color(0xfffaf6ef);
 }
 
 class _MomentTaskSection extends StatelessWidget {
@@ -333,6 +387,7 @@ class _MomentTaskSection extends StatelessWidget {
     super.key,
     required this.sectionKey,
     required this.title,
+    required this.description,
     required this.section,
     required this.state,
     required this.onTaskTap,
@@ -340,6 +395,7 @@ class _MomentTaskSection extends StatelessWidget {
 
   final String sectionKey;
   final String title;
+  final String description;
   final HomeTaskSection section;
   final WorkspaceSyncState state;
   final TaskNavigationCallback onTaskTap;
@@ -357,6 +413,17 @@ class _MomentTaskSection extends StatelessWidget {
           ),
           child: Row(
             children: [
+              Container(
+                width: 7,
+                height: 7,
+                margin: const EdgeInsets.only(right: MuyuSpacing.sm),
+                decoration: BoxDecoration(
+                  color: sectionKey == 'blocked'
+                      ? Theme.of(context).extension<MuyuThemeExtension>()?.coral
+                      : Theme.of(context).colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
               Expanded(
                 child: Text(
                   title,
@@ -372,6 +439,15 @@ class _MomentTaskSection extends StatelessWidget {
                   hasMore: section.hasMore,
                 ),
                 semanticLabel: '$title，${section.items.length}项',
+              ),
+              const SizedBox(width: MuyuSpacing.sm),
+              Flexible(
+                child: Text(
+                  description,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
             ],
           ),
@@ -1176,56 +1252,7 @@ class TaskSummaryCard extends StatelessWidget {
     final classification = task.labels.isEmpty ? null : task.labels.first;
     final due = _momentDueLabel(task);
     final dueIsOverdue = _momentDueIsOverdue(task);
-    final quadrantColor = _quadrantColor(theme, extension);
-    final focusSurface =
-        extension?.focusSurface ?? theme.colorScheme.secondaryContainer;
-    final metadata = <Widget>[
-      _MetadataPill(
-        key: ValueKey('task-card-status-${task.id}'),
-        label: status,
-        semanticLabel: '状态$status',
-        background: _compactStatusBackground(theme, extension),
-        foreground: _compactStatusForeground(theme, extension),
-        compact: true,
-      ),
-      _MetadataPill(
-        key: ValueKey('task-card-due-${task.id}'),
-        label: due,
-        semanticLabel: '截止$due',
-        background: dueIsOverdue
-            ? extension?.coralSurface ?? theme.colorScheme.errorContainer
-            : focusSurface,
-        foreground: dueIsOverdue
-            ? extension?.coral ?? theme.colorScheme.onErrorContainer
-            : theme.colorScheme.primary,
-        compact: true,
-      ),
-      if (classification != null)
-        _MetadataPill(
-          key: ValueKey('task-card-label-${task.id}'),
-          label: classification,
-          semanticLabel: '分类$classification',
-          background: theme.colorScheme.surfaceContainerHighest,
-          foreground: theme.colorScheme.onSurfaceVariant,
-          compact: true,
-        ),
-      _MetadataPill(
-        key: ValueKey('task-card-quadrant-${task.id}'),
-        label: task.quadrant,
-        semanticLabel: '象限${task.quadrant}',
-        background: quadrantColor.withValues(alpha: 0.12),
-        foreground: quadrantColor,
-        compact: true,
-      ),
-      _MetadataPill(
-        key: ValueKey('task-card-owner-${task.id}'),
-        label: owner,
-        semanticLabel: '负责人$owner',
-        background: focusSurface,
-        foreground: theme.colorScheme.primary,
-        compact: true,
-      ),
-    ];
+    final metadataStyle = theme.textTheme.bodySmall;
     final blockedReason = _nonEmpty(task.blockedReason);
     final nextStep =
         _nonEmpty(task.nextStepText) ?? _nonEmpty(task.nextStep?.label);
@@ -1267,7 +1294,7 @@ class TaskSummaryCard extends StatelessWidget {
             ),
             decoration: BoxDecoration(
               border: border,
-              borderRadius: const BorderRadius.all(Radius.circular(6)),
+              borderRadius: const BorderRadius.all(Radius.circular(12)),
               color: normalizedStatus == 'BLOCKED'
                   ? Color.alphaBlend(
                       coral.withValues(alpha: 0.025),
@@ -1286,7 +1313,7 @@ class TaskSummaryCard extends StatelessWidget {
                       child: Text(
                         key: ValueKey('task-card-title-${task.id}'),
                         task.title,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: _isTerminal(task.status)
@@ -1303,29 +1330,85 @@ class TaskSummaryCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(width: MuyuSpacing.sm),
+                    _MetadataPill(
+                      key: ValueKey('task-card-status-${task.id}'),
+                      label: status,
+                      semanticLabel: '状态$status',
+                      background: _compactStatusBackground(theme, extension),
+                      foreground: _compactStatusForeground(theme, extension),
+                      compact: true,
+                    ),
                   ],
                 ),
                 const SizedBox(height: MuyuSpacing.xs),
-                SizedBox(
-                  key: ValueKey('task-card-metadata-${task.id}'),
-                  height: 20,
+                DefaultTextStyle(
+                  style: metadataStyle ?? const TextStyle(),
                   child: Row(
+                    key: ValueKey('task-card-metadata-${task.id}'),
                     children: [
-                      for (var index = 0; index < metadata.length; index++) ...[
-                        if (index > 0) const SizedBox(width: MuyuSpacing.xs),
-                        Flexible(child: metadata[index]),
+                      Flexible(
+                        child: Text(
+                          owner,
+                          key: ValueKey('task-card-owner-${task.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (classification != null) ...[
+                        const Text('  ·  '),
+                        Text(
+                          classification,
+                          key: ValueKey('task-card-label-${task.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ],
+                      const Text('  ·  '),
+                      Flexible(
+                        child: Text(
+                          due,
+                          key: ValueKey('task-card-due-${task.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: dueIsOverdue ? TextStyle(color: coral) : null,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                if (blockedReason != null || nextStep != null) ...[
-                  const SizedBox(height: MuyuSpacing.xs),
-                  _MomentContextLine(
-                    taskId: task.id,
-                    blockedReason: blockedReason,
-                    nextStep: nextStep,
-                  ),
-                ],
+                const SizedBox(height: MuyuSpacing.sm),
+                Divider(height: 1, color: theme.colorScheme.outline),
+                const SizedBox(height: MuyuSpacing.sm),
+                Row(
+                  children: [
+                    if (blockedReason != null || nextStep != null)
+                      Expanded(
+                        child: _MomentContextLine(
+                          taskId: task.id,
+                          blockedReason: blockedReason,
+                          nextStep: nextStep,
+                        ),
+                      )
+                    else
+                      const Spacer(),
+                    const SizedBox(width: MuyuSpacing.xs),
+                    Text(
+                      normalizedStatus == 'BLOCKED' ? '查看阻塞' : '查看',
+                      key: ValueKey('task-card-action-${task.id}'),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 14,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -1333,15 +1416,6 @@ class TaskSummaryCard extends StatelessWidget {
       ),
     );
   }
-
-  Color _quadrantColor(ThemeData theme, MuyuThemeExtension? extension) =>
-      switch (task.quadrant) {
-        'Q1' => extension?.quadrantQ1 ?? theme.colorScheme.error,
-        'Q2' => extension?.quadrantQ2 ?? theme.colorScheme.primary,
-        'Q3' => extension?.quadrantQ3 ?? theme.colorScheme.secondary,
-        'Q4' => extension?.quadrantQ4 ?? theme.colorScheme.onSurfaceVariant,
-        _ => theme.colorScheme.onSurfaceVariant,
-      };
 
   static String _momentDueLabel(TaskItem task) {
     final due = task.dueAt;

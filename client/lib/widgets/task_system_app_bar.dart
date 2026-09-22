@@ -37,8 +37,14 @@ class TaskSystemAppBar extends StatelessWidget implements PreferredSizeWidget {
             : titleContent ?? Text(title, style: theme.textTheme.titleLarge),
       ),
       actions: actions,
-      centerTitle: titleContent != null && !showBrand,
-      titleSpacing: leading == null ? 16 : null,
+      centerTitle: false,
+      titleSpacing: leading == null
+          ? titleContent == null
+                ? MuyuSpacing.lg
+                : MediaQuery.sizeOf(context).width >= 360
+                ? MuyuSpacing.xl
+                : MuyuSpacing.lg
+          : null,
       backgroundColor: theme.colorScheme.surface,
       foregroundColor: theme.colorScheme.onSurface,
       elevation: 0,

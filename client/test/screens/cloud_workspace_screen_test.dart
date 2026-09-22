@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:muyu_client/auth/mobile_session_store.dart';
 import 'package:muyu_client/core/api_client.dart';
 import 'package:muyu_client/models/classification.dart';
+import 'package:muyu_client/models/home.dart';
 import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_approval_request.dart';
 import 'package:muyu_client/models/task_overview.dart';
@@ -59,6 +60,7 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   FakeTaskRepository({
     this.failCreate = false,
     this.createCompleter,
+    this.includePartner = false,
     this.classifications = const [
       WorkspaceClassification(
         id: 'classification-work',
@@ -82,13 +84,16 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
   });
 
   bool failCreate;
+  final bool includePartner;
   final Completer<void>? createCompleter;
   final List<WorkspaceClassification> classifications;
   final List<TaskItem> tasks = [];
   String? lastTitle;
+  String? lastAcceptanceCriteria;
   String? lastQuadrant;
   List<String>? lastLabels;
   String? lastDueAt;
+  String? lastTargetHandlerId;
   int createClassificationCalls = 0;
 
   @override
@@ -96,9 +101,23 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     workspaceId: 'w1',
     cursor: 1,
     tasks: List.of(tasks),
-    members: const [
-      {'user_id': 'user-1'},
-    ],
+    members: includePartner
+        ? const [
+            {
+              'user_id': 'user-1',
+              'display_name': '我',
+              'membership_status': 'ACTIVE',
+            },
+            {
+              'user_id': 'user-2',
+              'display_name': '小雨',
+              'membership_status': 'ACTIVE',
+            },
+          ]
+        : const [
+            {'user_id': 'user-1'},
+          ],
+    viewerUserId: includePartner ? 'user-1' : null,
     classifications: List.unmodifiable(classifications),
   );
 
@@ -117,16 +136,20 @@ class FakeTaskRepository implements WorkspaceSyncRepository {
     List<String> labels = const [],
     String? description,
     String? nextStepText,
+    String? acceptanceCriteria,
     String? dueAt,
     String? parentTaskId,
     String? plannedStartAt,
     int? estimatedMinutes,
     required String requestId,
+    String? targetHandlerId,
   }) async {
     lastTitle = title;
+    lastAcceptanceCriteria = acceptanceCriteria;
     lastQuadrant = quadrant;
     lastLabels = List.of(labels);
     lastDueAt = dueAt;
+    lastTargetHandlerId = targetHandlerId;
     if (createCompleter != null) await createCompleter!.future;
     if (failCreate) throw Exception('create failed');
     final created = task(
@@ -370,6 +393,12 @@ void main() {
 
     expect(find.byType(MyProfileScreen), findsOneWidget);
     expect(find.text('我的'), findsWidgets);
+    expect(
+      tester
+          .widget<MyProfileScreen>(find.byType(MyProfileScreen))
+          .onOpenAllTasks,
+      isNotNull,
+    );
   });
 
   testWidgets(
@@ -540,6 +569,10 @@ void main() {
       find.byKey(const Key('task-next-step-input')),
       '确认牛奶品牌和购买时间',
     );
+    await tester.enterText(
+      find.byKey(const Key('task-acceptance-input')),
+      '双方确认购买结果',
+    );
     await tester.pump();
     expect(
       tester
@@ -560,9 +593,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.lastTitle, 'Buy milk');
+    expect(repo.lastAcceptanceCriteria, '双方确认购买结果');
     expect(repo.lastQuadrant, 'Q2');
     expect(repo.lastLabels, ['工作']);
     expect(find.text('Buy milk'), findsOneWidget);
+  });
+
+  testWidgets('creation can target the other real workspace member', (
+    tester,
+  ) async {
+    final repo = FakeTaskRepository(includePartner: true);
+    final sync = await readyController(repo);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: muyuLightTheme(),
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('create-task-fab')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('task-create-handler-button')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('task-create-handler-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('创建后由谁接棒？'), findsOneWidget);
+    await tester.tap(find.text('小雨'));
+    await tester.pumpAndSettle();
+    expect(find.text('交给 TA'), findsOneWidget);
   });
 
   testWidgets(
@@ -637,6 +693,10 @@ void main() {
     await tester.enterText(
       find.byKey(const Key('task-next-step-input')),
       '列出本周计划并确认第一个动作',
+    );
+    await tester.enterText(
+      find.byKey(const Key('task-acceptance-input')),
+      '双方确认计划',
     );
 
     final labelButtonBeforeDue = tester.getTopLeft(
@@ -746,6 +806,10 @@ void main() {
       await tester.enterText(
         find.byKey(const Key('task-next-step-input')),
         '保留失败时填写的下一步内容',
+      );
+      await tester.enterText(
+        find.byKey(const Key('task-acceptance-input')),
+        '双方确认结果',
       );
       await tester.pump();
       await tester.tap(find.byKey(const Key('task-create-quadrant-button')));
@@ -929,7 +993,8 @@ void main() {
       );
 
       expect(find.byKey(const Key('task-category-selector')), findsOneWidget);
-      expect(find.text('全部任务'), findsOneWidget);
+      expect(find.byKey(const Key('matter-current-date')), findsOneWidget);
+      expect(find.text('全部任务'), findsNothing);
       expect(find.byKey(const Key('task-list-label-filter')), findsNothing);
 
       await tester.tap(find.byKey(const Key('task-category-selector')));
@@ -1123,5 +1188,60 @@ void main() {
     expect(find.text('全部任务'), findsOneWidget);
     expect(find.byKey(const Key('task-schedule-label-filter')), findsNothing);
     expect(find.byKey(const Key('create-task-fab')), findsNothing);
+  });
+
+  testWidgets(
+    'task detail opens above matters and closes back to the same view',
+    (tester) async {
+      final repository = FakeTaskRepository()
+        ..tasks.add(task('sheet-task', '准备音乐', status: 'IN_PROGRESS'));
+      final sync = await readyController(repository);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: muyuLightTheme(),
+          home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('准备音乐'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('task-detail-bottom-sheet')), findsOneWidget);
+      expect(find.byKey(const Key('task-system-app-bar')), findsOneWidget);
+      expect(find.byKey(const Key('task-sheet-attributes')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('task-detail-sheet-close')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('task-detail-bottom-sheet')), findsNothing);
+      expect(find.text('准备音乐'), findsOneWidget);
+    },
+  );
+
+  testWidgets('all matters opens a separate page and returns to moment', (
+    tester,
+  ) async {
+    final sync = await readyController(FakeTaskRepository());
+    sync.state = sync.state.copyWith(
+      home: HomeResponse(
+        currentTasks: HomeTaskSection(items: const []),
+        blockedTasks: HomeTaskSection(items: const []),
+        reviewTasks: HomeTaskSection(items: const []),
+        pendingApprovalCount: 0,
+        moment: MomentProjection(blocked: HomeTaskSection(items: const [])),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('moment-view-all')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('all-tasks-search')), findsOneWidget);
+    expect(find.byKey(const Key('matter-view-menu')), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('matter-view-menu')), findsOneWidget);
   });
 }

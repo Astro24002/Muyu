@@ -13,11 +13,13 @@ class TaskDetailScreen extends StatefulWidget {
     required this.task,
     required this.sync,
     this.canWrite = true,
+    this.inSheet = false,
   });
 
   final TaskItem task;
   final WorkspaceSyncController sync;
   final bool canWrite;
+  final bool inSheet;
 
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
@@ -27,6 +29,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late final TextEditingController _title;
   late final TextEditingController _description;
   late final TextEditingController _nextStepText;
+  late final TextEditingController _acceptanceCriteria;
   late final TextEditingController _dueAt;
   late final TextEditingController _plannedStartAt;
   late final TextEditingController _estimatedMinutes;
@@ -38,6 +41,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   int? _selectedProgress;
   bool _saving = false;
   bool _commenting = false;
+  bool _handoffSubmitting = false;
+  bool _agreementSubmitting = false;
+  bool _cancellationSubmitting = false;
   bool _editing = false;
   String? _pendingMessage;
   String? _formError;
@@ -51,6 +57,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _title = TextEditingController(text: widget.task.title);
     _description = TextEditingController(text: widget.task.description);
     _nextStepText = TextEditingController(text: widget.task.nextStepText ?? '');
+    _acceptanceCriteria = TextEditingController(
+      text: widget.task.acceptanceCriteria ?? '',
+    );
     _dueAt = TextEditingController(text: _dateText(widget.task.dueAt));
     _plannedStartAt = TextEditingController(
       text: _dateText(widget.task.plannedStartAt),
@@ -73,6 +82,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _title.dispose();
     _description.dispose();
     _nextStepText.dispose();
+    _acceptanceCriteria.dispose();
     _dueAt.dispose();
     _plannedStartAt.dispose();
     _estimatedMinutes.dispose();
@@ -178,6 +188,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _title.text = task.title;
     _description.text = task.description;
     _nextStepText.text = task.nextStepText ?? '';
+    _acceptanceCriteria.text = task.acceptanceCriteria ?? '';
     _dueAt.text = _dateText(task.dueAt);
     _plannedStartAt.text = _dateText(task.plannedStartAt);
     _estimatedMinutes.text = task.estimatedMinutes?.toString() ?? '';
@@ -274,6 +285,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       setState(() => _formError = '明确下一步不能超过 90 个字符');
       return;
     }
+    final acceptance = _acceptanceCriteria.text.trim();
+    if (acceptance != (current.acceptanceCriteria ?? '') &&
+        (acceptance.isEmpty || acceptance.runes.length > 500)) {
+      setState(() => _formError = '完成标准不能为空且不能超过 500 个字符');
+      return;
+    }
     final labelsChanged = !_sameLabels(_selectedLabels, current.labels);
     final approvedClassifications = {
       for (final classification in widget.sync.state.classifications)
@@ -314,6 +331,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         'description': _description.text.trim(),
       if (nextStepText.isNotEmpty && nextStepText != current.nextStepText)
         'next_step_text': nextStepText,
+      if (acceptance != (current.acceptanceCriteria ?? ''))
+        'acceptance_criteria': acceptance,
       if (dueChanged) 'due_at': dueAt,
       if (_dateValue(_plannedStartAt.text) !=
           current.plannedStartAt?.toIso8601String())
@@ -470,45 +489,117 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<String?> _requestReviewContent() async {
     final content = TextEditingController();
     String? errorText;
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('提交验收'),
-          content: TextField(
-            key: const Key('review-content-input'),
-            controller: content,
-            autofocus: true,
-            maxLines: 5,
-            maxLength: 5000,
-            decoration: InputDecoration(
-              labelText: '验收内容',
-              hintText: '说明本次完成了什么',
-              errorText: errorText,
+    final reviewer =
+        _handlerLabels(
+          widget.sync.state.snapshot?.members ?? const [],
+        )[_current.reviewerUserId] ??
+        '对方';
+    final result = widget.inSheet
+        ? await showModalBottomSheet<String>(
+            context: context,
+            isScrollControlled: true,
+            useSafeArea: true,
+            showDragHandle: true,
+            builder: (context) => StatefulBuilder(
+              builder: (context, setSheetState) => Padding(
+                key: const Key('review-submit-sheet'),
+                padding: EdgeInsets.fromLTRB(
+                  MuyuSpacing.lg,
+                  0,
+                  MuyuSpacing.lg,
+                  MediaQuery.viewInsetsOf(context).bottom + MuyuSpacing.lg,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '提交验收',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('review-submit-cancel'),
+                          tooltip: '关闭',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: MuyuSpacing.md),
+                    Text('验收人：$reviewer。提交后负责人保持不变。'),
+                    const SizedBox(height: MuyuSpacing.lg),
+                    TextField(
+                      key: const Key('review-content-input'),
+                      controller: content,
+                      maxLines: 4,
+                      maxLength: 5000,
+                      decoration: InputDecoration(
+                        labelText: '交付说明 · 必填',
+                        hintText: '说说完成了什么，方便对方验收',
+                        errorText: errorText,
+                      ),
+                    ),
+                    const SizedBox(height: MuyuSpacing.sm),
+                    FilledButton(
+                      key: const Key('review-submit-confirm'),
+                      onPressed: () {
+                        final value = content.text.trim();
+                        if (value.isEmpty) {
+                          setSheetState(() => errorText = '请填写验收内容');
+                          return;
+                        }
+                        Navigator.pop(context, value);
+                      },
+                      child: const Text('提交给 TA 验收'),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              key: const Key('review-submit-cancel'),
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+          )
+        : await showDialog<String>(
+            context: context,
+            builder: (context) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('提交验收'),
+                content: TextField(
+                  key: const Key('review-content-input'),
+                  controller: content,
+                  autofocus: true,
+                  maxLines: 5,
+                  maxLength: 5000,
+                  decoration: InputDecoration(
+                    labelText: '验收内容',
+                    hintText: '说明本次完成了什么',
+                    errorText: errorText,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    key: const Key('review-submit-cancel'),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    key: const Key('review-submit-confirm'),
+                    onPressed: () {
+                      final value = content.text.trim();
+                      if (value.isEmpty) {
+                        setDialogState(() => errorText = '请填写验收内容');
+                        return;
+                      }
+                      Navigator.pop(context, value);
+                    },
+                    child: const Text('提交验收'),
+                  ),
+                ],
+              ),
             ),
-            FilledButton(
-              key: const Key('review-submit-confirm'),
-              onPressed: () {
-                final value = content.text.trim();
-                if (value.isEmpty) {
-                  setDialogState(() => errorText = '请填写验收内容');
-                  return;
-                }
-                Navigator.pop(context, value);
-              },
-              child: const Text('提交验收'),
-            ),
-          ],
-        ),
-      ),
-    );
+          );
     await waitForRouteDismissal();
     content.dispose();
     return result;
@@ -672,15 +763,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       setState(() => _handlerError = '负责人已不可用，请选择有效成员');
       return;
     }
-    final transferNote = await _requestTransferNote();
-    if (transferNote == null || !mounted) return;
+    final transfer = await _requestTransferDetails();
+    if (transfer == null || !mounted) return;
     setState(() => _handlerError = null);
     try {
       final result = await widget.sync.update(
         _current.id,
         fields: {
           'current_handler_id': handlerId,
-          'transfer_note': transferNote,
+          'transfer_note': transfer.note,
+          'proposed_next_step': transfer.nextStep,
         },
       );
       if (result is PendingApproval && mounted) {
@@ -691,25 +783,61 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
-  Future<String?> _requestTransferNote() async {
+  Future<void> _respondToHandoff(
+    TaskApprovalRequest request, {
+    required bool accept,
+  }) async {
+    if (!widget.canWrite || _handoffSubmitting) return;
+    setState(() => _handoffSubmitting = true);
+    try {
+      if (accept) {
+        await widget.sync.approveApproval(request.id);
+      } else {
+        await widget.sync.rejectApproval(request.id);
+      }
+      if (mounted) _pendingMessage = null;
+    } catch (_) {
+      // The sync controller retains the server error and authoritative task.
+    } finally {
+      if (mounted) setState(() => _handoffSubmitting = false);
+    }
+  }
+
+  Future<({String note, String nextStep})?> _requestTransferDetails() async {
     final note = TextEditingController();
+    final nextStep = TextEditingController(text: _current.nextStepText ?? '');
     String? errorText;
-    final result = await showDialog<String>(
+    final result = await showDialog<({String note, String nextStep})>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('发起交接'),
-          content: TextField(
-            key: const Key('transfer-note-input'),
-            controller: note,
-            autofocus: true,
-            maxLines: 4,
-            maxLength: 2000,
-            decoration: InputDecoration(
-              labelText: '交接说明',
-              hintText: '说明需要对方接手的原因或后续安排',
-              errorText: errorText,
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                key: const Key('transfer-note-input'),
+                controller: note,
+                autofocus: true,
+                maxLines: 3,
+                maxLength: 2000,
+                decoration: const InputDecoration(
+                  labelText: '交接说明',
+                  hintText: '说明为什么需要对方接手',
+                ),
+              ),
+              TextField(
+                key: const Key('transfer-next-step-input'),
+                controller: nextStep,
+                maxLines: 2,
+                maxLength: 90,
+                decoration: InputDecoration(
+                  labelText: '接棒后的明确下一步',
+                  hintText: '对方确认接棒后要做什么',
+                  errorText: errorText,
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -721,11 +849,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               key: const Key('transfer-note-submit'),
               onPressed: () {
                 final value = note.text.trim();
+                final proposed = nextStep.text.trim();
                 if (value.isEmpty) {
                   setDialogState(() => errorText = '请填写交接说明');
                   return;
                 }
-                Navigator.pop(context, value);
+                if (proposed.isEmpty) {
+                  setDialogState(() => errorText = '请填写接棒后的明确下一步');
+                  return;
+                }
+                Navigator.pop(context, (note: value, nextStep: proposed));
               },
               child: const Text('提交交接'),
             ),
@@ -735,7 +868,139 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     );
     await waitForRouteDismissal();
     note.dispose();
+    nextStep.dispose();
     return result;
+  }
+
+  Future<void> _requestAgreementUpdate() async {
+    if (!widget.canWrite || _agreementSubmitting) return;
+    final criteria = TextEditingController(
+      text: _current.acceptanceCriteria ?? '',
+    );
+    String? errorText;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('申请修改约定'),
+          content: TextField(
+            key: const Key('agreement-update-input'),
+            controller: criteria,
+            autofocus: true,
+            maxLines: 5,
+            maxLength: 500,
+            decoration: InputDecoration(
+              labelText: '完成标准',
+              hintText: '写清楚双方如何确认完成',
+              errorText: errorText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('agreement-update-cancel'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('返回'),
+            ),
+            FilledButton(
+              key: const Key('agreement-update-submit'),
+              onPressed: () {
+                final normalized = criteria.text.trim();
+                if (normalized.isEmpty) {
+                  setDialogState(() => errorText = '请填写完成标准');
+                  return;
+                }
+                if (normalized.runes.length > 500) {
+                  setDialogState(() => errorText = '完成标准不能超过 500 个字符');
+                  return;
+                }
+                Navigator.pop(context, normalized);
+              },
+              child: const Text('提交申请'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await waitForRouteDismissal();
+    criteria.dispose();
+    if (value == null || !mounted) return;
+    setState(() => _agreementSubmitting = true);
+    try {
+      final approval = await widget.sync.requestAgreementUpdate(
+        _current.id,
+        acceptanceCriteria: value,
+      );
+      if (mounted && approval != null) {
+        setState(() => _pendingMessage = '约定修改已提交，等待负责人确认');
+      }
+    } catch (_) {
+      // Keep the authoritative sync error and the dialog input is already
+      // represented by the unchanged task field.
+    } finally {
+      if (mounted) setState(() => _agreementSubmitting = false);
+    }
+  }
+
+  Future<void> _requestCancellation() async {
+    if (!widget.canWrite || _cancellationSubmitting) return;
+    final reason = TextEditingController();
+    String? errorText;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('申请取消任务'),
+          content: TextField(
+            key: const Key('task-cancellation-reason-input'),
+            controller: reason,
+            autofocus: true,
+            maxLines: 4,
+            maxLength: 2000,
+            decoration: InputDecoration(
+              labelText: '取消原因',
+              hintText: '说明为什么不再继续',
+              errorText: errorText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('task-cancellation-cancel'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('返回'),
+            ),
+            FilledButton(
+              key: const Key('task-cancellation-submit'),
+              onPressed: () {
+                final normalized = reason.text.trim();
+                if (normalized.isEmpty) {
+                  setDialogState(() => errorText = '请填写取消原因');
+                  return;
+                }
+                Navigator.pop(context, normalized);
+              },
+              child: const Text('提交申请'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await waitForRouteDismissal();
+    reason.dispose();
+    if (value == null || !mounted) return;
+    setState(() => _cancellationSubmitting = true);
+    try {
+      final approval = await widget.sync.requestCancellation(
+        _current.id,
+        reason: value,
+      );
+      if (mounted && approval != null) {
+        setState(() => _pendingMessage = '取消申请已提交，等待负责人确认');
+      }
+    } catch (_) {
+      // Keep the authoritative sync error.
+    } finally {
+      if (mounted) setState(() => _cancellationSubmitting = false);
+    }
   }
 
   void _changeResumeHandler(String? handlerId) {
@@ -911,9 +1176,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(MuyuSpacing.md),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withAlpha(65)),
+        color: widget.inSheet
+            ? const Color(0xfff6f4ff)
+            : theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(widget.inSheet ? 12 : 6),
+        border: Border.all(
+          color: widget.inSheet ? const Color(0xffe4dcfa) : color.withAlpha(65),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -954,6 +1223,67 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       ),
     );
   }
+
+  Widget _buildHandoffActions(TaskApprovalRequest request) => Column(
+    key: const Key('task-handoff-actions'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const SizedBox(height: MuyuSpacing.md),
+      FilledButton(
+        key: const Key('task-handoff-accept'),
+        onPressed: widget.canWrite && !_handoffSubmitting
+            ? () => _respondToHandoff(request, accept: true)
+            : null,
+        child: _handoffSubmitting
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('确认接棒'),
+      ),
+      const SizedBox(height: MuyuSpacing.sm),
+      OutlinedButton(
+        key: const Key('task-handoff-decline'),
+        onPressed: widget.canWrite && !_handoffSubmitting
+            ? () => _respondToHandoff(request, accept: false)
+            : null,
+        child: const Text('暂不接棒'),
+      ),
+    ],
+  );
+
+  Widget _buildAgreementActions() => Column(
+    key: const Key('task-agreement-actions'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const SizedBox(height: MuyuSpacing.md),
+      Text('当前完成标准在对方确认前保持不变。', style: Theme.of(context).textTheme.bodySmall),
+      const SizedBox(height: MuyuSpacing.sm),
+      OutlinedButton.icon(
+        key: const Key('task-agreement-update'),
+        onPressed: _agreementSubmitting ? null : _requestAgreementUpdate,
+        icon: _agreementSubmitting
+            ? const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.edit_note_outlined),
+        label: const Text('申请修改约定'),
+      ),
+      const SizedBox(height: MuyuSpacing.sm),
+      OutlinedButton.icon(
+        key: const Key('task-cancellation-request'),
+        onPressed: _cancellationSubmitting ? null : _requestCancellation,
+        icon: _cancellationSubmitting
+            ? const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.remove_circle_outline),
+        label: const Text('申请取消任务'),
+      ),
+    ],
+  );
 
   Future<void> _createSubtask(TaskItem parent) async {
     if (!widget.canWrite || parent.deletedAt != null) return;
@@ -1061,6 +1391,28 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   ) {
     final theme = Theme.of(context);
     final statusColor = _statusColor(context, task.status);
+    if (widget.inSheet && !_editing) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${task.labels.isEmpty ? '任务' : task.labels.first}  ·  ${task.taskNumber.isEmpty ? '任务' : task.taskNumber}',
+            key: const Key('task-number'),
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: MuyuSpacing.md),
+          Text(
+            task.title,
+            key: const Key('task-detail-title'),
+            style: theme.textTheme.titleLarge,
+          ),
+          if (task.description.trim().isNotEmpty) ...[
+            const SizedBox(height: MuyuSpacing.sm),
+            Text(task.description, style: theme.textTheme.bodyLarge),
+          ],
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1206,6 +1558,61 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     );
   }
 
+  Widget _buildSheetAttributes(
+    BuildContext context,
+    TaskItem task,
+    Map<String, String> handlerLabels,
+  ) {
+    final theme = Theme.of(context);
+    Widget field(String label, Widget value) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: theme.textTheme.bodySmall),
+        const SizedBox(height: MuyuSpacing.xs),
+        value,
+      ],
+    );
+
+    return Column(
+      key: const Key('task-sheet-attributes'),
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: field(
+                '唯一负责人',
+                Text(handlerLabels[task.currentHandlerId] ?? '协作成员'),
+              ),
+            ),
+            Expanded(
+              child: field(
+                '当前状态',
+                _StatusBadge(
+                  label: taskStatusLabel(task.status),
+                  color: _statusColor(context, task.status),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: MuyuSpacing.lg),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: field('截止日期', Text(_displayDate(task.dueAt)))),
+            Expanded(
+              child: field(
+                '优先级',
+                Text(_quadrantLabels[task.quadrant] ?? task.quadrant),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildEditor(
     BuildContext context,
     TaskItem task,
@@ -1224,6 +1631,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           maxLength: 90,
           enabled: widget.canWrite,
           decoration: const InputDecoration(labelText: '明确下一步'),
+        ),
+        TextField(
+          key: const Key('task-detail-acceptance'),
+          controller: _acceptanceCriteria,
+          minLines: 2,
+          maxLines: 4,
+          maxLength: 500,
+          enabled: widget.canWrite,
+          decoration: const InputDecoration(labelText: '完成标准'),
         ),
         const SizedBox(height: MuyuSpacing.md),
         TextField(
@@ -1651,6 +2067,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (type == 'APPROVAL_CANCELLED') return '负责人变更已取消';
       return '发起负责人交接';
     }
+    if (activity.proposedChanges['agreement_update'] == true) {
+      if (type == 'APPROVAL_APPROVED') return '完成标准已更新';
+      if (type == 'APPROVAL_REJECTED') return '完成标准修改被拒绝';
+      if (type == 'APPROVAL_CANCELLED') return '完成标准修改已取消';
+      return '申请修改完成标准';
+    }
+    if (activity.proposedChanges['cancellation_request'] == true ||
+        activity.proposedChanges.containsKey('cancel_reason')) {
+      if (type == 'APPROVAL_APPROVED') return '任务已取消';
+      if (type == 'APPROVAL_REJECTED') return '取消申请被拒绝';
+      if (type == 'APPROVAL_CANCELLED') return '取消申请已撤回';
+      return '申请取消任务';
+    }
     final isReview =
         activity.reviewContent != null ||
         activity.proposedChanges['review_submission'] == true ||
@@ -1685,6 +2114,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (reviewContent != null) details.add('验收内容：$reviewContent');
     final rejectionReason = activity.rejectionReason;
     if (rejectionReason != null) details.add('退回原因：$rejectionReason');
+    final acceptance = activity.proposedChanges['acceptance_criteria'];
+    if (activity.proposedChanges['agreement_update'] == true &&
+        acceptance is String &&
+        acceptance.trim().isNotEmpty) {
+      details.add('拟议完成标准：${acceptance.trim()}');
+    }
+    final cancellationReason = activity.proposedChanges['cancel_reason'];
+    if (cancellationReason is String && cancellationReason.trim().isNotEmpty) {
+      details.add('取消原因：${cancellationReason.trim()}');
+    }
     if (activity.kind == 'comment' &&
         activity.body?.trim().isNotEmpty == true) {
       details.add(activity.body!.trim());
@@ -1880,6 +2319,23 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       final pendingApproval = widget.sync.state.approvalRequests.any(
         (request) => request.taskId == task.id && request.status == 'PENDING',
       );
+      final pendingAgreement = widget.sync.state.approvalRequests.any(
+        (request) =>
+            request.taskId == task.id &&
+            request.status == 'PENDING' &&
+            (request.requestType == 'TASK_DELETE' ||
+                request.proposedChanges['agreement_update'] == true),
+      );
+      TaskApprovalRequest? incomingHandoff;
+      for (final request in widget.sync.state.approvalRequests) {
+        if (request.taskId == task.id &&
+            request.status == 'PENDING' &&
+            request.requestType == 'HANDLER_TRANSFER' &&
+            request.isIncoming(viewerId ?? '')) {
+          incomingHandoff = request;
+          break;
+        }
+      }
       final comments =
           widget.sync.state.comments
               .where((comment) => comment.taskId == task.id)
@@ -1926,6 +2382,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text('任务详情'),
+          automaticallyImplyLeading: !widget.inSheet,
           actions: [
             IconButton(
               key: const Key('task-save-button'),
@@ -1948,6 +2405,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 key: const Key('task-edit-cancel'),
                 tooltip: '取消编辑',
                 onPressed: _saving ? null : _cancelEditing,
+                icon: const Icon(Icons.close),
+              ),
+            if (widget.inSheet)
+              IconButton(
+                key: const Key('task-detail-sheet-close'),
+                tooltip: '关闭任务详情',
+                onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.close),
               ),
           ],
@@ -1981,11 +2445,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 messageKey: const Key('task-pending-approval'),
                 icon: Icons.hourglass_top_outlined,
                 color: Theme.of(context).colorScheme.primary,
-                message: _pendingMessage ?? '等待负责人审批',
+                message:
+                    _pendingMessage ??
+                    (incomingHandoff != null ? '等待你确认接棒' : '等待负责人审批'),
               ),
             Card(
               key: const Key('task-detail-card'),
               margin: EdgeInsets.zero,
+              shape: widget.inSheet ? const RoundedRectangleBorder() : null,
               child: Padding(
                 padding: const EdgeInsets.all(MuyuSpacing.lg),
                 child: Column(
@@ -2002,9 +2469,38 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         handlerLabels,
                       )
                     else
-                      _buildReadOnlyAttributes(context, task, handlerLabels),
+                      widget.inSheet
+                          ? _buildSheetAttributes(context, task, handlerLabels)
+                          : _buildReadOnlyAttributes(
+                              context,
+                              task,
+                              handlerLabels,
+                            ),
                     const SizedBox(height: MuyuSpacing.md),
                     _buildNextStep(context, nextStep),
+                    if (!_editing &&
+                        task.acceptanceCriteria?.isNotEmpty == true) ...[
+                      const SizedBox(height: MuyuSpacing.md),
+                      Text(
+                        '完成标准',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      const SizedBox(height: MuyuSpacing.xs),
+                      Text(
+                        task.acceptanceCriteria!,
+                        key: const Key('task-acceptance-criteria'),
+                      ),
+                    ],
+                    if (!_editing &&
+                        widget.canWrite &&
+                        !isOwner &&
+                        incomingHandoff == null &&
+                        !pendingAgreement &&
+                        task.deletedAt == null &&
+                        !_isTerminal(task.status))
+                      _buildAgreementActions(),
+                    if (incomingHandoff != null && widget.canWrite)
+                      _buildHandoffActions(incomingHandoff),
                     const Divider(height: MuyuSpacing.xxl),
                     _buildStatusActions(
                       context,

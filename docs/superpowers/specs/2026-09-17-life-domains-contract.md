@@ -1,6 +1,6 @@
 # 生活领域服务端契约（施工中）
 
-日期：2026-09-17。依据 `Muyu-Codex-Design-and-Implementation.md` 第 6、7、10 节。此文件冻结本地实现边界；Android 已局部接入，Web 尚未接入，不表示 v1 验收完成。
+日期：2026-09-17。依据 `Muyu-Codex-Design-and-Implementation.md` 第 6、7、10 节。此文件冻结本地实现边界；Android 与 Web 已局部接入正式 REST，不表示 v1 验收完成。
 
 ## 事实与同步
 
@@ -20,6 +20,8 @@
 
 保存原始公历 DATE；若原始日期在未来，不计算比它更早的发生日。非闰年 2 月 29 日映射 2 月 28 日，日期差由日历日期计算。双方可编辑和确认删除。生成准备任务用 `anniversary:{id}:{occurrenceDate}` 的唯一 source_key；同一次日期返回现有任务，生成者是唯一负责人、初始 IN_PROGRESS、截止为发生日、`next_step_text` 明确。删除纪念日不删任务。生成任务需要已批准任务分类；没有分类时返回业务错误，不凭空造分类。
 
-## 尚未完成的兼容与验收
+## 客户端同步实现与尚未完成的验收
 
-Android life 页面目前直接用 REST 仓储读取，不消费统一 snapshot/changes；失败时保留已加载数据。Web 仍是未开放路由。需扩展两个客户端的统一增量资源模型，验证双用户并发、活动/cursor 连续性、重启后数据和真实设备交互。空库升级与 0015→0016→0015→head 往返已有自动化测试，现有真实数据升级、线上 head/备份尚未核对，禁止部署。
+服务端 snapshot/changes 已返回四类生活资源。Android `WorkspaceSnapshot`/`WorkspaceChange`、`WorkspaceSyncController` 和 `LifeController` 现在解析并合并 `ledger_entry`、`habit`、`habit_checkin`、`anniversary`；删除或撤销事件从活动集合移除，包含无正文的 `DELETED` tombstone 按资源 ID 清除，并仍按全局 cursor 前进；增量打卡同步更新习惯的本期完成投影。Web 同步控制器完成同样的资源校验、增量合并和 tombstone 处理；记账与打卡页面优先消费工作区快照，写入后用正式 REST 强制回读，月度汇总继续独立请求，未引入任务数据或浏览器本地存储。旧快照缺少生活字段时仍按兼容路径读取正式 REST。
+
+隔离 PostgreSQL 上的 `make verify` 已通过本地 head 升级、后端全量、Flutter、Web、部署拓扑和边界检查；生产已在 custom-format 备份后从 `0016_life_domains` 升至 `0018_task_invitations`，公网 live/ready 和未授权边界已核验。这不替代双用户并发、活动/cursor 连续性、重启后数据、可配置业务时区、备份恢复回滚和真实设备交互验收。空库升级与 0015→0016→0015→head 往返已有自动化测试，正式发布验收仍需按门禁执行。

@@ -75,8 +75,8 @@ class MuyuSpacing {
   static const double xxl = 32;
 }
 
-// Warm paper tone used by the confirmed mobile prototype.
-const _page = Color(0xfffaf9f3);
+// Paper and surface tokens from the confirmed prototype palette.
+const _page = Color(0xfff7f7f1);
 const _surface = Color(0xffffffff);
 const _text = Color(0xff1d2d29);
 const _body = Color(0xff25312e);

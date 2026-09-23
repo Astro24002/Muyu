@@ -361,6 +361,10 @@ void main() {
         final card = find.byKey(ValueKey('task-card-${task.id}'));
         final metadata = find.byKey(ValueKey('task-card-metadata-${task.id}'));
         expect(card, findsOneWidget);
+        expect(
+          tester.widget<Material>(card).color,
+          muyuLightTheme().colorScheme.surface,
+        );
         expect(tester.getRect(card).left, width >= 360 ? 24 : 16);
         expect(metadata, findsOneWidget);
         expect(tester.getSize(metadata).height, lessThanOrEqualTo(32));

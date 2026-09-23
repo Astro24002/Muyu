@@ -8,8 +8,12 @@ void main() {
     final scheme = theme.colorScheme;
     final extension = theme.extension<MuyuThemeExtension>();
 
-    expect(theme.scaffoldBackgroundColor, const Color(0xfffaf9f3));
+    expect(theme.scaffoldBackgroundColor, const Color(0xfff7f7f1));
     expect(scheme.surface, const Color(0xffffffff));
+    expect(theme.cardTheme.color, scheme.surface);
+    expect(theme.appBarTheme.backgroundColor, scheme.surface);
+    expect(theme.navigationBarTheme.backgroundColor, scheme.surface);
+    expect(theme.inputDecorationTheme.fillColor, scheme.surface);
     expect(scheme.onSurface, const Color(0xff1d2d29));
     expect(scheme.onSurfaceVariant, const Color(0xff7c8783));
     expect(scheme.primary, const Color(0xff225f50));

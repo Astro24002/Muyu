@@ -139,6 +139,8 @@ class HabitItem {
     this.note,
     this.currentCheckin,
     this.checkins = const [],
+    this.recentDays = const [],
+    this.recentCheckinDays = const [],
     this.deletedAt,
   });
   final String id;
@@ -154,6 +156,8 @@ class HabitItem {
   final String periodKey;
   final HabitCheckinItem? currentCheckin;
   final List<HabitCheckinItem> checkins;
+  final List<DateTime> recentDays;
+  final List<DateTime> recentCheckinDays;
   final DateTime? deletedAt;
 
   factory HabitItem.fromJson(Map<String, dynamic> json) => HabitItem(
@@ -179,14 +183,26 @@ class HabitItem {
               HabitCheckinItem.fromJson((item as Map).cast<String, dynamic>()),
         )
         .toList(),
+    recentDays: (json['recent_days'] as List<dynamic>? ?? const [])
+        .map((item) => DateTime.parse(item as String))
+        .toList(),
+    recentCheckinDays:
+        (json['recent_checkin_days'] as List<dynamic>? ?? const [])
+            .map((item) => DateTime.parse(item as String))
+            .toList(),
     deletedAt: json['deleted_at'] == null
         ? null
         : DateTime.parse(json['deleted_at'] as String),
   );
 
-  HabitItem withCheckinHistory(List<HabitCheckinItem> nextCheckins) {
+  HabitItem withCheckinHistory(
+    List<HabitCheckinItem> nextCheckins, {
+    HabitCheckinItem? changedCheckin,
+    bool removedCheckin = false,
+  }) {
     final history = List<HabitCheckinItem>.from(nextCheckins);
-    if (currentCheckin != null &&
+    if (!removedCheckin &&
+        currentCheckin != null &&
         !history.any((item) => item.id == currentCheckin!.id)) {
       history.add(currentCheckin!);
     }
@@ -197,6 +213,22 @@ class HabitItem {
           checkin.revokedAt == null) {
         current = checkin;
         break;
+      }
+    }
+    final recentDays = _dateKeys(this.recentDays);
+    final recentCheckinDays = _dateKeys(this.recentCheckinDays).toSet();
+    if (changedCheckin != null) {
+      final changedDay = _dateKey(changedCheckin.day);
+      if (recentDays.contains(changedDay)) {
+        if (removedCheckin || changedCheckin.revokedAt != null) {
+          final otherActiveRecord = history.any(
+            (item) =>
+                _dateKey(item.day) == changedDay && item.revokedAt == null,
+          );
+          if (!otherActiveRecord) recentCheckinDays.remove(changedDay);
+        } else {
+          recentCheckinDays.add(changedDay);
+        }
       }
     }
     return HabitItem(
@@ -213,9 +245,20 @@ class HabitItem {
       periodKey: periodKey,
       currentCheckin: current,
       checkins: history,
+      recentDays: this.recentDays,
+      recentCheckinDays: [
+        for (final day in this.recentDays)
+          if (recentCheckinDays.contains(_dateKey(day))) day,
+      ],
       deletedAt: deletedAt,
     );
   }
+
+  static List<String> _dateKeys(List<DateTime> values) =>
+      values.map(_dateKey).toList();
+
+  static String _dateKey(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 }
 
 class AnniversaryItem {

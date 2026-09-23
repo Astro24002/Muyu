@@ -82,12 +82,23 @@ function HabitsSection({ habits, owner, viewerId, canWrite, onOwnerChange, onAct
     <div className="habit-list">{habits.map((habit) => {
       const owns = habit.owner_id === viewerId;
       const canAct = canWrite && owns && habit.status !== 'DELETED';
+      const checkedDays = new Set(habit.recent_checkin_days ?? []);
       return <article className="habit-row" key={habit.id} data-habit={habit.id}>
         <button type="button" className="habit-row__main" onClick={() => onEdit(habit)} disabled={!owns || !canWrite}><strong>{habit.title}</strong><span>{frequencyLabel(habit.frequency)} · {habit.status === 'PAUSED' ? '已暂停' : habit.checked_in ? '本期已完成' : '本期未完成'}</span></button>
         <div className="habit-row__actions">
           {canAct ? <IconButton label={habit.checked_in ? '撤销本期打卡' : '打卡'} icon={habit.checked_in ? <RotateCcw aria-hidden="true" size={16} /> : <Check aria-hidden="true" size={16} />} onClick={() => onAction(habit, habit.checked_in ? 'undo' : 'checkin')} /> : null}
           {canAct ? <IconButton label={habit.status === 'PAUSED' ? '恢复习惯' : '暂停习惯'} icon={habit.status === 'PAUSED' ? <Play aria-hidden="true" size={16} /> : <Pause aria-hidden="true" size={16} />} onClick={() => onAction(habit, habit.status === 'PAUSED' ? 'resume' : 'pause')} /> : null}
         </div>
+        {habit.recent_days?.length ? <ol className="habit-row__history" aria-label={`最近 7 天：${habit.title}`}>
+          {habit.recent_days.map((day) => {
+            const checked = checkedDays.has(day);
+            return <li key={day} aria-label={`${day} ${checked ? '已打卡' : '没有打卡记录'}`} data-checkin-history-day={day}>
+              <span aria-hidden="true">{weekdayLabel(day)}</span>
+              <span className={checked ? 'habit-row__history-mark habit-row__history-mark--checked' : 'habit-row__history-mark'} aria-hidden="true">{checked ? <Check size={13} /> : null}</span>
+              <small aria-hidden="true">{day.slice(-2)}</small>
+            </li>;
+          })}
+        </ol> : null}
       </article>;
     })}</div>
   </section>;
@@ -114,6 +125,7 @@ function AnniversaryEditor({ api, entry, onClose, onSaved }: { api: CheckinsApi;
 function Editor({ title, error, onClose, children }: { title: string; error: string | null; onClose: () => void; children: JSX.Element }): JSX.Element { return <div className="life-page__overlay"><section className="life-page__dialog" role="dialog" aria-modal="true" aria-label={title}><header className="life-page__dialog-header"><h2>{title}</h2><IconButton label="关闭" icon={<X aria-hidden="true" size={18} />} onClick={onClose} /></header>{children}{error ? <p className="life-page__form-error" role="alert">{error}</p> : null}</section></div>; }
 function EditorActions({ busy, onClose, onDelete }: { busy: boolean; onClose: () => void; onDelete?: () => void }): JSX.Element { return <div className="life-page__dialog-actions">{onDelete ? <Button tone="quiet" type="button" onClick={onDelete} disabled={busy}><Trash2 aria-hidden="true" size={16} />删除</Button> : null}<Button tone="quiet" type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" disabled={busy}>{busy ? '保存中' : '保存'}</Button></div>; }
 function frequencyLabel(value: HabitFrequency): string { return value === 'DAILY' ? '每日' : value === 'WEEKLY' ? '每周' : '每月'; }
+function weekdayLabel(day: string): string { return ['日', '一', '二', '三', '四', '五', '六'][new Date(`${day}T12:00:00`).getDay()]; }
 function kindLabel(value: Anniversary['kind']): string { return value === 'BIRTHDAY' ? '生日' : value === 'IMPORTANT_DAY' ? '重要日子' : '纪念日'; }
 function dateKey(value: Date): string { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
 function errorMessage(cause: unknown): string { return cause instanceof Error ? cause.message : '操作失败，请检查网络后重试。'; }

@@ -16,6 +16,8 @@
 
 每个习惯只有创建者这个 owner。频率为 DAILY/WEEKLY/MONTHLY；周期键分别为当日 ISO 日期、当周周一日期、当月 `YYYY-MM`。数据库部分唯一索引 `(habit_id, frequency_snapshot, period_key) WHERE revoked_at IS NULL` 防止同一期两个有效记录，撤销当前期只置 `revoked_at`，历史保留。相同 request_id 重放同一结果；新的 request_id 重复点击返回当前有效记录，不产生新的活动或 cursor。本人可修改、暂停、恢复、打卡、撤销本期和确认删除；对方只读。删除隐藏关联有效记录，历史和活动留作审计。
 
+2026-09-23 补充读取投影：正式习惯列表在 `include_history=true` 时返回服务端按 `Asia/Shanghai` 计算、含业务今日在内的连续七个日期 `recent_days`，以及该范围内未撤销记录对应的 `recent_checkin_days`。轨迹只表示实际打卡日期；空日期表示没有记录，不推断目标失败。打卡创建、撤销和删除通过既有 Workspace cursor 事件更新客户端投影，不新增历史表或平行事实源；快照与旧客户端兼容字段保持可读。
+
 ## 纪念日
 
 保存原始公历 DATE；若原始日期在未来，不计算比它更早的发生日。非闰年 2 月 29 日映射 2 月 28 日，日期差由日历日期计算。双方可编辑和确认删除。生成准备任务用 `anniversary:{id}:{occurrenceDate}` 的唯一 source_key；同一次日期返回现有任务，生成者是唯一负责人、初始 IN_PROGRESS、截止为发生日、`next_step_text` 明确。删除纪念日不删任务。生成任务需要已批准任务分类；没有分类时返回业务错误，不凭空造分类。

@@ -263,6 +263,8 @@ export interface Habit {
   checked_in: boolean;
   current_checkin: HabitCheckin | null;
   checkins: HabitCheckin[];
+  recent_days?: string[];
+  recent_checkin_days?: string[];
   deleted_at: string | null;
 }
 

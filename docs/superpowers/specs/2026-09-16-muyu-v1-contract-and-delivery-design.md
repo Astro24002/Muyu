@@ -1,8 +1,8 @@
 # Muyu v1 契约与交付设计
 
-日期：2026-09-16；基线同步：2026-09-17
+日期：2026-09-16；基线同步：2026-09-23
 
-状态：已确认产品基线；2026-09-22 已完成批次 1 导航/Home/任务查询、`next_step_text`、客户端契约 Header、`proposed_next_step`、独立 `acceptance_criteria`、`TASK_INVITATION` 无任务邀请、整组约定修改/取消申请和首版 `Asia/Shanghai` 业务周边界的本地服务端/Android/Web 施工。账本、习惯、打卡和纪念日已在服务端及 Android/Web 本地纳入统一 snapshot/changes 资源模型、共享 cursor 和 tombstone 合并，页面消费同步快照，写入仍走正式 REST；隔离 PostgreSQL 上 `make verify` 已通过，生产已在备份后升至 `0018_task_invitations`，仍未完成并发、恢复、Workspace 可配置时区、线上回滚和真实双用户/设备验收，兼容缺口见第 6 节。
+状态：已确认产品基线；2026-09-23 在本地补齐 Habit canonical 投影的近七日业务日期轴和 Android/Web 真实打卡轨迹。2026-09-22 已完成批次 1 导航/Home/任务查询、`next_step_text`、客户端契约 Header、`proposed_next_step`、独立 `acceptance_criteria`、`TASK_INVITATION` 无任务邀请、整组约定修改/取消申请和首版 `Asia/Shanghai` 业务周边界的本地服务端/Android/Web 施工。账本、习惯、打卡和纪念日已在服务端及 Android/Web 本地纳入统一 snapshot/changes 资源模型、共享 cursor 和 tombstone 合并，页面消费同步快照，写入仍走正式 REST；隔离 PostgreSQL 上 `make verify` 曾通过，本轮后端/Flutter/Web 全量门禁也通过；生产仍为 `0018_task_invitations`，本次轨迹改动未部署。并发、恢复、Workspace 可配置时区、线上回滚和真实双用户/设备验收仍 pending，兼容缺口见第 6 节。
 
 关联基线：[Muyu v1 产品设计与实施方案](../../../Muyu-Codex-Design-and-Implementation.md)
 
@@ -177,7 +177,7 @@ anniversary:{anniversary_id}:{occurrence_date}
 
 2026-09-20 通过只读代理取得已确认私密 v4 的原始 HTML/CSS/JS，在隔离 Chromium 的 393×851 视口实际操作和截图。参考的是该 URL 的 v4，不是仓库中的旧 `web/public/prototypes/moment`。v4 此刻首屏的问候确实以“一起向前一点点。”结尾；此前删去该文案的决定错误，Android 已恢复。首页标题/日期同行，问候后是深绿/浅绿/暖白三张约 108px 高的指标卡，指标数字带“件”和入口箭头；“每件事，都有下一步 / 全部事情”同一行；三段有彩色圆点、数量及小提示，任务卡内标题/状态、负责人/分类/截止、分隔后的下一步与“查看”入口分层呈现。原型 393 宽视口：指标起点约 y=122，全部事情入口约 y=250，第一段约 y=316，底部导航约 y=782；这些是浏览器 CSS 像素参照，不机械等同 Android dp。
 
-记账 v4 使用深绿月度汇总（支出主数字、收入/结余及双方付款）、独立支出分类分布和按日期排列的白底明细；打卡页使用“日常打卡 / 纪念日”切换、本人/TA/全部筛选、本期进度及可操作习惯行，纪念日显示下一次日期和倒计时。视觉施工只能使用正式 ledger/habit/anniversary API 事实：当前 Android 习惯读取只有本期 `checked_in`，没有逐日历史，不能仿照原型画一周七天的虚构打卡记录；需要独立设计并补历史读取 API 后才能显示真实轨迹。原型外围桌面展示包装、身份模拟切换和 `localStorage` 不进入正式客户端。严格对照的完成条件仍需要 Android 真机及授权身份下的截图/交互验收。
+记账 v4 使用深绿月度汇总（支出主数字、收入/结余及双方付款）、独立支出分类分布和按日期排列的白底明细；打卡页使用“日常打卡 / 纪念日”切换、本人/TA/全部筛选、本期进度及可操作习惯行，纪念日显示下一次日期和倒计时。2026-09-23 契约审计确认：`GET /api/v1/habits`、Workspace snapshot/changes 已返回真实 `habit_checkins` 记录（含日期、频率快照、撤销状态），旧文档“没有历史 API”的判断不准确；客户端却缺少由服务端给出的近七日日历轴，也未展示记录轨迹。无需新增并行历史接口或事实源：在 canonical Habit 读取投影增加按首版 `Asia/Shanghai` 业务日期生成的 `recent_days` 和有效 `recent_checkin_days`，Android/Web 基于这些日期及服务端打卡事实展示轨迹，并在增量打卡/撤销时同步投影。空日期只表示没有记录，不表示违反目标；轨迹样式不能把 `checked_in` 当前周期布尔值扩展成七日状态。原型外围桌面展示包装、身份模拟切换和 `localStorage` 不进入正式客户端。严格对照的完成条件仍需要 Android 真机及授权身份下的截图/交互验收。
 
 ### 6.2 创建给 TA 与阻塞恢复
 

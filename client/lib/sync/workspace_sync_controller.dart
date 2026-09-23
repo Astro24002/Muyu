@@ -1571,8 +1571,15 @@ class WorkspaceSyncController extends ChangeNotifier
     if (change.resourceType != 'habit_checkin') return;
     final index = checkins.indexWhere((item) => item.id == change.resourceId);
     if (change.action.toUpperCase() == 'DELETED') {
+      final previous = index == -1 ? null : checkins[index];
       if (index != -1) checkins.removeAt(index);
-      _updateHabitCheckinHistory(habits, change.resourceId, null, remove: true);
+      _updateHabitCheckinHistory(
+        habits,
+        change.resourceId,
+        null,
+        previousCheckin: previous,
+        remove: true,
+      );
       return;
     }
     final checkin = change.habitCheckin;
@@ -1591,20 +1598,32 @@ class WorkspaceSyncController extends ChangeNotifier
     List<HabitItem> habits,
     String checkinId,
     HabitCheckinItem? checkin, {
+    HabitCheckinItem? previousCheckin,
     bool remove = false,
   }) {
-    final index = checkin == null
+    final referenceCheckin = checkin ?? previousCheckin;
+    final index = referenceCheckin == null
         ? habits.indexWhere(
             (item) =>
                 item.checkins.any((item) => item.id == checkinId) ||
                 item.currentCheckin?.id == checkinId,
           )
-        : habits.indexWhere((item) => item.id == checkin.habitId);
+        : habits.indexWhere((item) => item.id == referenceCheckin.habitId);
     if (index == -1) return;
     final history = [...habits[index].checkins]
       ..removeWhere((item) => item.id == checkinId);
     if (!remove && checkin != null) history.add(checkin);
-    habits[index] = habits[index].withCheckinHistory(history);
+    final previousHistory = habits[index].checkins.where(
+      (item) => item.id == checkinId,
+    );
+    habits[index] = habits[index].withCheckinHistory(
+      history,
+      changedCheckin:
+          checkin ??
+          previousCheckin ??
+          (previousHistory.isEmpty ? null : previousHistory.first),
+      removedCheckin: remove,
+    );
   }
 
   static void _applyAnniversary(

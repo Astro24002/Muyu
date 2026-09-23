@@ -31,6 +31,8 @@ function snapshot(cursor = 5) {
       id: 'habit-1', workspace_id: 'workspace-1', owner_id: 'user-1', title: '阅读', note: null, frequency: 'DAILY',
       start_date: '2026-09-01', status: 'ACTIVE', version: 1, current_period_key: '2026-09-21', checked_in: false,
       current_checkin: null, checkins: [], deleted_at: null,
+      recent_days: ['2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21'],
+      recent_checkin_days: [],
     }],
     habit_checkins: [],
     anniversaries: [{
@@ -158,6 +160,85 @@ describe('WorkspaceSyncController', () => {
     const habit = controller.state.snapshot?.habits?.[0];
     expect(habit?.checked_in).toBe(true);
     expect(habit?.current_checkin?.id).toBe('checkin-1');
+    expect(habit?.recent_checkin_days).toEqual(['2026-09-21']);
+  });
+
+  it('clears a recent day when an incremental check-in is revoked', async () => {
+    const checkin = {
+      id: 'checkin-1', habit_id: 'habit-1', workspace_id: 'workspace-1', actor_id: 'user-1',
+      frequency_snapshot: 'DAILY' as const, period_key: '2026-09-21', day: '2026-09-21',
+      occurred_at: '2026-09-21T08:00:00Z', revoked_at: null,
+    };
+    const base = snapshot();
+    const current = {
+      ...base,
+      habits: base.habits.map((habit) => ({
+        ...habit,
+        recent_checkin_days: ['2026-09-21'],
+        checkins: [checkin],
+      })),
+      habit_checkins: [checkin],
+    };
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValue(current);
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'habit_checkin',
+        resource_id: 'checkin-1',
+        action: 'UPDATED',
+        operation_id: 'op-life-checkin-undo-1',
+        resource: { ...checkin, revoked_at: '2026-09-21T09:00:00Z' },
+      }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(controller.state.snapshot?.habits?.[0]?.checked_in).toBe(false);
+    expect(controller.state.snapshot?.habits?.[0]?.recent_checkin_days).toEqual([]);
+  });
+
+  it('keeps a recent day when another active check-in exists for that day', async () => {
+    const daily = {
+      id: 'checkin-daily', habit_id: 'habit-1', workspace_id: 'workspace-1', actor_id: 'user-1',
+      frequency_snapshot: 'DAILY' as const, period_key: '2026-09-21', day: '2026-09-21',
+      occurred_at: '2026-09-21T08:00:00Z', revoked_at: null,
+    };
+    const weekly = { ...daily, id: 'checkin-weekly', frequency_snapshot: 'WEEKLY' as const };
+    const base = snapshot();
+    const current = {
+      ...base,
+      habits: base.habits.map((habit) => ({
+        ...habit,
+        recent_checkin_days: ['2026-09-21'],
+        checkins: [daily, weekly],
+      })),
+      habit_checkins: [daily, weekly],
+    };
+    const api = apiStub();
+    api.getWorkspaceSnapshot.mockResolvedValue(current);
+    api.getWorkspaceChanges.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      cursor: 6,
+      changes: [{
+        cursor: 6,
+        resource_type: 'habit_checkin',
+        resource_id: daily.id,
+        action: 'UPDATED',
+        operation_id: 'op-life-checkin-undo-daily',
+        resource: { ...daily, revoked_at: '2026-09-21T09:00:00Z' },
+      }],
+    });
+    const controller = new WorkspaceSyncController(api as never);
+
+    await controller.loadSnapshot();
+    await controller.pull();
+
+    expect(controller.state.snapshot?.habits?.[0]?.recent_checkin_days).toEqual(['2026-09-21']);
   });
 
   it('rejects a snapshot containing a task from another workspace', async () => {

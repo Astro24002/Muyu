@@ -353,6 +353,17 @@ class HabitService:
                 select(HabitCheckin).where(HabitCheckin.habit_id == habit.id).order_by(HabitCheckin.occurred_at.desc(), HabitCheckin.id.desc()).limit(100)
             ).all()
             result["checkins"] = [self.checkin_snapshot(item) for item in history]
+            recent_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
+            recent_checkins = self.session.scalars(
+                select(HabitCheckin).where(
+                    HabitCheckin.habit_id == habit.id,
+                    HabitCheckin.day >= recent_days[0],
+                    HabitCheckin.day <= today,
+                    HabitCheckin.revoked_at.is_(None),
+                )
+            ).all()
+            result["recent_days"] = [day.isoformat() for day in recent_days]
+            result["recent_checkin_days"] = sorted({item.day.isoformat() for item in recent_checkins})
         return result
 
     @staticmethod

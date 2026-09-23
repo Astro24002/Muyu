@@ -2966,6 +2966,12 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.muyu-react-root > [data-testid="muyu-app"] .habit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .muyu-react-root > [data-testid="muyu-app"] .ledger-row__main,
 .muyu-react-root > [data-testid="muyu-app"] .habit-row__main,
 .muyu-react-root > [data-testid="muyu-app"] .anniversary-row__main {
@@ -3025,6 +3031,42 @@
   align-items: center;
   flex: 0 0 auto;
   gap: var(--space-2);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .habit-row__history {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .habit-row__history li {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .habit-row__history-mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-muted);
+}
+
+.muyu-react-root > [data-testid="muyu-app"] .habit-row__history-mark--checked {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-surface);
 }
 
 .muyu-react-root > [data-testid="muyu-app"] .life-page__status,

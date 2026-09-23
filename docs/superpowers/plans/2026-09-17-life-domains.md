@@ -11,6 +11,7 @@
 - [x] 扩展 Android/Web 的 snapshot/changes 模型、资源仓储及可操作页面，不使用任务或浏览器本地数据冒充正式事实。服务端四类生活资源已进入统一 cursor；Android `WorkspaceSnapshot`/`WorkspaceChange`、`WorkspaceSyncController` 与 `LifeController` 解析并合并 ledger/habit/checkin/anniversary；Web 同步控制器和记账/打卡页面优先消费快照，写入仍回到正式 REST。
 - [x] Web 已接入正式生活领域 REST 页面：记账整月汇总与明细筛选、增改删/二次确认；习惯 owner 打卡/撤销/暂停/恢复、编辑删除；纪念日增改删和准备事项生成。页面不复用任务或浏览器本地数据；专项、tombstone 和增量打卡投影回归通过，Web 全量 `288 passed`、typecheck 和 production build 通过。
 - [x] 统一 snapshot/changes 客户端资源模型和仓储已完成本地实现；增量专项覆盖生活资源解析、游标推进、页面快照消费和 `DELETED + null resource` 按 ID 清除。完整并发、时区、重启和真实双用户验收仍未完成，不能据此宣称生活领域整体完成。
+- [x] 2026-09-23 完成原型打卡近七日轨迹：复用正式 `habit_checkins`，Habit 投影由服务端给出 `Asia/Shanghai` 业务日期轴及有效记录日期，Android/Web 显示真实轨迹，增量创建/撤销同步更新；同日另一条有效记录存在时保留日期标记。后端 `304 passed, 3 skipped, 2 warnings`、Flutter `263 passed`/analyze、Web `290 passed`/typecheck/build 通过；无 schema/API 新增。生产未部署，真机、双用户及线上验收仍 pending。
 - [x] 运行完整跨端门禁：隔离 PostgreSQL 上 `make verify` 通过，本地 head 迁移升级、后端 `303 passed, 3 skipped, 2 warnings`、Flutter format/analyze/全量 `261 passed`、Web 全量 `288 passed`（37 files）/typecheck/build、部署拓扑、旧运行时和客户端边界检查均通过；真实数据迁移、双用户和设备验收仍未完成。
 - [x] 线上 pre-0018 custom-format 备份、`0016 -> 0017 -> 0018` 迁移、API/Web 更新及公网 live/ready、未授权和 CORS 边界已在开发状态记录；生产数据保留，旧镜像标签保留。
 - [ ] 隔离恢复与迁移回滚往返、真实账号写入、真机与双用户人工验收、签名 release 仍 pending。

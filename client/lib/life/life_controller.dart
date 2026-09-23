@@ -176,7 +176,12 @@ class LifeController extends ChangeNotifier {
       if (left[index].id != right[index].id ||
           left[index].version != right[index].version ||
           left[index].checkedIn != right[index].checkedIn ||
-          left[index].status != right[index].status) {
+          left[index].status != right[index].status ||
+          !_sameDays(left[index].recentDays, right[index].recentDays) ||
+          !_sameDays(
+            left[index].recentCheckinDays,
+            right[index].recentCheckinDays,
+          )) {
         return false;
       }
     }
@@ -192,6 +197,18 @@ class LifeController extends ChangeNotifier {
       if (left[index].id != right[index].id ||
           left[index].version != right[index].version ||
           left[index].nextOccurrence != right[index].nextOccurrence) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _sameDays(List<DateTime> left, List<DateTime> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index].year != right[index].year ||
+          left[index].month != right[index].month ||
+          left[index].day != right[index].day) {
         return false;
       }
     }

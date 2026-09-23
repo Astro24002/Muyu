@@ -8,6 +8,8 @@ const habit: Habit = {
   id: 'habit-1', workspace_id: 'workspace-1', owner_id: 'viewer', title: '阅读', note: null,
   frequency: 'DAILY', start_date: '2026-01-01', status: 'ACTIVE', version: 1,
   current_period_key: '2026-09-18', checked_in: false, current_checkin: null, checkins: [],
+  recent_days: ['2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24'],
+  recent_checkin_days: ['2026-09-18', '2026-09-22'],
   deleted_at: null,
 };
 const anniversary: Anniversary = {
@@ -26,6 +28,9 @@ describe('CheckinsPage', () => {
     };
     render(<CheckinsPage api={api as never} viewerId="viewer" canWrite />);
     await waitFor(() => expect(screen.getByText('阅读')).toBeInTheDocument());
+    expect(screen.getAllByRole('listitem', { name: /已打卡|没有打卡记录/ })).toHaveLength(7);
+    expect(screen.getByRole('listitem', { name: '2026-09-22 已打卡' })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: '2026-09-23 没有打卡记录' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '打卡' }));
     await waitFor(() => expect(api.habitAction).toHaveBeenCalledWith('habit-1', 'checkin', { requestId: expect.any(String), expectedVersion: 1 }));
     fireEvent.click(screen.getByRole('tab', { name: '纪念日' }));

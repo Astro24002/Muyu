@@ -831,7 +831,7 @@ export class WorkspaceSyncController {
     const checkins = [...(snapshot.habit_checkins ?? [])].filter((item) => item.id !== checkin.id);
     if (action.toUpperCase() !== 'DELETED' && checkin.revoked_at === null) checkins.push(checkin);
     const habits = (snapshot.habits ?? []).map((habit) => action.toUpperCase() === 'DELETED'
-      ? removeCheckinFromHabit(habit, checkin.id)
+      ? removeCheckinFromHabit(habit, checkin.id, checkin)
       : mergeCheckinIntoHabit(habit, checkin));
     const nextCursor = updateCursor ? Math.max(snapshot.cursor, cursor) : snapshot.cursor;
     const nextSnapshot = { ...snapshot, habits, habit_checkins: checkins, cursor: nextCursor };
@@ -842,7 +842,8 @@ export class WorkspaceSyncController {
     const snapshot = this.currentState.snapshot;
     if (!snapshot) return;
     const checkins = (snapshot.habit_checkins ?? []).filter((item) => item.id !== checkinId);
-    const habits = (snapshot.habits ?? []).map((habit) => removeCheckinFromHabit(habit, checkinId));
+    const removed = snapshot.habit_checkins?.find((item) => item.id === checkinId);
+    const habits = (snapshot.habits ?? []).map((habit) => removeCheckinFromHabit(habit, checkinId, removed));
     if (checkins.length === (snapshot.habit_checkins ?? []).length
       && habits.every((habit, index) => habit === snapshot.habits?.[index])) return;
     const nextSnapshot = { ...snapshot, habits, habit_checkins: checkins };
@@ -1761,6 +1762,8 @@ function isHabit(value: unknown): value is Habit {
     && (value.current_checkin === null || isHabitCheckin(value.current_checkin))
     && Array.isArray(value.checkins)
     && value.checkins.every(isHabitCheckin)
+    && (value.recent_days === undefined || (Array.isArray(value.recent_days) && value.recent_days.every((day) => typeof day === 'string')))
+    && (value.recent_checkin_days === undefined || (Array.isArray(value.recent_checkin_days) && value.recent_checkin_days.every((day) => typeof day === 'string')))
     && isNullableString(value.deleted_at);
 }
 
@@ -1826,17 +1829,42 @@ function mergeCheckinIntoHabit(habit: Habit, checkin: HabitCheckin): Habit {
   const current = checkins.find((item) => item.frequency_snapshot === habit.frequency
     && item.period_key === habit.current_period_key
     && item.revoked_at === null) ?? null;
-  return { ...habit, checkins, current_checkin: current, checked_in: current !== null };
+  const recentCheckinDays = new Set(habit.recent_checkin_days ?? []);
+  if ((habit.recent_days ?? []).includes(checkin.day)) {
+    if (checkin.revoked_at === null) recentCheckinDays.add(checkin.day);
+    else if (!checkins.some((item) => item.day === checkin.day && item.revoked_at === null)) {
+      recentCheckinDays.delete(checkin.day);
+    }
+  }
+  return {
+    ...habit,
+    checkins,
+    current_checkin: current,
+    checked_in: current !== null,
+    recent_checkin_days: (habit.recent_days ?? []).filter((day) => recentCheckinDays.has(day)),
+  };
 }
 
-function removeCheckinFromHabit(habit: Habit, checkinId: string): Habit {
-  if (!habit.checkins.some((item) => item.id === checkinId)
+function removeCheckinFromHabit(habit: Habit, checkinId: string, removed?: HabitCheckin): Habit {
+  if (!removed && !habit.checkins.some((item) => item.id === checkinId)
     && habit.current_checkin?.id !== checkinId) return habit;
+  const prior = removed ?? habit.checkins.find((item) => item.id === checkinId) ?? habit.current_checkin ?? undefined;
   const checkins = habit.checkins.filter((item) => item.id !== checkinId);
   const current = checkins.find((item) => item.frequency_snapshot === habit.frequency
     && item.period_key === habit.current_period_key
     && item.revoked_at === null) ?? null;
-  return { ...habit, checkins, current_checkin: current, checked_in: current !== null };
+  const recentCheckinDays = new Set(habit.recent_checkin_days ?? []);
+  if (prior && (habit.recent_days ?? []).includes(prior.day)
+    && !checkins.some((item) => item.day === prior.day && item.revoked_at === null)) {
+    recentCheckinDays.delete(prior.day);
+  }
+  return {
+    ...habit,
+    checkins,
+    current_checkin: current,
+    checked_in: current !== null,
+    recent_checkin_days: (habit.recent_days ?? []).filter((day) => recentCheckinDays.has(day)),
+  };
 }
 
 function isTaskConflict(value: unknown, workspaceId?: string, requireStatus = true): value is TaskConflict {

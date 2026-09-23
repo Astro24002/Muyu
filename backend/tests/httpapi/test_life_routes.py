@@ -6,9 +6,10 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import ActivityEvent, HabitCheckin, Task, WorkspaceChangeLog
+from app.db.enums import HabitFrequency
+from app.db.models import ActivityEvent, Habit, HabitCheckin, Task, WorkspaceChangeLog
 from app.life.anniversaries import next_occurrence
-from app.life.checkins import period_key
+from app.life.checkins import HabitService, period_key
 
 from .test_home_routes import _client, _headers, _ready_workspace
 
@@ -105,6 +106,47 @@ def test_habit_owner_period_replay_and_history(db_engine) -> None:
 
     with Session(db_engine) as session:
         assert session.scalar(select(func.count(HabitCheckin.id)).where(HabitCheckin.habit_id == habit["id"], HabitCheckin.revoked_at.is_(None))) == 0
+
+
+def test_habit_history_projection_uses_business_dates_and_effective_checkins(db_engine) -> None:
+    client = _client(db_engine)
+    owner, _ = _ready_workspace(client)
+    created = client.post(
+        "/api/v1/habits", headers=_headers(owner),
+        json={"request_id": str(uuid4()), "title": "阅读", "frequency": "DAILY", "start_date": "2026-01-01"},
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    workspace_now = datetime(2026, 9, 23, 16, 30, tzinfo=timezone.utc)
+    with Session(db_engine) as session:
+        habit = session.get(Habit, body["id"])
+        assert habit is not None
+        for day, frequency, revoked in (
+            (date(2026, 9, 18), HabitFrequency.DAILY, None),
+            (date(2026, 9, 21), HabitFrequency.DAILY, datetime(2026, 9, 21, 12, tzinfo=timezone.utc)),
+            (date(2026, 9, 24), HabitFrequency.WEEKLY, None),
+        ):
+            session.add(HabitCheckin(
+                workspace_id=habit.workspace_id,
+                habit_id=habit.id,
+                actor_id=habit.owner_id,
+                frequency_snapshot=frequency,
+                    period_key=period_key(day, frequency),
+                day=day,
+                occurred_at=workspace_now,
+                request_id=uuid4(),
+                revoked_at=revoked,
+            ))
+        session.flush()
+        projected = HabitService(session, now=lambda: workspace_now).snapshot(
+            habit, include_history=True
+        )
+
+    assert projected["recent_days"] == [
+        "2026-09-18", "2026-09-19", "2026-09-20", "2026-09-21",
+        "2026-09-22", "2026-09-23", "2026-09-24",
+    ]
+    assert projected["recent_checkin_days"] == ["2026-09-18", "2026-09-24"]
 
 
 def test_paused_habit_can_be_edited_but_not_checked_in(db_engine) -> None:

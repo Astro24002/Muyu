@@ -61,6 +61,8 @@ class _LifeFixture implements LifeRepository {
       checkedIn: false,
       version: 1,
       periodKey: '2026-09-20',
+      recentDays: [for (var day = 18; day <= 24; day++) DateTime(2026, 9, day)],
+      recentCheckinDays: [DateTime(2026, 9, 18), DateTime(2026, 9, 22)],
     ),
     if (owner == 'all' || owner == 'other')
       HabitItem(
@@ -159,6 +161,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('本期已完成 0 / 1 项'), findsOneWidget);
         expect(find.text('打卡'), findsOneWidget);
+        expect(find.byKey(const Key('habit-history-habit-me')), findsOneWidget);
+        expect(find.bySemanticsLabel('2026-09-22 已打卡'), findsOneWidget);
+        expect(find.bySemanticsLabel('2026-09-23 没有打卡记录'), findsOneWidget);
         await tester.tap(find.text('全部').last);
         await tester.pumpAndSettle();
         expect(find.text('本期已完成 1 / 2 项'), findsOneWidget);

@@ -267,6 +267,12 @@ class WorkspaceSnapshot {
         ? null
         : _checkinJson(item.currentCheckin!),
     'checkins': item.checkins.map(_checkinJson).toList(),
+    'recent_days': item.recentDays
+        .map((day) => day.toIso8601String().split('T').first)
+        .toList(),
+    'recent_checkin_days': item.recentCheckinDays
+        .map((day) => day.toIso8601String().split('T').first)
+        .toList(),
     'deleted_at': item.deletedAt?.toUtc().toIso8601String(),
   };
 

@@ -226,6 +226,11 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => _openHabit(habit),
                           ),
+                          if (habit.recentDays.isNotEmpty)
+                            _RecentCheckinHistory(
+                              key: Key('habit-history-${habit.id}'),
+                              habit: habit,
+                            ),
                           const Divider(
                             height: 1,
                             indent: MuyuSpacing.lg,
@@ -346,6 +351,73 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
     'IMPORTANT_DAY' => '重要日子',
     _ => '纪念日',
   };
+}
+
+class _RecentCheckinHistory extends StatelessWidget {
+  const _RecentCheckinHistory({super.key, required this.habit});
+
+  final HabitItem habit;
+
+  @override
+  Widget build(BuildContext context) {
+    final recordedDays = habit.recentCheckinDays.map(_dateKey).toSet();
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: MuyuSpacing.lg,
+        vertical: MuyuSpacing.xs,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('最近 7 天', style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: MuyuSpacing.xs),
+          Row(
+            children: [
+              for (final day in habit.recentDays)
+                Expanded(
+                  child: Semantics(
+                    container: true,
+                    label:
+                        '${_dateKey(day)} ${recordedDays.contains(_dateKey(day)) ? '已打卡' : '没有打卡记录'}',
+                    child: ExcludeSemantics(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _weekday(day),
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                          Icon(
+                            recordedDays.contains(_dateKey(day))
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            size: 20,
+                            color: recordedDays.contains(_dateKey(day))
+                                ? colors.primary
+                                : colors.outline,
+                          ),
+                          Text(
+                            '${day.day}',
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _dateKey(DateTime day) =>
+      '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+  static String _weekday(DateTime day) =>
+      const ['一', '二', '三', '四', '五', '六', '日'][day.weekday - 1];
 }
 
 class _HabitDialog extends StatefulWidget {

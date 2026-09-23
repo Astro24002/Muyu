@@ -51,6 +51,16 @@ Map<String, dynamic> lifeSnapshotJson({int cursor = 1}) => {
       'checked_in': false,
       'current_checkin': null,
       'checkins': [],
+      'recent_days': [
+        '2026-09-15',
+        '2026-09-16',
+        '2026-09-17',
+        '2026-09-18',
+        '2026-09-19',
+        '2026-09-20',
+        '2026-09-21',
+      ],
+      'recent_checkin_days': [],
       'deleted_at': null,
     },
   ],
@@ -213,6 +223,103 @@ void main() {
       final habit = controller.state.snapshot?.habits.single;
       expect(habit?.checkedIn, isTrue);
       expect(habit?.currentCheckin?.id, 'checkin-1');
+      expect(habit?.recentCheckinDays.map((day) => day.day), [21]);
+    },
+  );
+
+  test('an incremental revocation clears the matching recent day', () async {
+    final json = lifeSnapshotJson();
+    final habit = (json['habits'] as List).single as Map<String, dynamic>;
+    final checkin = {
+      'id': 'checkin-1',
+      'habit_id': 'habit-1',
+      'workspace_id': 'workspace-1',
+      'actor_id': 'user-1',
+      'frequency_snapshot': 'DAILY',
+      'period_key': '2026-09-21',
+      'day': '2026-09-21',
+      'occurred_at': '2026-09-21T08:00:00Z',
+      'revoked_at': null,
+    };
+    habit['recent_checkin_days'] = ['2026-09-21'];
+    habit['checkins'] = [checkin];
+    json['habit_checkins'] = [checkin];
+    final changes = WorkspaceChanges.fromJson({
+      'workspace_id': 'workspace-1',
+      'cursor': 2,
+      'changes': [
+        {
+          'cursor': 2,
+          'resource_type': 'habit_checkin',
+          'resource_id': 'checkin-1',
+          'action': 'UPDATED',
+          'operation_id': 'op-undo-1',
+          'resource': {...checkin, 'revoked_at': '2026-09-21T09:00:00Z'},
+        },
+      ],
+    });
+    final controller = WorkspaceSyncController(
+      LifeSyncFake(WorkspaceSnapshot.fromJson(json), changes),
+    );
+
+    await controller.refresh();
+    await controller.pull();
+
+    expect(controller.state.snapshot?.habits.single.checkedIn, isFalse);
+    expect(controller.state.snapshot?.habits.single.recentCheckinDays, isEmpty);
+  });
+
+  test(
+    'revoking one of multiple active check-ins on a day keeps that day',
+    () async {
+      final json = lifeSnapshotJson();
+      final habit = (json['habits'] as List).single as Map<String, dynamic>;
+      final daily = {
+        'id': 'checkin-daily',
+        'habit_id': 'habit-1',
+        'workspace_id': 'workspace-1',
+        'actor_id': 'user-1',
+        'frequency_snapshot': 'DAILY',
+        'period_key': '2026-09-21',
+        'day': '2026-09-21',
+        'occurred_at': '2026-09-21T08:00:00Z',
+        'revoked_at': null,
+      };
+      final weekly = {
+        ...daily,
+        'id': 'checkin-weekly',
+        'frequency_snapshot': 'WEEKLY',
+      };
+      habit['recent_checkin_days'] = ['2026-09-21'];
+      habit['checkins'] = [daily, weekly];
+      json['habit_checkins'] = [daily, weekly];
+      final changes = WorkspaceChanges.fromJson({
+        'workspace_id': 'workspace-1',
+        'cursor': 2,
+        'changes': [
+          {
+            'cursor': 2,
+            'resource_type': 'habit_checkin',
+            'resource_id': 'checkin-daily',
+            'action': 'UPDATED',
+            'operation_id': 'op-undo-daily',
+            'resource': {...daily, 'revoked_at': '2026-09-21T09:00:00Z'},
+          },
+        ],
+      });
+      final controller = WorkspaceSyncController(
+        LifeSyncFake(WorkspaceSnapshot.fromJson(json), changes),
+      );
+
+      await controller.refresh();
+      await controller.pull();
+
+      expect(
+        controller.state.snapshot?.habits.single.recentCheckinDays.map(
+          (day) => day.day,
+        ),
+        [21],
+      );
     },
   );
 

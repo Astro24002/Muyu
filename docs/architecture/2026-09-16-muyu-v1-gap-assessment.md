@@ -1,6 +1,8 @@
 # Muyu v1 接手差异清单
 
-日期：2026-09-16；文档与定点代码复核：2026-09-17
+日期：2026-09-16；初次文档与定点代码复核：2026-09-17；最近状态复核：2026-09-23
+
+2026-09-23 原型/代码差距复核：通过本地订阅启动临时 Mihomo，代理仅映射到宿主机 `127.0.0.1`；当前原型 HTML 与 `fonts.css`、`style.css`、`life.css`、`life.js`、`app.js` 均返回 200。Chromium 在 393×851 实载首页，并用当次 HTML/CSS/JS 检查“需要我处理”、记账、打卡/纪念日、我的、四象限和日程。实时 `style.css` 与 `app.js` 的校验和与 9 月 20 日存档一致；不要据此推断后续资源未变。当前代码确认的差异是：Android 打卡有当前范围的完成汇总，Web 已有 owner 筛选、逐项状态及近七日实际轨迹，但缺聚合本期数量；本轮补此只读投影。Android 真机像素对照、320/360/393/412、读屏和大字体验收仍 pending。
 
 2026-09-22 生活领域同步、全量门禁与线上更新：账目、习惯、打卡和纪念日已由服务端统一 snapshot/changes 返回；Android/Web 客户端已增加资源模型、workspace cursor 合并、删除/撤销 tombstone 处理（包括无正文的 `DELETED` 事件按资源 ID 清除），增量打卡会更新习惯本期投影，记账和打卡页面消费同步快照，写入仍走正式 REST。隔离 PostgreSQL 上 `make verify` 通过：本地 head 迁移升级、后端 `303 passed, 3 skipped, 2 warnings`、Flutter 全量 `261 passed`、Web 全量 `288 passed`、typecheck/build、部署拓扑和边界检查均通过；生产已在备份后升至 `0018_task_invitations`，API/Web/Caddy healthy，公网 live/ready 为 200。并发、可配置时区、重启、线上回滚恢复、双用户和真实设备验收仍 pending。
 
@@ -27,6 +29,7 @@
 | 任务状态 | 历史兼容的 `TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED` 加审批请求 | 暂不破坏生产状态与迁移；Android 展示层先映射为 v1 文案。`CANCELLED`、重开和旧兼容路径保留；若收敛需另行设计，v1 不新增这些操作。 |
 | 任务字段 | 现有分类、象限、`due_at`、负责人、审批与活动事实；已新增可空 `next_step_text` 和 `acceptance_criteria` | 字段、snapshot/changes、查询、Header、`proposed_next_step`、独立完成标准、创建邀请和整组 agreement/cancellation 申请已落地；业务时区可配置和完整来源筛选仍待后续批次。 |
 | 记账、打卡、纪念日 | 后端独立模型/API、Android 页面和 Web 正式 REST 页面已存在；两端已补齐四类资源的 snapshot/changes 模型和游标合并 | 继续沿用独立领域模块；补齐并发/恢复/无障碍回归和线上/双用户验收，不能用任务数据或浏览器本地存储替代。 |
+| 打卡页本期进度 | 当前原型含浅绿汇总块和圆形叶片标记；Android 原有汇总数但缺标记；Web 原有逐项 `checked_in` 与最近七日轨迹但缺整个汇总块 | 已补 Android 叶片标记和 Web 浅绿汇总块；Web 数量按当前 owner 筛选后的正式 Habit 集合计算，不新增服务端字段或事实源。Web 全量 291 passed，Flutter 全量 267 passed/analyze；真机验收 pending。 |
 | 全部事情 | 原有列表可显示终态任务，但没有规范化查询入口 | 已增加服务端搜索/状态/负责人/历史/keyset 查询、`next_step_text` 搜索和事项次级入口；完整来源筛选和查询 UI 依赖批次 2。 |
 
 ## 复用与阻塞
@@ -47,6 +50,6 @@
 | 70/90/500/1000 长度 | 当前标题 200、描述 10000、review_content 5000 | 客户端/服务端统一计数，兼容历史长文本 |
 | important/urgent | `backend/app/tasks/service.py` 使用 quadrant Q1～Q4 | 布尔输入与 quadrant 单源映射，不随日期改变 |
 | 无截止与新建进行中 | 现有默认截止与 TODO 路径不同于目标 | 先设计新旧命令兼容，不直接改变旧 API |
-| 打卡删除与纪念日生成 | 原方案缺少关联记录删除语义、未来原始日期、生成者/状态/截止定义 | 已补入契约第 3/6 节；领域 schema 与迁移仍待实施 |
+| 打卡删除与纪念日生成 | 独立领域、迁移/API、Android/Web REST 页面与统一同步模型已在本地实现 | 仍需周期/时区并发、恢复、真实双用户和设备验收；不得把本地实现标成线上完成 |
 
-最新方案见 [v1 契约](../superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md)，验收与批次依赖见 [实施计划](../superpowers/plans/2026-09-16-muyu-v1.md)。2026-09-17 已执行后端 PostgreSQL、Flutter 和 Web 本地回归；2026-09-20 已经由代理完成 v4 浏览器参照对照，但真实 Android 设备截图和本轮线上核验仍未执行。
+最新方案见 [v1 契约](../superpowers/specs/2026-09-16-muyu-v1-contract-and-delivery-design.md)，验收与批次依赖见 [实施计划](../superpowers/plans/2026-09-16-muyu-v1.md)。2026-09-23 已通过本地 Clash/Mihomo 读取当前原型并核对主要页面；393×851 首页已有浏览器截图。授权 Android 真机、320/360/393/412 截图、键盘/安全区、大字体和读屏对照仍 pending。

@@ -19,6 +19,25 @@ const anniversary: Anniversary = {
 };
 
 describe('CheckinsPage', () => {
+  it('shows the completion total for the currently selected owner scope', async () => {
+    const otherHabit: Habit = { ...habit, id: 'habit-2', owner_id: 'partner', title: '散步', checked_in: true };
+    const api = {
+      listHabits: vi.fn().mockImplementation(async (owner: 'mine' | 'other' | 'all') => {
+        if (owner === 'other') return [otherHabit];
+        if (owner === 'all') return [habit, otherHabit];
+        return [habit];
+      }),
+      listAnniversaries: vi.fn().mockResolvedValue([]),
+    };
+    render(<CheckinsPage api={api as never} viewerId="viewer" canWrite />);
+
+    await waitFor(() => expect(screen.getByRole('region', { name: '本期进度' })).toHaveTextContent('本期已完成 0 / 1 项'));
+    fireEvent.change(screen.getByLabelText('习惯范围'), { target: { value: 'all' } });
+    await waitFor(() => expect(screen.getByRole('region', { name: '本期进度' })).toHaveTextContent('本期已完成 1 / 2 项'));
+    fireEvent.change(screen.getByLabelText('习惯范围'), { target: { value: 'other' } });
+    await waitFor(() => expect(screen.getByRole('region', { name: '本期进度' })).toHaveTextContent('本期已完成 1 / 1 项'));
+  });
+
   it('checks in through the owner action and renders anniversary preparation', async () => {
     const api = {
       listHabits: vi.fn().mockResolvedValue([habit]),

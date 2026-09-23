@@ -170,24 +170,51 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                         color: Theme.of(context).colorScheme.outline,
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Text(
-                          controller.habitOwner == 'mine'
-                              ? '属于你的，一点小坚持'
-                              : '各自坚持，彼此看见',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                controller.habitOwner == 'mine'
+                                    ? '属于你的，一点小坚持'
+                                    : '各自坚持，彼此看见',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              const SizedBox(height: MuyuSpacing.sm),
+                              Text(
+                                '今天，向喜欢的自己靠近。',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: MuyuSpacing.sm),
+                              Text(
+                                '本期已完成 ${controller.habits.where((habit) => habit.checkedIn).length} / ${controller.habits.length} 项',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: MuyuSpacing.sm),
-                        Text(
-                          '今天，向喜欢的自己靠近。',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: MuyuSpacing.sm),
-                        Text(
-                          '本期已完成 ${controller.habits.where((habit) => habit.checkedIn).length} / ${controller.habits.length} 项',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        const SizedBox(width: MuyuSpacing.md),
+                        Container(
+                          key: const Key('checkins-progress-icon'),
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant,
+                              width: 4,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.eco_outlined,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 24,
+                          ),
                         ),
                       ],
                     ),

@@ -97,7 +97,7 @@ class _LifeFixture implements LifeRepository {
 }
 
 void main() {
-  for (final width in [320.0, 393.0]) {
+  for (final width in [320.0, 360.0, 393.0, 412.0]) {
     testWidgets(
       'ledger preserves summary when detail filter changes at $width',
       (tester) async {
@@ -160,6 +160,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('本期已完成 0 / 1 项'), findsOneWidget);
+        expect(find.byKey(const Key('checkins-progress-icon')), findsOneWidget);
         expect(find.text('打卡'), findsOneWidget);
         expect(find.byKey(const Key('habit-history-habit-me')), findsOneWidget);
         expect(find.bySemanticsLabel('2026-09-22 已打卡'), findsOneWidget);

@@ -1,4 +1,4 @@
-import { CalendarDays, Check, Pause, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { CalendarDays, Check, Leaf, Pause, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import type { ApiClient } from '../api/client';
 import { createRequestId } from '../api/client';
@@ -77,6 +77,14 @@ export function CheckinsPage({ api, viewerId, canWrite, snapshotHabits, snapshot
 
 function HabitsSection({ habits, owner, viewerId, canWrite, onOwnerChange, onAction, onEdit }: { habits: Habit[]; owner: 'mine' | 'other' | 'all'; viewerId?: string | null; canWrite: boolean; onOwnerChange: (value: 'mine' | 'other' | 'all') => void; onAction: (habit: Habit, action: 'checkin' | 'undo' | 'pause' | 'resume') => void; onEdit: (habit: Habit) => void }): JSX.Element {
   return <section className="life-page__section" aria-label="习惯列表">
+    <div className="habit-progress" role="region" aria-label="本期进度">
+      <div className="habit-progress__copy">
+        <span className="habit-progress__label">{owner === 'mine' ? '属于你的，一点小坚持' : '各自坚持，彼此看见'}</span>
+        <strong>今天，向喜欢的自己靠近。</strong>
+        <span className="habit-progress__count">本期已完成 {habits.filter((habit) => habit.checked_in).length} / {habits.length} 项</span>
+      </div>
+      <span className="habit-progress__mark" aria-hidden="true"><Leaf size={24} /></span>
+    </div>
     <div className="life-page__section-header"><SectionHeading>日常打卡</SectionHeading><label className="life-page__filter">范围<select aria-label="习惯范围" value={owner} onChange={(event) => onOwnerChange(event.target.value as typeof owner)}><option value="mine">我的</option><option value="other">TA 的</option><option value="all">全部</option></select></label></div>
     {habits.length === 0 ? <p className="life-page__empty">暂无习惯</p> : null}
     <div className="habit-list">{habits.map((habit) => {

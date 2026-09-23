@@ -6,7 +6,7 @@
 
 - 当前原型实载首页截图：[muyu-prototype-live-2026-09-23-home-393.png](design-reviews/assets/muyu-prototype-live-2026-09-23-home-393.png)，仅作为 393×851 浏览器参照，不代表 Android 真机验收。
 
-- 2026-09-23（事项主题颜色与入口复核）：主设计定义页面纸张色为 `#F7F7F1`，原型的任务卡、导航和输入表面使用白色；Android 页面令牌误为 `#FAF9F3`，现已改为文档色。任务卡继续使用统一的 `ColorScheme.surface`，没有另设卡片颜色。主题测试锁定 paper/surface 与 Card/AppBar/NavigationBar 的令牌关系；首页视觉测试确认卡片使用公共 surface，并覆盖 320/360/393/412。Flutter 全量 `267 passed`、`flutter analyze --no-pub` 无问题、Dart format 与 `git diff --check` 通过。核对“全部事情”入口：事项“此刻”已有入口，“我的”按设计保留第二入口；不是额外 Tab。没有授权 Android 设备，本项没有真机截图验收。
+- 2026-09-23（事项主题颜色与入口复核）：主设计定义页面纸张色为 `#F7F7F1`，原型的任务卡、导航和输入表面使用白色；Android 页面令牌误为 `#FAF9F3`，现已改为文档色。任务卡继续使用统一的 `ColorScheme.surface`，没有另设卡片颜色。主题测试锁定 paper/surface 与 Card/AppBar/NavigationBar/输入框的令牌关系；首页视觉测试确认卡片使用公共 surface，并覆盖 320/360/393/412。Flutter 全量 `267 passed`、`flutter analyze --no-pub` 无问题、Dart format 与 `git diff --check` 通过。“全部事情”按设计在事项“此刻”和“我的”各保留一个入口，不是额外 Tab。commit `01d0964` 的 debug APK [Muyu-01d0964.apk](../client/build/app/outputs/flutter-apk/Muyu-01d0964.apk) 为 `203838389` 字节，SHA-256 `ce1820aaecaf7939d5d3ef6f2345b530b1eb5d09ecfada883982716076305b34`；ZIP 与生产 API origin 检查通过。`adb devices -l` 无设备，未安装真机，不是 release 包。
 
 - 2026-09-23（原型实载复核）：通过本地订阅和 `metacubex/mihomo:latest` 临时启动只绑定 `127.0.0.1` 的代理，原型首页及 `fonts.css`、`style.css`、`life.css`、`life.js`、`app.js` 均返回 HTTP 200；没有向第三方转换订阅。浏览器实载首页无脚本错误，并在 393×851 记录截图；用当次取得的 HTML/CSS/JS 检查“需要我处理”、记账、日常打卡/纪念日、我的、四象限和日程。`style.css` 与 `app.js` 和 2026-09-20 保存版校验和一致；当前 HTML 的差异含 Cloudflare 注入与状态栏 SVG，不能据此说所有资源均未变化。原型样例打卡显示“本期完成 0 / 2 项”；Android 原有进度块缺圆形叶片标记，Web 缺整个进度块，差异已在本批实现。`adb devices -l` 无设备；真机及 320/360/412 截图仍 pending。
 

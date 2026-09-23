@@ -183,7 +183,7 @@ anniversary:{anniversary_id}:{occurrence_date}
 
 当前实载首页截图：[muyu-prototype-live-2026-09-23-home-393.png](../../design-reviews/assets/muyu-prototype-live-2026-09-23-home-393.png)。
 
-逐项比对打卡视图还发现：原型本期进度块在右侧有圆形叶片标记；Android 原有相同进度块和数量但未绘制该标记，Web 连进度块都缺失。本批已补 Android 标记和 Web 浅绿进度块，Web 数量随 owner 筛选变化并复用正式 `checked_in / total` 投影；空列表仍显示 0 / 0。验证：Web 37 个测试文件 291 passed/typecheck/build；Flutter 267 passed/analyze，进度卡测试覆盖 320/360/393/412。debug APK 待 commit 后按新版本号构建，真机验收 pending。
+逐项比对打卡视图还发现：原型本期进度块在右侧有圆形叶片标记；Android 原有相同进度块和数量但未绘制该标记，Web 连进度块都缺失。本批已补 Android 标记和 Web 浅绿进度块，Web 数量随 owner 筛选变化并复用正式 `checked_in / total` 投影；空列表仍显示 0 / 0。验证：Web 37 个测试文件 291 passed/typecheck/build；Flutter 267 passed/analyze，进度卡测试覆盖 320/360/393/412。commit `89e9029` 对应 debug APK 已构建并检查归档与生产 API origin，未安装授权设备，真机验收 pending。
 
 ### 6.2 创建给 TA 与阻塞恢复
 

@@ -10,6 +10,11 @@ const primitiveScopeSelector = '.muyu-react-root > [data-testid="muyu-app"]';
 const reactRootSelector = '.muyu-react-root > [data-testid="muyu-app"]';
 
 describe('visual foundation', () => {
+  it('matches the shared paper and surface palette', () => {
+    expect(readColorToken('--color-page')).toBe('#f7f7f1');
+    expect(readColorToken('--color-surface')).toBe('#ffffff');
+  });
+
   it('scopes React defaults to the application root', () => {
     expect(globalCss).toContain('.muyu-react-root');
     expect(globalCss).toMatch(/\.muyu-react-root\s*>\s*\[data-testid="muyu-app"\]/);

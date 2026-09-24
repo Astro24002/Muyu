@@ -13,6 +13,13 @@ render browser pages. FastAPI and PostgreSQL are reachable only on Compose's
 private networks. FastAPI runs as one instance because realtime subscriptions
 are in-memory in this release.
 
+## SSH access
+
+The current production host accepts SSH on TCP port `27001`; port `22` is not
+open. Use the configured deployment identity and the pinned host key with
+strict host-key checking. Do not bypass host-key verification when diagnosing
+or deploying.
+
 The new named volumes are `muyu_cloud_pgdata`, `muyu_cloud_backup_repo`,
 `muyu_cloud_caddy_data`, and `muyu_cloud_caddy_config`. Do not attach a legacy
 volume to this project.

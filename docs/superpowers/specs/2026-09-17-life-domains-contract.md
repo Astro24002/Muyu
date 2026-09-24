@@ -29,3 +29,5 @@
 服务端 snapshot/changes 已返回四类生活资源。Android `WorkspaceSnapshot`/`WorkspaceChange`、`WorkspaceSyncController` 和 `LifeController` 现在解析并合并 `ledger_entry`、`habit`、`habit_checkin`、`anniversary`；删除或撤销事件从活动集合移除，包含无正文的 `DELETED` tombstone 按资源 ID 清除，并仍按全局 cursor 前进；增量打卡同步更新习惯的本期完成投影。Web 同步控制器完成同样的资源校验、增量合并和 tombstone 处理；记账与打卡页面优先消费工作区快照，写入后用正式 REST 强制回读，月度汇总继续独立请求，未引入任务数据或浏览器本地存储。旧快照缺少生活字段时仍按兼容路径读取正式 REST。
 
 隔离 PostgreSQL 上的 `make verify` 已通过本地 head 升级、后端全量、Flutter、Web、部署拓扑和边界检查；生产已在 custom-format 备份后从 `0016_life_domains` 升至 `0018_task_invitations`，公网 live/ready 和未授权边界已核验。这不替代双用户并发、活动/cursor 连续性、重启后数据、可配置业务时区、备份恢复回滚和真实设备交互验收。空库升级与 0015→0016→0015→head 往返已有自动化测试，正式发布验收仍需按门禁执行。
+
+2026-09-24 运行时记录：生产 API 已包含上述 `recent_days` 投影；更新没有数据库 schema 变化，线上 head 保持 `0018_task_invitations`。此部署不代表生活领域整体、双用户或真机验收完成。

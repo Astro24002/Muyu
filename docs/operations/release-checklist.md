@@ -20,6 +20,19 @@ device acceptance.
 - [ ] Rollback/restore drill, real-account writes, two-person E2E, device
       acceptance and signed APK/AAB release remain pending.
 
+## 2026-09-24 Runtime Update (Not Release)
+
+- [x] Habit recent-days API image `muyu-cloud-api:staged-41bd888-20260924`
+      deployed; image SHA-256 is recorded in the development status. Only the
+      API container was updated; `0018_task_invitations` remains the database
+      head and the previous API image remains tagged for rollback.
+- [x] Public `/health/live` and `/health/ready` returned 200; unauthenticated
+      `/api/v1/habits` returned 401.
+- [x] Debug APK `Muyu-8266e90.apk` rebuilt, archive and production API origin
+      checked; SHA-256 is recorded in the development status.
+- [ ] Real-account writes, two-person E2E, authorized device acceptance,
+      rollback/restore drill and signed APK/AAB release remain pending.
+
 - `RUN_CLOUD_PROTOCOL=1` focused two-user task E2E: `1 passed`.
 - `make backend-test` with disposable PostgreSQL: `64 passed, 3 skipped`;
   `compileall` completed successfully. One existing Starlette/httpx

@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        input: { app: resolve(rootDir, 'index.html'), website: resolve(rootDir, 'about/index.html') },
+      },
+    },
     resolve: { alias: { '@': resolve(rootDir, 'src') } },
     server: { proxy: { '/api': { target: apiTarget, changeOrigin: true, ws: true } } },
     test: {

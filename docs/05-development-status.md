@@ -4,6 +4,8 @@
 
 ## 当前状态
 
+- 2026-10-28（Pages 修复线上验收）：修复提交 `0ccf6cc` 的 [Pages run 40650714476](https://github.com/Astro24002/Muyu/actions/runs/40650714476) 自动构建/部署成功。下载 github-pages artifact（ID 12799601918），tar 实际只含 index.html、CNAME、assets/index-BBFJCrWG.js 和 assets/index-BkNF60qN.css，没有工程文档。公网 `https://muyu.bkverse.space/` 与 JS/CSS 均 200；全新 Chromium 页面可见 h1，事项/记账/打卡/纪念日四种面板切换通过，393px 无横向溢出，无 HTTP 4xx 或脚本错误。由真实构建包确认此前 Jekyll 过滤验收缺口已补齐。API 404 与 Web 入口自循环仍是该域名改指 Pages 后的独立问题，待确认官网与应用/API 域名分工；本次没有修改 DNS、API 服务或 APK。
+
 - 2026-10-28（Pages 资源 404 定位与修复）：用户配置 CNAME 后，Pages source 为 main/docs、状态 built，但公网首页 200、JS/CSS 均 404，Chromium 无 h1。实际构建 run 40647374261 日志显示 `/assets/index-BBFJCrWG.js` 与 `/assets/index-BkNF60qN.css` 被排除；此前仅根据 Jekyll 源码推断 include assets 会放行子文件不成立。修正导出脚本生成 _config.yml，明确列出资源 basename 并保留用户的 CNAME；工程目录仍默认排除。构建/export 和 diff 检查通过，线上验证待本次提交触发 Pages 构建后记录。另实测 muyu.bkverse.space 已由原应用/API 域名改为 GitHub Pages，/api/v1/bootstrap、/health/ready 均 404，官网 Web 按钮当前回到同一官网；本轮未改 DNS、API 部署或 Android API origin，这些需独立确定域名方案。
 
 - 2026-10-28（main/docs 无手动工作流交付）：按用户最新要求，将静态文件迁到 `docs/index.html` 与 `docs/assets/`，删除 website/ 及 `.github/workflows/pages.yml`。发布源改为 Deploy from a branch → main → /docs。`docs/_config.yml` 默认排除文件，仅包含首页与 assets，工程文档留在仓库；未添加 .nojekyll。`npm run export:website` 先构建 dist-website，再通过限定路径的导出脚本更新首页与资源，不清空 docs。验证：构建成功，重复导出前后 83 个工程文档 SHA-256 均不变；静态文件与此前通过 Pages 子路径用例的构建逐字节一致；本机静态服务的 `/docs/` 首页与纪念日切换通过，`git diff --check` 通过。过滤规则已对照 Jekyll 3.10 EntryFilter 的 include 优先于 exclude 源码核对；GitHub 同款构建镜像下载较慢，完整 Pages 构建验证暂未执行。未改 Pages 设置或触发部署，用户保存分支来源后由 GitHub 自动构建。此前 main/website 和手动工作流说明均由本条覆盖。

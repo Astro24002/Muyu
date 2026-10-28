@@ -146,6 +146,6 @@ npm run export:website
 
 导出先构建到 `web/dist-website/`，再更新 `docs/index.html` 和 `docs/assets/`，保留工程文档。将这些静态文件与源码一同提交到 main；不要直接把 Vite 的输出目录设为 docs（清理输出会误删文档）。
 
-`docs/_config.yml` 只允许首页与 assets 进入 Pages 构建，现有工程文档不发布到官网。**不要添加 `.nojekyll`，否则会绕过此过滤。** `npm run test:website` 可验证独立构建在仓库子路径下的交互与资源。
+导出同时生成 `docs/_config.yml`，逐项放行首页、当前资源文件和自定义域名的 CNAME，现有工程文档不发布到官网。**不要添加 `.nojekyll`，否则会绕过此过滤。** `npm run test:website` 可验证独立构建在仓库子路径下的交互与资源。
 
 官网使用相对资源路径；“打开 Web”指向 `https://muyu.bkverse.space/`。此前 gh-pages 分支保留为历史交付，当前维护及发布源均为 main/docs。仓库当前为私有，Releases 与项目文档链接仅对有仓库访问权的人可用；本次不更改仓库可见性。

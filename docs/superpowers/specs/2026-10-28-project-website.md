@@ -30,3 +30,7 @@ Playwright 覆盖官网直达、功能切换、导航、窄屏、无 API 请求�
 ## 最终目录：main/docs 分支发布
 
 按用户最新要求，静态首页放 `docs/index.html`，资源放 `docs/assets/`，删除 website/ 与手动 Pages 工作流。Pages 设置使用 main → /docs。原工程文档保留；`docs/_config.yml` 默认排除所有文件，只允许首页与 assets 进入 Jekyll 发布，不能添加绕过该过滤的 `.nojekyll`。导出先构建到独立临时产物目录，再更新指定首页与资源目录，禁止把 Vite emptyOutDir 指向 docs，以免删除工程文档。
+
+## Pages 实际构建纠偏
+
+线上构建日志证实 Jekyll 对子目录条目以 basename 检查 include，单独包含 assets 不会放行其中 JS/CSS。本地源码推断不足以替代引擎验收。导出脚本同时生成 _config.yml，明确列出当前资源文件名、index.html、assets 和用户设置的 CNAME；exclude '*' 继续排除工程目录。验收使用真实 Pages 构建包和公网浏览器，不能只验证 Vite 或直接静态服务。

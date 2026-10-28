@@ -51,10 +51,18 @@ device acceptance.
 - [x] Release workflow changed to build the signed APK after all validation jobs
       and attach it directly to the GitHub Release, without Actions artifact
       transfer.
-- [ ] Push recovery trigger `release-recovery/v0.2.1`; verify it publishes the
-      original `v0.2.1` Release with the signed APK.
-- [ ] Record the release commit, Action run, APK signature verification and
-      SHA-256 after the remote workflow completes.
+- [x] Recovery tag `release-recovery/v0.2.1` points to workflow fix commit
+      `31bd8183f1bf1ccd399fc60078f095fce4c5e86a`. Actions run
+      [40629730834](https://github.com/Astro24002/Muyu/actions/runs/40629730834)
+      passed backend, Flutter, Web, signed APK build/signature verification and
+      direct Release upload.
+- [x] Published [木鱼协作 v0.2.1](https://github.com/Astro24002/Muyu/releases/tag/v0.2.1)
+      from release commit `3989247004c292acd5c481f1eadf684e06feb9d5`. It has one
+      asset, `Muyu-v0.2.1.apk` (73,394,819 bytes), SHA-256
+      `a159b8a89e5d9ae850dd9a67fbbd82e7626351c1957a6e92a55e917c6dc6389e`.
+      The downloaded file matches the Release digest; `apkanalyzer` reports
+      package `com.muyu.app`, version name `0.2.1`, version code `2`, and
+      `apksigner verify --verbose` confirms APK v2 signature validity.
 - [ ] Real Android device acceptance, production Web deployment, real-account
       and two-person acceptance remain pending; no AAB is claimed by this
       version-APK workflow.

@@ -16,8 +16,14 @@
 - [x] 提交并推送 README、官网源码与 gh-pages 静态产物。
 - [x] 提供静态路径及 Pages 配置说明（用户自行设置 Pages，线上启用不属本轮范围）。
 
-## main 静态目录
+## main/website 静态目录（历史交付，已被下节替代）
 
 - [x] 将完整静态包纳入 main 的 website/，提供可复现导出命令。
 - [x] 提供仅上传 website/ 的手动 Pages 工作流并更新配置说明。
 - [x] 检查静态目录资源、交互及差异后提交推送。
+
+## docs 分支发布（覆盖此前目录方案）
+
+- [x] 静态页迁至 docs/index.html 与 docs/assets，删除 website 和手动发布工作流。
+- [x] 导出保留工程文档，配置 Jekyll 仅发布官网文件；完整 Pages 构建验证见状态记录限制。
+- [x] 验证静态文件和文档保留，更新说明并提交推送 main。

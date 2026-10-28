@@ -19,10 +19,14 @@
 
 Playwright 覆盖官网直达、功能切换、导航、窄屏、无 API 请求及原有应用入口保留；运行 Web typecheck/test/build 和部署/边界静态检查。未改业务 API/数据库/Android，本轮不重复这些领域的全量测试，不冒充真机或线上验收。
 
-## 后续授权：GitHub Pages 发布
+## 历史方案：gh-pages 发布（已由 main/docs 替代）
 
 用户已授权提交代码及使用 GitHub Pages。新增独立官网构建（`dist-website`），Pages 根目录直接展示介绍页，资源使用相对 URL 兼容仓库子路径；只打包官网代码，不发布工作区应用。该模式的 Web 链接指向 `https://muyu.bkverse.space/`，现有同源 `/about/` 行为保持。用户随后指定自行设置 Pages；静态产物提交到 `gh-pages` 分支根目录，用户选择 Deploy from a branch 即可，不增加 Pages 工作流。保持仓库私有；Pages 设置权限不足或套餐不支持时如实记录，不自动更改可见性或购买套餐。
 
-## 后续调整：静态文件进入 main
+## 历史方案：main/website（已由 main/docs 替代）
 
 用户要求静态页面也存放 main 并建立独立目录。选择 `website/` 作为只含生成文件的发布目录，源码继续位于 `web/src/website/`；`npm run export:website` 可重建该目录。现有 `docs/` 是工程资料，不能整体作为官网发布包。GitHub 分支发布只支持 `/` 和 `/docs`，因此提供手动触发的 Pages 工作流，只上传 `website/`；用户自行选择 GitHub Actions 来源并触发，不自动改 Pages 设置。旧 gh-pages 分支保留作为此前交付。
+
+## 最终目录：main/docs 分支发布
+
+按用户最新要求，静态首页放 `docs/index.html`，资源放 `docs/assets/`，删除 website/ 与手动 Pages 工作流。Pages 设置使用 main → /docs。原工程文档保留；`docs/_config.yml` 默认排除所有文件，只允许首页与 assets 进入 Jekyll 发布，不能添加绕过该过滤的 `.nojekyll`。导出先构建到独立临时产物目录，再更新指定首页与资源目录，禁止把 Vite emptyOutDir 指向 docs，以免删除工程文档。

@@ -65,14 +65,13 @@ PostgreSQL 是共享事实源。REST snapshot / cursor changes 保证同步正�
 ```text
 backend/        API、领域服务、迁移与服务端测试
 client/         Flutter Android 客户端
-website/        main 分支中的官网静态发布包（生成文件）
 web/            Web 应用与 /about/ 项目介绍官网
   about/        官网 HTML 入口
   src/website/  官网组件与样式
   e2e/          浏览器验证
 deploy/        Compose、Caddy、备份与恢复工具
 scripts/        构建、门禁与运维脚本
-docs/           规格、计划、状态与操作说明
+docs/           工程文档及 Pages 官网（index.html、assets/）
 ```
 
 ## 本地开发与验证
@@ -127,25 +126,26 @@ make client-build API_BASE_URL=http://10.0.2.2:8080
 
 ### GitHub Pages 静态页面
 
-**main 分支静态目录：[website/](website/)，首页：[website/index.html](website/index.html)。**
+**发布目录：main 分支的 `/docs`；首页：[docs/index.html](docs/index.html)，资源：[docs/assets/](docs/assets/)。**
 
-该目录包含可直接托管的 `index.html` 和 `assets/`，只存放生成文件。源码位于 `web/src/website/`；更新后在 `web/` 执行：
+在仓库 Settings → Pages 中设置：
+
+- Source：**Deploy from a branch**
+- Branch：**main**
+- Folder：**/docs**
+
+保存后由 GitHub Pages 自动发布，无需自定义或手动工作流。默认地址为 `https://astro24002.github.io/Muyu/`，以 Pages 设置页的实际部署结果为准。
+
+更新官网时，源码仍在 `web/src/website/`。运行：
 
 ```sh
+cd web
 npm ci
 npm run export:website
 ```
 
-此命令重建仓库根目录的 `website/`（请勿在其中手工维护文件），将更新后的目录一同提交。`npm run build:website` 仍可生成忽略版本控制的 `web/dist-website/`，用于 `npm run test:website` 子路径验证。
+导出先构建到 `web/dist-website/`，再更新 `docs/index.html` 和 `docs/assets/`，保留工程文档。将这些静态文件与源码一同提交到 main；不要直接把 Vite 的输出目录设为 docs（清理输出会误删文档）。
 
-GitHub Pages 的分支发布只支持根目录或 `/docs`，不能直接选择 `website/`；已有 `docs/` 是工程文档，不作为官网发布包。[GitHub 发布源说明](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+`docs/_config.yml` 只允许首页与 assets 进入 Pages 构建，现有工程文档不发布到官网。**不要添加 `.nojekyll`，否则会绕过此过滤。** `npm run test:website` 可验证独立构建在仓库子路径下的交互与资源。
 
-使用 main 中的静态目录：
-
-1. Settings → Pages → Source 选择 **GitHub Actions**。
-2. Actions → **Publish project website** → Run workflow，分支选择 **main**。
-3. 工作流只上传 `website/`，无需在 CI 安装依赖或重建；发布成功后的默认地址为 `https://astro24002.github.io/Muyu/`。
-
-工作流只接受手动触发，本次不修改 Pages 设置或触发部署。此前 `gh-pages` 分支根目录的静态版本仍保留，后续以 main 的 `website/` 为维护位置。
-
-官网使用相对资源路径；“打开 Web”指向 `https://muyu.bkverse.space/`。仓库当前为私有，Releases 与项目文档链接仅对有仓库访问权的人可用；本次不更改仓库可见性。
+官网使用相对资源路径；“打开 Web”指向 `https://muyu.bkverse.space/`。此前 gh-pages 分支保留为历史交付，当前维护及发布源均为 main/docs。仓库当前为私有，Releases 与项目文档链接仅对有仓库访问权的人可用；本次不更改仓库可见性。

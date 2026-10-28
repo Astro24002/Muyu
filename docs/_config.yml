@@ -1,0 +1,9 @@
+# Keep engineering documentation in the repository, outside the published site.
+# Do not add .nojekyll: branch publishing must apply this allowlist.
+theme: null
+plugins: []
+exclude:
+  - '*'
+include:
+  - index.html
+  - assets

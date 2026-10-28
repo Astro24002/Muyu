@@ -1,6 +1,6 @@
 # 设计文档索引
 
-项目总览见 [根 README](../README.md)；项目介绍官网本地入口为 `/about/`，运行与构建方式见根 README。
+项目总览见 [根 README](../README.md)；项目介绍官网本地入口为 `/about/`，运行与构建方式见根 README。GitHub Pages 静态首页为本目录的 `index.html`，配置发布源 `main /docs`；`_config.yml` 排除工程资料，仅发布首页与 assets。
 
 ## 产品核心价值
 

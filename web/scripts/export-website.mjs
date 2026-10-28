@@ -1,0 +1,18 @@
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
+const build = fileURLToPath(new URL('../dist-website/', import.meta.url));
+const docs = fileURLToPath(new URL('../../docs/', import.meta.url));
+// Only these generated files belong to the exporter; never clear docs itself.
+const html = await readFile(`${build}/index.html`, 'utf8');
+const files = await readdir(`${build}/assets`);
+if (!files.length || !html.includes('./assets/')) throw new Error('Website build is incomplete');
+await mkdir(`${docs}/assets`, { recursive: true });
+for (const name of files) await cp(`${build}/assets/${name}`, `${docs}/assets/${name}`);
+await writeFile(`${docs}/index.html`, html);
+for (const name of await readdir(`${docs}/assets`)) {
+  if (/^index-[\w-]+\.(js|css)$/.test(name) && !files.includes(name)) {
+    await rm(`${docs}/assets/${name}`);
+  }
+}
+console.log('Exported website to docs/index.html and docs/assets/');

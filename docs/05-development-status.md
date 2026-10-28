@@ -4,6 +4,8 @@
 
 ## 当前状态
 
+- 2026-10-28（手机官网线上复核）：提交 `9232727` 的 [Pages run 40656795633](https://github.com/Astro24002/Muyu/actions/runs/40656795633) 自动发布成功，下载产物确认仅含 CNAME、index.html、index-C5I9vf9p.css 与 index-Brs8QZw0.js，无工程文档。公网全新 Chromium Pixel 7 触控模拟加载新 CSS，320/360/393/412 下正文 16px、四个功能面板 tap 切换及无横向溢出检查通过，无资源错误或脚本异常。此证据是线上移动浏览器模拟，真实手机与读屏验收仍未执行。
+
 - 2026-10-28（官网手机阅读与触控适配）：用户反馈手机体验后，线上 Pixel 7 浏览器模拟确认正文仅 13px、导航触控高度约 17px；旧“无横向溢出”检查不能代表移动适配完成。新增专项先以 13px 不满足 16px 失败，后实现 740px 以下专用布局：两行导航、16px 正文与 rem 字号、至少 44px 的主要触控入口、两列功能按钮、全宽下载入口、直立无漂浮遮挡的示意图、安全区。`npm run typecheck`、Web build、原官网 Playwright 1 passed、`npm run test:website` 2 passed（320/360/393/412、横屏、200% 根字号、触控）及 `git diff --check` 通过；`npm run export:website` 已更新 docs 首页、指纹资源和白名单。另临时注入本地 Noto Sans SC 字体，检查四个宽度×四面板×两种字号均无溢出，复核手机和桌面截图；[393px 截图](design-reviews/assets/muyu-website-mobile-adapted-393.png)、[320px 截图](design-reviews/assets/muyu-website-mobile-adapted-320.png)。字体仅用于检查，未加入发布资源。未修改业务/API/Android，未重跑这些领域全量测试，未执行真实设备/读屏验收；线上 Pages 发布后证据另记。此前 API 域名冲突未在本轮改动。
 
 - 2026-10-28（Pages 修复线上验收）：修复提交 `0ccf6cc` 的 [Pages run 40650714476](https://github.com/Astro24002/Muyu/actions/runs/40650714476) 自动构建/部署成功。下载 github-pages artifact（ID 12799601918），tar 实际只含 index.html、CNAME、assets/index-BBFJCrWG.js 和 assets/index-BkNF60qN.css，没有工程文档。公网 `https://muyu.bkverse.space/` 与 JS/CSS 均 200；全新 Chromium 页面可见 h1，事项/记账/打卡/纪念日四种面板切换通过，393px 无横向溢出，无 HTTP 4xx 或脚本错误。由真实构建包确认此前 Jekyll 过滤验收缺口已补齐。API 404 与 Web 入口自循环仍是该域名改指 Pages 后的独立问题，待确认官网与应用/API 域名分工；本次没有修改 DNS、API 服务或 APK。

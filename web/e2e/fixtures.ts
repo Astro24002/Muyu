@@ -361,6 +361,41 @@ async function fulfillApi(route: Route, state: FixtureState): Promise<void> {
     return;
   }
 
+  if (pathname === '/api/v1/home' && method === 'GET') {
+    if (!state.authenticated) {
+      await unauthorized(route);
+      return;
+    }
+    const openTasks = state.tasks.filter((task) => !['DONE', 'CANCELLED', 'COMPLETED'].includes(task.status));
+    const blocked = openTasks.filter((task) => task.status === 'BLOCKED' || task.status === 'WAITING');
+    const active = openTasks.filter((task) => task.status !== 'BLOCKED' && task.status !== 'WAITING');
+    const asOf = Date.parse('2026-09-01T10:00:00Z');
+    const dueThisWeek = active.filter((task) => task.due_at !== null);
+    const dueSoon = active.filter((task) => {
+      if (!task.due_at) return false;
+      const dueAt = Date.parse(task.due_at);
+      return dueAt >= asOf && dueAt < asOf + 14 * 24 * 60 * 60 * 1000;
+    });
+    await json(route, 200, {
+      viewer_user_id: 'viewer',
+      as_of: new Date(asOf).toISOString(),
+      week: { timezone: 'Asia/Shanghai', start: '2026-08-30T16:00:00Z', end: '2026-09-06T16:00:00Z' },
+      entry_counts: { needs_me: 0, waiting_on_other: 0, due_this_week: dueThisWeek.length, due_soon: dueSoon.length },
+      moment: {
+        blocked: { items: blocked, has_more: false },
+        mine: { items: active.filter((task) => task.current_handler_id === 'viewer'), has_more: false },
+        other: { items: active.filter((task) => task.current_handler_id !== 'viewer'), has_more: false },
+      },
+      entries: {
+        needs_me: { items: [], has_more: false },
+        waiting_on_other: { items: [], has_more: false },
+        due_this_week: { items: dueThisWeek, has_more: false },
+        due_soon: { items: dueSoon, has_more: false },
+      },
+    });
+    return;
+  }
+
   if (pathname === '/api/v1/web-sessions' && method === 'GET') {
     if (!state.authenticated) {
       await unauthorized(route);

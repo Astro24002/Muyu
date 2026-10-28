@@ -337,6 +337,8 @@ void main() {
       );
 
       expect(controller.entries.single.id, 'ledger-1');
+      expect(controller.loadedLedgerMonthKey, '2026-09');
+      expect(controller.loadedLedgerSummaryMonthKey, isNull);
       expect(controller.habits.single.id, 'habit-1');
       expect(controller.anniversaries.single.id, 'anniversary-1');
     },

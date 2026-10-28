@@ -150,14 +150,15 @@ void main() {
       'viewer_user_id': 'user-1',
       'as_of': '2026-09-14T10:00:00Z',
       'week': {
-        'timezone': 'UTC',
-        'start': '2026-09-14T00:00:00Z',
-        'end': '2026-09-21T00:00:00Z',
+        'timezone': 'Asia/Shanghai',
+        'start': '2026-09-13T16:00:00Z',
+        'end': '2026-09-20T16:00:00Z',
       },
       'entry_counts': {
         'needs_me': 1,
         'waiting_on_other': 0,
         'due_this_week': 2,
+        'due_soon': 1,
       },
       'current_tasks': {'items': [], 'has_more': false},
       'blocked_tasks': {'items': [], 'has_more': false},
@@ -187,16 +188,24 @@ void main() {
           'items': [taskJson('due', 'TODO')],
           'has_more': false,
         },
+        'due_soon': {
+          'items': [taskJson('due-soon', 'TODO')],
+          'has_more': false,
+        },
       },
     });
 
     expect(home.viewerUserId, 'user-1');
     expect(home.asOf, DateTime.parse('2026-09-14T10:00:00Z'));
-    expect(home.week?.timezone, 'UTC');
+    expect(home.week?.timezone, 'Asia/Shanghai');
+    expect(home.week?.start, DateTime.utc(2026, 9, 13, 16));
     expect(home.entryCounts.needsMe, 1);
+    expect(home.entryCounts.dueSoon, 1);
+    expect(home.dueSoonCount, 1);
     expect(home.entries.needsMe.items.single.task, isNull);
+    expect(home.entries.dueSoon.items.single.id, 'due-soon');
     expect(home.moment.mine.items.single.id, 'mine');
-    expect(home.allTasks.map((task) => task.id), ['mine', 'due']);
+    expect(home.allTasks.map((task) => task.id), ['mine', 'due', 'due-soon']);
     expect(home.isValidForWorkspace('workspace-1'), isTrue);
   });
 
@@ -301,13 +310,16 @@ void main() {
         throwsFormatException,
       );
 
-      final nonUtc = Map<String, dynamic>.from(base);
-      nonUtc['week'] = {
-        'timezone': 'Asia/Shanghai',
+      final unknownTimezone = Map<String, dynamic>.from(base);
+      unknownTimezone['week'] = {
+        'timezone': 'Unknown/Timezone',
         'start': '2026-09-14T00:00:00Z',
         'end': '2026-09-21T00:00:00Z',
       };
-      expect(() => HomeResponse.fromJson(nonUtc), throwsFormatException);
+      expect(
+        () => HomeResponse.fromJson(unknownTimezone),
+        throwsFormatException,
+      );
 
       final reversedWeek = Map<String, dynamic>.from(base);
       reversedWeek['week'] = {

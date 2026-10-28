@@ -8,14 +8,14 @@ export interface TaskFilterValues {
   status: TaskStatus | '';
   quadrant: TaskQuadrant | '';
   label: string;
-  myOnly: boolean;
+  owner: 'all' | 'mine' | 'other';
 }
 
 export const EMPTY_TASK_FILTERS: TaskFilterValues = {
   status: '',
   quadrant: '',
   label: '',
-  myOnly: false,
+  owner: 'all',
 };
 
 export interface TaskFiltersProps {
@@ -65,14 +65,18 @@ export function TaskFilters({ value, onChange, disabled = false }: TaskFiltersPr
         />
       </label>
 
-      <label className="task-filters__mine">
-        <input
-          type="checkbox"
-          checked={value.myOnly}
+      <label className="task-filters__field">
+        <span>负责人</span>
+        <select
+          aria-label="负责人"
+          value={value.owner}
           disabled={disabled}
-          onChange={(event) => onChange({ ...value, myOnly: event.target.checked })}
-        />
-        <span>只看我的任务</span>
+          onChange={(event) => onChange({ ...value, owner: event.target.value as TaskFilterValues['owner'] })}
+        >
+          <option value="all">全部负责人</option>
+          <option value="mine">我负责</option>
+          <option value="other">TA 负责</option>
+        </select>
       </label>
     </div>
   );

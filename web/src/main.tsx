@@ -9,6 +9,7 @@ import { ApprovalPreviewPage } from './pages/ApprovalPreviewPage';
 import { AndroidApprovalPreviewPage } from './pages/AndroidApprovalPreviewPage';
 import { ApprovalCardOptionsPage } from './pages/ApprovalCardOptionsPage';
 import { QuadrantPreviewPage } from './pages/QuadrantPreviewPage';
+import { MattersPreviewPage } from './pages/MattersPreviewPage';
 
 const api = new ApiClient();
 const login = new QrLoginController(api);
@@ -21,6 +22,8 @@ root.classList.add('muyu-react-root');
 const preview = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('preview');
 createRoot(root).render(import.meta.env.DEV && preview === 'approval-options'
   ? <ApprovalCardOptionsPage />
+  : import.meta.env.DEV && preview === 'matters'
+    ? <MattersPreviewPage />
   : import.meta.env.DEV && preview === 'quadrants'
     ? <QuadrantPreviewPage />
   : import.meta.env.DEV && preview === 'android-approvals'

@@ -214,6 +214,13 @@ def get_home(
         week_start,
         week_end,
     )
+    due_soon_end = now + timedelta(days=14)
+    due_soon_count = _due_task_count(
+        session,
+        actor.workspace_id,
+        now,
+        due_soon_end,
+    )
     due_this_week, due_this_week_has_more = _bounded_tasks(
         session,
         select(Task).where(
@@ -222,6 +229,19 @@ def get_home(
             Task.status.in_(_WEEK_DUE_STATUSES),
             Task.due_at >= week_start,
             Task.due_at < week_end,
+        ),
+        _ENTRY_LIMIT,
+        now,
+        include_blocked_since=False,
+    )
+    due_soon, due_soon_has_more = _bounded_tasks(
+        session,
+        select(Task).where(
+            Task.workspace_id == actor.workspace_id,
+            Task.deleted_at.is_(None),
+            Task.status.in_(_WEEK_DUE_STATUSES),
+            Task.due_at >= now,
+            Task.due_at < due_soon_end,
         ),
         _ENTRY_LIMIT,
         now,
@@ -258,6 +278,7 @@ def get_home(
             needs_me=needs_me_count,
             waiting_on_other=waiting_on_other_entry_count,
             due_this_week=week_due_count,
+            due_soon=due_soon_count,
         ),
         current_tasks=HomeTaskSection(
             items=[task_service.snapshot(task) for task in current_tasks],
@@ -284,6 +305,7 @@ def get_home(
         needs_action_count=pending_approval_count,
         waiting_on_other_count=waiting_on_other_count,
         week_due_count=week_due_count,
+        due_soon_count=due_soon_count,
         entries=HomeEntries(
             needs_me=HomeApprovalSection(
                 items=[
@@ -308,6 +330,10 @@ def get_home(
             due_this_week=HomeTaskSection(
                 items=[task_service.snapshot(task) for task in due_this_week],
                 has_more=due_this_week_has_more,
+            ),
+            due_soon=HomeTaskSection(
+                items=[task_service.snapshot(task) for task in due_soon],
+                has_more=due_soon_has_more,
             ),
         ),
     )
@@ -374,7 +400,7 @@ def get_home_entry_page(
                     "id": str(request.id),
                 },
             )
-    else:
+    elif entry == "due_this_week":
         now, week_start, week_end = _entry_window(cursor)
         count = _due_this_week_count(session, actor.workspace_id, week_start, week_end)
         tasks, has_more = _due_this_week_page(
@@ -399,6 +425,34 @@ def get_home_entry_page(
                 week_end=week_end,
                 after=_task_cursor_key(task, now),
             )
+    else:
+        now, due_soon_end = _due_soon_window(cursor)
+        count = _due_task_count(
+            session,
+            actor.workspace_id,
+            now,
+            due_soon_end,
+        )
+        tasks, has_more = _due_task_page(
+            session,
+            actor.workspace_id,
+            limit=limit,
+            now=now,
+            window_start=now,
+            window_end=due_soon_end,
+            cursor=cursor,
+        )
+        items = [task_service.snapshot(task) for task in tasks]
+        next_cursor = None
+        if has_more and tasks:
+            next_cursor = _encode_entry_cursor(
+                entry=entry,
+                workspace_id=actor.workspace_id,
+                viewer_id=actor.user_id,
+                as_of=now,
+                due_soon_end=due_soon_end,
+                after=_task_cursor_key(tasks[-1], now),
+            )
 
     return HomeEntriesPage(
         count=count,
@@ -417,6 +471,7 @@ def _encode_entry_cursor(
     as_of: datetime | None = None,
     week_start: datetime | None = None,
     week_end: datetime | None = None,
+    due_soon_end: datetime | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "v": 1,
@@ -431,6 +486,8 @@ def _encode_entry_cursor(
         payload["week_start"] = _iso_utc(week_start)
     if week_end is not None:
         payload["week_end"] = _iso_utc(week_end)
+    if due_soon_end is not None:
+        payload["due_soon_end"] = _iso_utc(due_soon_end)
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     encoded = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
     return f"{_ENTRY_CURSOR_PREFIX}{encoded}"
@@ -487,6 +544,19 @@ def _entry_window(
     if week_end - week_start != timedelta(days=7):
         _invalid_entry_cursor()
     return now, week_start, week_end
+
+
+def _due_soon_window(
+    cursor: dict[str, Any] | None,
+) -> tuple[datetime, datetime]:
+    if cursor is None:
+        now = datetime.now(timezone.utc)
+        return now, now + timedelta(days=14)
+    now = _cursor_datetime(cursor.get("as_of"))
+    end = _cursor_datetime(cursor.get("due_soon_end"))
+    if end - now != timedelta(days=14):
+        _invalid_entry_cursor()
+    return now, end
 
 
 def _cursor_datetime(value: object) -> datetime:
@@ -583,6 +653,15 @@ def _due_this_week_count(
     week_start: datetime,
     week_end: datetime,
 ) -> int:
+    return _due_task_count(session, workspace_id, week_start, week_end)
+
+
+def _due_task_count(
+    session: Session,
+    workspace_id,
+    window_start: datetime,
+    window_end: datetime,
+) -> int:
     count = session.scalar(
         select(func.count())
         .select_from(Task)
@@ -590,8 +669,8 @@ def _due_this_week_count(
             Task.workspace_id == workspace_id,
             Task.deleted_at.is_(None),
             Task.status.in_(_WEEK_DUE_STATUSES),
-            Task.due_at >= week_start,
-            Task.due_at < week_end,
+            Task.due_at >= window_start,
+            Task.due_at < window_end,
         )
     )
     return int(count or 0)
@@ -607,14 +686,35 @@ def _due_this_week_page(
     week_end: datetime,
     cursor: dict[str, Any] | None,
 ) -> tuple[list[Task], bool]:
+    return _due_task_page(
+        session,
+        workspace_id,
+        limit=limit,
+        now=now,
+        window_start=week_start,
+        window_end=week_end,
+        cursor=cursor,
+    )
+
+
+def _due_task_page(
+    session: Session,
+    workspace_id,
+    *,
+    limit: int,
+    now: datetime,
+    window_start: datetime,
+    window_end: datetime,
+    cursor: dict[str, Any] | None,
+) -> tuple[list[Task], bool]:
     overdue = case((and_(Task.due_at.is_not(None), Task.due_at < now), 0), else_=1)
     undated = case((Task.due_at.is_(None), 1), else_=0)
     statement = select(Task).where(
         Task.workspace_id == workspace_id,
         Task.deleted_at.is_(None),
         Task.status.in_(_WEEK_DUE_STATUSES),
-        Task.due_at >= week_start,
-        Task.due_at < week_end,
+        Task.due_at >= window_start,
+        Task.due_at < window_end,
     )
     if cursor is not None:
         after = cursor["after"]

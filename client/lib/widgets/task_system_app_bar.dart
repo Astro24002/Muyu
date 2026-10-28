@@ -21,7 +21,7 @@ class TaskSystemAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String eyebrow;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight + 1);
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
   @override
   Widget build(BuildContext context) {
@@ -45,19 +45,11 @@ class TaskSystemAppBar extends StatelessWidget implements PreferredSizeWidget {
                 ? MuyuSpacing.xl
                 : MuyuSpacing.lg
           : null,
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: theme.scaffoldBackgroundColor,
       foregroundColor: theme.colorScheme.onSurface,
       elevation: 0,
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Divider(
-          height: 1,
-          thickness: 1,
-          color: theme.colorScheme.outline,
-        ),
-      ),
     );
   }
 }

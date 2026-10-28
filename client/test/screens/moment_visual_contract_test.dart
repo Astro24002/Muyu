@@ -8,6 +8,7 @@ import 'package:muyu_client/models/task.dart';
 import 'package:muyu_client/models/task_approval_request.dart';
 import 'package:muyu_client/models/workspace_snapshot.dart';
 import 'package:muyu_client/screens/cloud_workspace_screen.dart';
+import 'package:muyu_client/screens/task_list_view.dart';
 import 'package:muyu_client/sync/workspace_sync_controller.dart';
 import 'package:muyu_client/task/home_entry_repository.dart';
 import 'package:muyu_client/theme/muyu_theme.dart';
@@ -107,6 +108,46 @@ void _expectContained(WidgetTester tester, Finder finder, Size viewport) {
 }
 
 void main() {
+  testWidgets('an unavailable task snapshot is not presented as empty', (
+    tester,
+  ) async {
+    final sync = WorkspaceSyncController.unavailable();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: muyuLightTheme(),
+        home: Scaffold(
+          body: TaskListView(
+            sync: sync,
+            state: const WorkspaceSyncState(loading: true),
+            canWrite: false,
+            onTaskTap: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.text('暂无符合当前显示条件的事情'), findsNothing);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: muyuLightTheme(),
+        home: Scaffold(
+          body: TaskListView(
+            sync: sync,
+            state: const WorkspaceSyncState(errorMessage: '同步失败'),
+            canWrite: false,
+            onTaskTap: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('task-list-error')), findsOneWidget);
+    expect(find.byKey(const Key('task-list-retry')), findsOneWidget);
+    expect(find.text('暂无符合当前显示条件的事情'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'request without task opens the approval center without a fake task',
     (tester) async {
@@ -257,13 +298,14 @@ void main() {
         handler: 'user-1',
       );
       final other = _visualTask('other', status: 'TODO', handler: 'user-2');
+      final done = _visualTask('done', status: 'DONE', handler: 'user-1');
       final sync = WorkspaceSyncController.unavailable();
       sync.state = WorkspaceSyncState(
         snapshot: WorkspaceSnapshot(
           workspaceId: 'workspace-1',
           cursor: 1,
           viewerUserId: 'user-1',
-          tasks: [blocked, mine, other],
+          tasks: [blocked, mine, other, done],
           members: const [
             {'user_id': 'user-1', 'display_name': '我'},
             {'user_id': 'user-2', 'display_name': '对方'},
@@ -282,8 +324,10 @@ void main() {
           needsActionCount: 3,
           waitingOnOtherCount: 1,
           weekDueCount: 2,
+          dueSoonCount: 2,
           entries: HomeEntries(
             dueThisWeek: HomeTaskSection(items: [mine], hasMore: true),
+            dueSoon: HomeTaskSection(items: [mine], hasMore: true),
           ),
         ),
         isStale: false,
@@ -322,7 +366,8 @@ void main() {
       final greeting = tester.widget<Text>(
         find.byKey(const Key('workspace-moment-greeting')),
       );
-      expect(greeting.data, contains('一起向前一点点'));
+      expect(greeting.data, contains('有 3 件事等你回应'));
+      expect(greeting.data, isNot(contains('一起向前一点点')));
       final actionMetric = find.byKey(
         const Key('workspace-summary-needs-action'),
       );
@@ -339,81 +384,31 @@ void main() {
       );
       expect(tester.getSize(actionMetric).height, greaterThanOrEqualTo(104));
       expect(tester.getRect(actionMetric).left, width >= 360 ? 24 : 16);
-      expect(summary, findsOneWidget);
-      expect(tester.getSize(summary), isNot(Size.zero));
-      _expectContained(tester, summary, viewport);
-
-      const sections = <String, String>{
-        'blocked': '卡住的事情',
-        'mine': '我在推进',
-        'other': 'TA 在推进',
-      };
-      for (final entry in sections.entries) {
-        final section = find.byKey(Key('moment-section-${entry.key}'));
-        expect(section, findsOneWidget);
-        final title = find.byKey(Key('moment-section-title-${entry.key}'));
-        expect(tester.widget<Text>(title).data, entry.value);
-        expect(tester.getSize(section), isNot(Size.zero));
-        _expectContained(tester, section, viewport);
+      expect(summary, findsNothing);
+      for (final title in ['卡住的事情', '我在推进', 'TA 在推进']) {
+        expect(find.text(title), findsNothing);
       }
-
       for (final task in [blocked, mine, other]) {
-        final card = find.byKey(ValueKey('task-card-${task.id}'));
-        final metadata = find.byKey(ValueKey('task-card-metadata-${task.id}'));
-        expect(card, findsOneWidget);
-        expect(
-          tester.widget<Material>(card).color,
-          muyuLightTheme().colorScheme.surface,
-        );
-        expect(tester.getRect(card).left, width >= 360 ? 24 : 16);
-        expect(metadata, findsOneWidget);
-        expect(tester.getSize(metadata).height, lessThanOrEqualTo(32));
-        expect(
-          find.descendant(
-            of: card,
-            matching: find.byKey(ValueKey('task-card-status-${task.id}')),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: metadata,
-            matching: find.byKey(ValueKey('task-card-due-${task.id}')),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: metadata,
-            matching: find.byKey(ValueKey('task-card-owner-${task.id}')),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(ValueKey('task-card-quadrant-${task.id}')),
-          findsNothing,
-        );
-        expect(
-          find.descendant(
-            of: card,
-            matching: find.byKey(ValueKey('task-card-action-${task.id}')),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: metadata,
-            matching: find.byKey(ValueKey('task-card-label-${task.id}')),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          tester
-              .getRect(find.byKey(ValueKey('task-card-status-${task.id}')))
-              .top,
-          lessThan(tester.getRect(metadata).top),
-        );
-        _expectContained(tester, card, viewport);
+        expect(find.byKey(ValueKey('task-card-${task.id}')), findsNothing);
+      }
+      expect(find.byKey(const Key('task-section-header-past')), findsOneWidget);
+      expect(find.text('已完成/已归档'), findsOneWidget);
+
+      for (final task in [done]) {
+        final row = find.byKey(ValueKey('task-list-row-${task.id}'));
+        await tester.scrollUntilVisible(row, 200);
+        expect(row, findsOneWidget);
+        final rowSurface = find
+            .ancestor(of: row, matching: find.byType(Material))
+            .first;
+        final taskSurface = muyuLightTheme()
+            .extension<MuyuThemeExtension>()!
+            .taskSurface;
+        expect(tester.widget<Material>(rowSurface).color, taskSurface);
+        expect(taskSurface, muyuLightTheme().scaffoldBackgroundColor);
+        expect(tester.getRect(row).left, width >= 360 ? 24 : 16);
+        expect(find.text(task.title), findsOneWidget);
+        _expectContained(tester, row, viewport);
       }
 
       final navigation = find.byKey(const Key('workspace-navigation-bar'));
@@ -443,7 +438,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       if (width == 393) {
-        await tester.tap(find.byKey(const Key('workspace-summary-week-due')));
+        await tester.tap(find.byKey(const Key('workspace-summary-due-soon')));
         await tester.pumpAndSettle();
         expect(
           find.byKey(const Key('workspace-summary-task-mine')),

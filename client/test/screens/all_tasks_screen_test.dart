@@ -9,6 +9,34 @@ import 'package:muyu_client/screens/all_tasks_screen.dart';
 import 'package:muyu_client/task/task_query_repository.dart';
 
 void main() {
+  testWidgets('initial query failure is not shown as an empty result', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'https://api.example',
+      httpClient: MockClient(
+        (_) async => http.Response(
+          '{"code":"TEMPORARY","message":"暂时无法加载"}',
+          503,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AllTasksScreen(
+          repository: TaskQueryRepository(api),
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('all-tasks-error')), findsOneWidget);
+    expect(find.text('没有符合当前筛选条件的事情'), findsNothing);
+    expect(find.byKey(const Key('all-tasks-refresh')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('searches, filters, pages and retains results after a failure', (
     tester,
   ) async {

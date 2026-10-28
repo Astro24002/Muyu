@@ -7,41 +7,54 @@ import '../models/workspace_snapshot.dart';
 
 class LifeController extends ChangeNotifier {
   LifeController(this.repository, {DateTime Function()? now})
-    : now = now ?? DateTime.now;
+    : now = now ?? DateTime.now,
+      month = _monthOf((now ?? DateTime.now)());
 
   final LifeRepository repository;
   final DateTime Function() now;
+  DateTime month;
   List<LedgerItem> entries = const [];
   LedgerSummary? summary;
   List<HabitItem> habits = const [];
   List<AnniversaryItem> anniversaries = const [];
   String habitOwner = 'mine';
+  String? loadedLedgerMonthKey;
+  String? loadedLedgerSummaryMonthKey;
+  bool hasLoadedCheckins = false;
   bool loadingLedger = false;
   bool loadingCheckins = false;
   bool writing = false;
   String? ledgerError;
   String? checkinsError;
-  DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   bool _disposed = false;
+  int _ledgerLoadGeneration = 0;
 
   String get monthKey =>
       '${month.year.toString().padLeft(4, '0')}-${month.month.toString().padLeft(2, '0')}';
 
   Future<void> loadLedger() async {
+    final generation = ++_ledgerLoadGeneration;
+    final requestedMonth = monthKey;
     loadingLedger = true;
     ledgerError = null;
     _notify();
     try {
-      final loadedSummary = await repository.ledgerSummary(monthKey);
-      final loadedEntries = await repository.ledger(monthKey);
-      if (_disposed) return;
+      final loadedSummary = await repository.ledgerSummary(requestedMonth);
+      final loadedEntries = await repository.ledger(requestedMonth);
+      if (_disposed || generation != _ledgerLoadGeneration) return;
       summary = loadedSummary;
       entries = loadedEntries;
+      loadedLedgerMonthKey = requestedMonth;
+      loadedLedgerSummaryMonthKey = requestedMonth;
     } catch (_) {
-      ledgerError = '记账刷新失败，请检查网络后重试';
+      if (generation == _ledgerLoadGeneration) {
+        ledgerError = '记账刷新失败，请检查网络后重试';
+      }
     } finally {
-      loadingLedger = false;
-      _notify();
+      if (generation == _ledgerLoadGeneration) {
+        loadingLedger = false;
+        _notify();
+      }
     }
   }
 
@@ -60,6 +73,7 @@ class LifeController extends ChangeNotifier {
       if (_disposed) return;
       habits = loadedHabits;
       anniversaries = loadedAnniversaries;
+      hasLoadedCheckins = true;
     } catch (_) {
       checkinsError = '打卡刷新失败，请检查网络后重试';
     } finally {
@@ -93,10 +107,19 @@ class LifeController extends ChangeNotifier {
         !_sameLedger(entries, monthEntries) ||
         !_sameHabits(habits, visibleHabits) ||
         !_sameAnniversaries(anniversaries, snapshot.anniversaries);
-    if (!changed) return;
+    final ledgerMonthChanged = loadedLedgerMonthKey != monthKey;
+    final firstLifeSnapshot = !hasLoadedCheckins;
+    hasLoadedCheckins = true;
+    if (!changed && !ledgerMonthChanged && !firstLifeSnapshot) return;
+    if (!_sameLedger(entries, monthEntries)) {
+      summary = null;
+      loadedLedgerSummaryMonthKey = null;
+    }
     entries = monthEntries;
+    loadedLedgerMonthKey = monthKey;
     habits = visibleHabits;
     anniversaries = List<AnniversaryItem>.from(snapshot.anniversaries);
+    hasLoadedCheckins = true;
     _notify();
   }
 
@@ -157,6 +180,8 @@ class LifeController extends ChangeNotifier {
         .join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
+
+  static DateTime _monthOf(DateTime value) => DateTime(value.year, value.month);
 
   static bool _sameLedger(List<LedgerItem> left, List<LedgerItem> right) {
     if (left.length != right.length) return false;

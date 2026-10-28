@@ -74,7 +74,10 @@ class _TaskQuadrantViewState extends State<TaskQuadrantView> {
                 key: const Key('task-quadrant-error'),
               ),
             ),
-          Text('让重要的事，有它的位置。', style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            '按重要性和紧急程度查看未完成事项。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: MuyuSpacing.md),
           Wrap(
             key: const Key('quadrant-owner-filter'),
@@ -239,7 +242,9 @@ class _QuadrantPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final surface = theme.colorScheme.surface;
+    final extension = theme.extension<MuyuThemeExtension>();
+    final surface = extension?.taskSurface ?? theme.colorScheme.surface;
+    final outline = extension?.taskOutline ?? theme.colorScheme.outline;
     final accent = _quadrantColor(context, quadrant);
     final headerSurface = Color.alphaBlend(
       accent.withValues(alpha: 0.14),
@@ -247,9 +252,10 @@ class _QuadrantPanel extends StatelessWidget {
     );
 
     return DecoratedBox(
+      key: Key('task-quadrant-surface-$quadrant'),
       decoration: BoxDecoration(
         color: surface,
-        border: Border.all(color: theme.colorScheme.outline),
+        border: Border.all(color: outline),
         borderRadius: const BorderRadius.all(Radius.circular(8)),
       ),
       child: ClipRRect(
@@ -298,7 +304,7 @@ class _QuadrantPanel extends StatelessWidget {
                   vertical: MuyuSpacing.lg,
                 ),
                 child: Text(
-                  '暂无任务',
+                  '此象限暂无未完成事项',
                   style: theme.textTheme.bodySmall,
                   textAlign: TextAlign.center,
                 ),

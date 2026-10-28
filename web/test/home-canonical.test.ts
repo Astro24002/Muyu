@@ -61,11 +61,11 @@ function canonicalHome(): HomeResponse {
     viewer_user_id: 'viewer',
     as_of: '2026-09-14T10:00:00Z',
     week: {
-      timezone: 'UTC',
-      start: '2026-09-14T00:00:00Z',
-      end: '2026-09-21T00:00:00Z',
+      timezone: 'Asia/Shanghai',
+      start: '2026-09-13T16:00:00Z',
+      end: '2026-09-20T16:00:00Z',
     },
-    entry_counts: { needs_me: 2, waiting_on_other: 1, due_this_week: 3 },
+    entry_counts: { needs_me: 2, waiting_on_other: 1, due_this_week: 3, due_soon: 4 },
     // Deliberately disagree with the deprecated fields to prove the model
     // uses canonical sections when both projections are present.
     current_tasks: { items: [task('legacy-current')], has_more: false },
@@ -90,7 +90,8 @@ function canonicalHome(): HomeResponse {
         items: [{ approval_request: { ...approval('outgoing', null), requester_id: 'viewer', approver_id: 'partner' }, task: null }],
         has_more: false,
       },
-      due_this_week: { items: [task('canonical-due')], has_more: false },
+      due_this_week: { items: [task('legacy-week-due')], has_more: false },
+      due_soon: { items: [task('canonical-due')], has_more: false },
     },
   };
 }
@@ -133,8 +134,11 @@ describe('canonical Home projection', () => {
     await controller.loadSnapshot();
 
     expect(controller.state.home?.viewer_user_id).toBe('viewer');
+    expect(controller.state.home?.week).toEqual(home.week);
     expect(controller.state.home?.moment?.mine?.items.map((item) => item.id)).toEqual(['canonical-mine']);
     expect(controller.state.home?.entries?.needs_me.items).toHaveLength(2);
+    expect(controller.state.home?.entry_counts?.due_soon).toBe(4);
+    expect(controller.state.home?.entries?.due_soon?.items.map((item) => item.id)).toEqual(['canonical-due']);
 
     api.getHome.mockRejectedValueOnce(new Error('offline'));
     await controller.loadSnapshot();

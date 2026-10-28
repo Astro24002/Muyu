@@ -180,10 +180,12 @@ void main() {
     );
   });
 
-  test('list groups use delayed and upcoming sections and hide terminal work by default', () {
+  test('list groups separate overdue work from completed archive history', () {
     final now = DateTime(2026, 8, 31, 12);
     final groups = TaskView.listGroups([
       makeTask('past', 'TODO', DateTime(2026, 8, 30, 9)),
+      makeTask('past-blocked', 'BLOCKED', DateTime(2026, 8, 29, 9)),
+      makeTask('past-review', 'REVIEW', DateTime(2026, 8, 30, 10)),
       makeTask('today', 'IN_PROGRESS', DateTime(2026, 8, 31, 18)),
       makeTask('future', 'BLOCKED', DateTime(2026, 9, 1, 9)),
       makeTask('none', 'TODO', null),
@@ -192,26 +194,50 @@ void main() {
       makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
     ], now: now);
 
-    expect(groups.map((group) => group.key), ['past', 'upcoming']);
-    expect(groups[0].title, '已经延期');
-    expect(groups[1].title, '即将到期');
-    expect(groups[0].tasks.map((item) => item.id), ['past']);
-    expect(groups[1].tasks.map((item) => item.id), ['today', 'none']);
+    expect(groups.map((group) => group.key), ['past', 'active', 'terminal']);
+    expect(groups[0].title, '已经过期');
+    expect(groups[1].title, '未完成的事情');
+    expect(groups[2].title, '已完成/已归档');
+    expect(
+      groups[0].tasks.map((item) => item.id),
+      unorderedEquals(['past', 'past-blocked', 'past-review']),
+    );
+    expect(groups[1].tasks.map((item) => item.id), [
+      'today',
+      'future',
+      'outside-window',
+      'none',
+    ]);
+    expect(groups[2].tasks.map((item) => item.id), ['done']);
   });
 
-  test('list groups include exactly seven calendar days and move blocked/review out', () {
-    final now = DateTime(2026, 8, 31, 12);
-    final groups = TaskView.listGroups([
-      makeTask('today-later', 'TODO', DateTime(2026, 8, 31, 18)),
-      makeTask('last-day', 'IN_PROGRESS', DateTime(2026, 9, 6, 23, 59)),
-      makeTask('outside-window', 'TODO', DateTime(2026, 9, 7, 0)),
-      makeTask('blocked', 'BLOCKED', DateTime(2026, 9, 1, 9)),
-      makeTask('review', 'REVIEW', DateTime(2026, 9, 1, 10)),
-    ], now: now);
+  test(
+    'list groups keep every unfinished task outside the archive section',
+    () {
+      final now = DateTime(2026, 8, 31, 12);
+      final groups = TaskView.listGroups([
+        makeTask('today-later', 'TODO', DateTime(2026, 8, 31, 18)),
+        makeTask('last-day', 'IN_PROGRESS', DateTime(2026, 9, 6, 23, 59)),
+        makeTask('outside-window', 'TODO', DateTime(2026, 9, 7, 0)),
+        makeTask('blocked', 'BLOCKED', DateTime(2026, 9, 1, 9)),
+        makeTask('review', 'REVIEW', DateTime(2026, 9, 1, 10)),
+      ], now: now);
 
-    expect(groups[0].tasks, isEmpty);
-    expect(groups[1].tasks.map((item) => item.id), ['today-later', 'last-day']);
-  });
+      expect(groups.map((group) => group.key), ['past', 'active', 'terminal']);
+      expect(groups[0].tasks, isEmpty);
+      expect(
+        groups[1].tasks.map((task) => task.id),
+        unorderedEquals([
+          'today-later',
+          'last-day',
+          'outside-window',
+          'blocked',
+          'review',
+        ]),
+      );
+      expect(groups[2].tasks, isEmpty);
+    },
+  );
 
   test('list groups treat earlier today as overdue', () {
     final now = DateTime(2026, 8, 31, 12);
@@ -221,9 +247,10 @@ void main() {
 
     expect(groups[0].tasks.map((item) => item.id), ['earlier-today']);
     expect(groups[1].tasks, isEmpty);
+    expect(groups[2].tasks, isEmpty);
   });
 
-  test('list groups show terminal section only when completed or cancelled is enabled', () {
+  test('completed archive and cancelled history remain separate groups', () {
     final tasks = [
       makeTask('done', 'DONE', DateTime(2026, 8, 29)),
       makeTask('failed', 'CANCELLED', DateTime(2026, 8, 28)),
@@ -236,18 +263,26 @@ void main() {
     );
     expect(completedOnly.map((group) => group.key), [
       'past',
-      'upcoming',
+      'active',
       'terminal',
     ]);
     expect(completedOnly.last.tasks.map((task) => task.id), ['done']);
+    expect(completedOnly.last.title, '已完成/已归档');
 
     final allTerminal = TaskView.listGroups(
       tasks,
       showCompleted: true,
       showFailed: true,
     );
-    expect(allTerminal.last.tasks.map((task) => task.id), ['done', 'failed']);
-    expect(allTerminal.last.title, '已完成 / 已取消');
+    expect(allTerminal.map((group) => group.key), [
+      'past',
+      'active',
+      'terminal',
+      'cancelled',
+    ]);
+    expect(allTerminal[2].tasks.map((task) => task.id), ['done']);
+    expect(allTerminal.last.tasks.map((task) => task.id), ['failed']);
+    expect(allTerminal.last.title, '已取消');
   });
 
   test('list groups keep legacy COMPLETED tasks out of active sections', () {
@@ -275,7 +310,7 @@ void main() {
     expect(groups.expand((group) => group.tasks).map((item) => item.id), [
       'work',
     ]);
-    expect(groups.map((group) => group.key), ['past', 'upcoming']);
+    expect(groups.map((group) => group.key), ['past', 'active']);
   });
 
   test('list groups sort each group by the selected sort mode', () {
@@ -284,14 +319,14 @@ void main() {
       makeTask(
         'q4',
         'TODO',
-        DateTime(2026, 9, 1, 9),
+        DateTime(2026, 8, 30, 9),
         quadrant: 'Q4',
         updatedAt: DateTime(2026, 8, 31, 2),
       ),
       makeTask(
         'q1',
         'TODO',
-        DateTime(2026, 9, 2, 9),
+        DateTime(2026, 8, 29, 9),
         quadrant: 'Q1',
         updatedAt: DateTime(2026, 8, 31, 1),
       ),
@@ -302,7 +337,7 @@ void main() {
         tasks,
         now: now,
         sort: TaskListSort.quadrant,
-      )[1].tasks.map((item) => item.id),
+      )[0].tasks.map((item) => item.id),
       ['q1', 'q4'],
     );
     expect(
@@ -310,7 +345,7 @@ void main() {
         tasks,
         now: now,
         sort: TaskListSort.updatedAt,
-      )[1].tasks.map((item) => item.id),
+      )[0].tasks.map((item) => item.id),
       ['q4', 'q1'],
     );
   });

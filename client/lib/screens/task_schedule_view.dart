@@ -81,7 +81,7 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
             children: [
               Expanded(
                 child: Text(
-                  '把日子看清楚，一起从容一点。',
+                  '按截止日期查看未完成事项。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -127,9 +127,9 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
           ),
           const SizedBox(height: MuyuSpacing.xs),
           if (grouped.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xxl),
-              child: Center(child: Text('还没有任务')),
+              child: Center(child: Text(_emptyAgendaMessage)),
             )
           else
             for (final entry in grouped.entries)
@@ -226,6 +226,9 @@ class _TaskScheduleViewState extends State<TaskScheduleView> {
     }
     return grouped;
   }
+
+  String get _emptyAgendaMessage =>
+      _selectionMode == _ScheduleSelectionMode.day ? '所选日期没有到期事项' : '所选周没有到期事项';
 }
 
 class _CalendarRow {

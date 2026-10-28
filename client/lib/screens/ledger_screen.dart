@@ -37,8 +37,15 @@ class _LedgerScreenState extends State<LedgerScreen> {
     animation: widget.controller,
     builder: (context, _) {
       final controller = widget.controller;
-      final summary = controller.summary;
-      final entries = controller.entries
+      final monthEntriesLoaded =
+          controller.loadedLedgerMonthKey == controller.monthKey;
+      final monthSummaryLoaded =
+          controller.loadedLedgerSummaryMonthKey == controller.monthKey;
+      final summary = monthSummaryLoaded ? controller.summary : null;
+      final monthEntries = monthEntriesLoaded
+          ? controller.entries
+          : const <LedgerItem>[];
+      final entries = monthEntries
           .where((item) => _filter == 'ALL' || item.type == _filter)
           .toList();
       return Stack(
@@ -54,11 +61,6 @@ class _LedgerScreenState extends State<LedgerScreen> {
                 MuyuSpacing.xxl,
               ),
               children: [
-                Text(
-                  '把共同的日常，一笔一笔记下来。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: MuyuSpacing.xl),
                 _monthlySummary(context, controller, summary),
                 if (controller.loadingLedger) const LinearProgressIndicator(),
                 if (controller.ledgerError != null)
@@ -66,26 +68,47 @@ class _LedgerScreenState extends State<LedgerScreen> {
                     padding: const EdgeInsets.symmetric(
                       vertical: MuyuSpacing.sm,
                     ),
-                    child: Text(
-                      controller.ledgerError!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          controller.ledgerError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            key: const Key('ledger-retry'),
+                            onPressed: controller.loadingLedger
+                                ? null
+                                : controller.loadLedger,
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('重试'),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 const SizedBox(height: MuyuSpacing.xl),
-                _categoryDistribution(context, controller, summary),
+                _categoryDistribution(
+                  context,
+                  controller,
+                  summary,
+                  monthEntries,
+                ),
                 const SizedBox(height: MuyuSpacing.xl),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        '每一笔日常',
+                        '账目明细',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
                     Text(
-                      '${entries.length} 笔记录',
+                      '${entries.length} 笔',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -102,10 +125,12 @@ class _LedgerScreenState extends State<LedgerScreen> {
                       setState(() => _filter = value.first),
                 ),
                 const SizedBox(height: MuyuSpacing.md),
-                if (entries.isEmpty && !controller.loadingLedger)
-                  const Padding(
+                if (entries.isEmpty && monthEntriesLoaded && summary != null)
+                  Padding(
                     padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xl),
-                    child: Center(child: Text('本月暂无账目')),
+                    child: Center(
+                      child: Text(_emptyLedgerMessage(controller.month)),
+                    ),
                   ),
                 for (var index = 0; index < entries.length; index++) ...[
                   if (index == 0 ||
@@ -276,13 +301,9 @@ class _LedgerScreenState extends State<LedgerScreen> {
     BuildContext context,
     LifeController controller,
     LedgerSummary? summary,
+    List<LedgerItem> monthEntries,
   ) {
-    const colors = [
-      Color(0xff6b8565),
-      Color(0xffadbfa0),
-      Color(0xffd2b796),
-      Color(0xffc7d3c5),
-    ];
+    const colors = MuyuChartPalette.categories;
     final categories =
         summary?.categories
             .where((row) => (row['amount_minor'] as int) > 0)
@@ -305,7 +326,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
               ),
             ),
             Text(
-              '${controller.month.month} 月 · ${controller.entries.where((item) => item.type == 'EXPENSE').length} 笔',
+              '${controller.month.year}年${controller.month.month}月 · ${monthEntries.where((item) => item.type == 'EXPENSE').length} 笔支出',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -354,7 +375,14 @@ class _LedgerScreenState extends State<LedgerScreen> {
             ],
           ),
         ] else
-          Text('本月暂无支出分类', style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            summary == null
+                ? controller.ledgerError != null
+                      ? '支出分类暂不可用'
+                      : '正在加载支出分类'
+                : '${controller.month.year}年${controller.month.month}月还没有支出分类',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
       ],
     );
   }
@@ -373,6 +401,13 @@ class _LedgerScreenState extends State<LedgerScreen> {
   }
 
   static String _format(int minor) => (minor / 100).toStringAsFixed(2);
+
+  String _emptyLedgerMessage(DateTime month) {
+    final monthLabel = '${month.year}年${month.month}月';
+    if (_filter == 'EXPENSE') return '$monthLabel没有支出记录';
+    if (_filter == 'INCOME') return '$monthLabel没有收入记录';
+    return '$monthLabel还没有账目';
+  }
 }
 
 class _LedgerEntryDialog extends StatefulWidget {

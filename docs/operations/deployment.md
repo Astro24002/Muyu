@@ -98,6 +98,35 @@ plan instead of assuming a schema-only downgrade is lossless.
 Never put SMS tokens, database passwords, backup keys, or Android signing
 material in the repository, Web bundle, APK build arguments, or logs.
 
+## 2026-10-27 due-soon API update
+
+The rolling 14-day Home entry adds response fields and a read-only pagination
+entry. It requires no schema migration; production remains at
+`0018_task_invitations`. The deployed image was built from local HEAD
+`fe65033` plus the uncommitted Home implementation, tagged
+`muyu-cloud-api:due-soon-20261027`, and transferred as an image archive.
+Its image ID is
+`sha256:70660deba5f8d708125eca15f50f3fd0fe50d2d2a8c135433ee26837de08570f`.
+The remote worktree contains existing changes and was left intact.
+
+The previous image is retained as `muyu-cloud-api:pre-due-soon-20261027`
+(`sha256:839571e33ddd619d4e3e7411acfcb887f45f7b0696d8988224f1548b0b8a7872`).
+The API was recreated with the existing external-database override. For an
+authorized rollback, keep the database and volumes unchanged, retag the
+previous image as `muyu-cloud-api:latest`, and run from `deploy/`:
+
+```sh
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.external-db.yml \
+  up -d --no-build api
+```
+
+After the update, API container health and public live/ready checks passed;
+the unauthenticated `due_soon` entry returned `401 authentication_required`.
+The running image exposes the new entry and response field. No production
+business writes, authenticated-user smoke test, or Web deployment were
+performed in this update.
+
 ## Routine operations
 
 Use `docker compose ps`, `/health/live`, and `/health/ready` for service health.

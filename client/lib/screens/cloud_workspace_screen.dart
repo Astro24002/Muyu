@@ -93,7 +93,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   String? _selectedTaskLabel;
   TaskListSort _taskListSort = TaskListSort.dueAt;
   bool _showTaskSubtitle = true;
-  bool _showCompleted = false;
+  bool _showCompleted = true;
   bool _showFailed = false;
 
   @override
@@ -134,10 +134,11 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
       final state = _sync.state;
       final theme = Theme.of(context);
       return AnnotatedRegion<SystemUiOverlayStyle>(
+        key: const Key('workspace-system-ui-overlay'),
         value: SystemUiOverlayStyle(
-          statusBarColor: theme.colorScheme.surface,
+          statusBarColor: theme.scaffoldBackgroundColor,
           statusBarIconBrightness: Brightness.dark,
-          systemNavigationBarColor: theme.colorScheme.surface,
+          systemNavigationBarColor: theme.scaffoldBackgroundColor,
           systemNavigationBarIconBrightness: Brightness.dark,
         ),
         child: Scaffold(
@@ -272,6 +273,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         controller: _life,
         viewerId: widget.session?.user.id ?? state.snapshot?.viewerUserId,
         canWrite: widget.canWrite,
+        members: state.snapshot?.members ?? const [],
         onOpenTask: (id) async {
           await _sync.refresh();
           if (!mounted) return;
@@ -331,8 +333,8 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         showCompleted: _showCompleted,
         showFailed: _showFailed,
         showMomentMetrics: false,
+        showMomentTaskSections: false,
         onTaskTap: _openTask,
-        onViewAll: _openAllTasks,
       ),
       TaskQuadrantView(
         key: const PageStorageKey('task-quadrant-view'),
@@ -357,10 +359,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
     final theme = Theme.of(context);
     return DecoratedBox(
       key: const Key('workspace-navigation-shell'),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(top: BorderSide(color: theme.colorScheme.outline)),
-      ),
+      decoration: BoxDecoration(color: theme.scaffoldBackgroundColor),
       child: NavigationBar(
         key: const Key('workspace-navigation-bar'),
         height: 68,
@@ -432,10 +431,10 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         '仍在等待对方回应的交接或验收请求。',
         home?.waitingOnOtherCount ?? 0,
       ),
-      _WorkspaceSummaryKind.weekDue => (
-        '本周到期',
-        '当前视角下未来七天需要留意的任务。',
-        home?.weekDueCount ?? 0,
+      _WorkspaceSummaryKind.dueSoon => (
+        '即将到期',
+        '未来 14 天内截止的未完成事项。',
+        home?.dueSoonCount ?? 0,
       ),
     };
     final entries = home?.entries;
@@ -444,7 +443,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
         entries?.needsMe.items ?? <HomeApprovalItem>[],
       _WorkspaceSummaryKind.waitingOnOther =>
         entries?.waitingOnOther.items ?? <HomeApprovalItem>[],
-      _WorkspaceSummaryKind.weekDue => <HomeApprovalItem>[],
+      _WorkspaceSummaryKind.dueSoon => <HomeApprovalItem>[],
     };
     final tasks = switch (kind) {
       _WorkspaceSummaryKind.needsAction =>
@@ -459,14 +458,13 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
                 .whereType<TaskItem>()
                 .toList() ??
             <TaskItem>[],
-      _WorkspaceSummaryKind.weekDue =>
-        entries?.dueThisWeek.items ?? <TaskItem>[],
+      _WorkspaceSummaryKind.dueSoon => entries?.dueSoon.items ?? <TaskItem>[],
     };
     final hasMore = switch (kind) {
       _WorkspaceSummaryKind.needsAction => entries?.needsMe.hasMore ?? false,
       _WorkspaceSummaryKind.waitingOnOther =>
         entries?.waitingOnOther.hasMore ?? false,
-      _WorkspaceSummaryKind.weekDue => entries?.dueThisWeek.hasMore ?? false,
+      _WorkspaceSummaryKind.dueSoon => entries?.dueSoon.hasMore ?? false,
     };
     final selected = await showModalBottomSheet<TaskItem>(
       context: context,
@@ -487,7 +485,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
           entry: switch (kind) {
             _WorkspaceSummaryKind.needsAction => 'needs_me',
             _WorkspaceSummaryKind.waitingOnOther => 'waiting_on_other',
-            _WorkspaceSummaryKind.weekDue => 'due_this_week',
+            _WorkspaceSummaryKind.dueSoon => 'due_soon',
           },
           repository:
               widget.homeEntryRepository ?? HomeEntryRepository(widget.api),
@@ -667,7 +665,7 @@ class _CloudWorkspaceScreenState extends State<CloudWorkspaceScreen> {
   }
 }
 
-enum _WorkspaceSummaryKind { needsAction, waitingOnOther, weekDue }
+enum _WorkspaceSummaryKind { needsAction, waitingOnOther, dueSoon }
 
 class _WorkspaceContextHeader extends StatelessWidget {
   const _WorkspaceContextHeader({
@@ -713,11 +711,11 @@ class _WorkspaceContextHeader extends StatelessWidget {
         '交给 TA 的下一棒',
       ),
       (
-        _WorkspaceSummaryKind.weekDue,
-        'week-due',
-        home?.weekDueCount ?? 0,
-        '本周到期',
-        '一起留意截止时间',
+        _WorkspaceSummaryKind.dueSoon,
+        'due-soon',
+        home?.dueSoonCount ?? 0,
+        '即将到期',
+        '未来 14 天内截止',
       ),
     ];
     return DecoratedBox(
@@ -736,7 +734,7 @@ class _WorkspaceContextHeader extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    '$viewerName，${home?.needsActionCount == 0 ? '此刻没有待处理的请求' : '有 ${home?.needsActionCount ?? 0} 件事等你回应'}。一起向前一点点。',
+                    '$viewerName，${home?.needsActionCount == 0 ? '此刻没有待处理的请求' : '有 ${home?.needsActionCount ?? 0} 件事等你回应'}。',
                     key: const Key('workspace-moment-greeting'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -810,8 +808,10 @@ class _WorkspaceSummaryCard extends StatelessWidget {
         color: highlighted
             ? theme.colorScheme.primary
             : label == '等对方'
-            ? const Color(0xfff5f8ed)
-            : const Color(0xfffaf6ef),
+            ? theme.extension<MuyuThemeExtension>()?.sageSurface ??
+                  theme.colorScheme.secondaryContainer
+            : theme.extension<MuyuThemeExtension>()?.warmSurface ??
+                  theme.colorScheme.surfaceContainerHighest,
         shape: RoundedRectangleBorder(
           borderRadius: const BorderRadius.all(Radius.circular(14)),
           side: BorderSide(
@@ -989,7 +989,7 @@ class _WorkspaceSummarySheetState extends State<_WorkspaceSummarySheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isApprovalEntry = widget.entry != 'due_this_week';
+    final isApprovalEntry = widget.entry != 'due_soon';
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
@@ -1027,7 +1027,7 @@ class _WorkspaceSummarySheetState extends State<_WorkspaceSummarySheet> {
             Text(
               isApprovalEntry
                   ? '${widget.count} 件待处理请求'
-                  : '${widget.count} 件本周到期的任务',
+                  : '${widget.count} 件即将到期的任务',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.primary,
               ),

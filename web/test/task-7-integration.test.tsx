@@ -26,18 +26,18 @@ const approval: TaskApprovalRequest = {
   reviewed_at: null, reviewed_by: null, rejection_reason: null, resolved_cursor: null,
 };
 
-function makeSnapshot(): WorkspaceSnapshot {
+function makeSnapshot(taskStatus: TaskItem['status'] = 'TODO'): WorkspaceSnapshot {
   return {
     workspace_id: 'workspace-1', workspace: { id: 'workspace-1', name: 'Muyu', status: 'ACTIVE' },
     members: [{ user_id: 'viewer', member_slot: 1 }, { user_id: 'partner', member_slot: 2 }],
-    tasks: [task], conflicts: [], cursor: 8, viewer_user_id: 'viewer', comments: [],
+    tasks: [{ ...task, status: taskStatus }], conflicts: [], cursor: 8, viewer_user_id: 'viewer', comments: [],
     approval_requests: [approval],
   };
 }
 
-function makeApp(): { sync: WorkspaceSyncController; login: QrLoginController } {
+function makeApp(taskStatus: TaskItem['status'] = 'TODO'): { sync: WorkspaceSyncController; login: QrLoginController } {
   let state: WorkspaceSyncState = {
-    snapshot: makeSnapshot(), cursor: 8, loading: false, stale: false, error: null,
+    snapshot: makeSnapshot(taskStatus), cursor: 8, loading: false, stale: false, error: null,
     conflicts: [], authRequired: false, approvals: [approval], comments: [],
   };
   const listeners = new Set<(next: WorkspaceSyncState) => void>();
@@ -93,7 +93,7 @@ describe('Task 7 App integration', () => {
 
   it.each(['today', 'tasks'] as const)('opens and closes a React task panel while preserving the %s list context', async (listRoute) => {
     window.location.hash = `#/${listRoute}`;
-    const { sync, login } = makeApp();
+    const { sync, login } = makeApp(listRoute === 'today' ? 'DONE' : 'TODO');
     render(<App api={{} as ApiClient} login={login} sync={sync} />);
 
     const taskTrigger = await waitFor(() => screen.getByRole('button', { name: '整理周末晚餐' }));

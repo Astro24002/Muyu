@@ -160,10 +160,10 @@ class HomeWeek {
     final rawStart = value['start'];
     final rawEnd = value['end'];
     if (timezone is! String ||
-        timezone != 'UTC' ||
+        !const {'UTC', 'Asia/Shanghai'}.contains(timezone) ||
         rawStart is! String ||
         rawEnd is! String) {
-      throw const FormatException('home week must use UTC boundaries');
+      throw const FormatException('home week has an unsupported timezone');
     }
     final start = DateTime.tryParse(rawStart);
     final end = DateTime.tryParse(rawEnd);
@@ -183,8 +183,9 @@ class HomeEntryCounts {
     required this.needsMe,
     required this.waitingOnOther,
     required this.dueThisWeek,
+    this.dueSoon = 0,
   }) {
-    if (needsMe < 0 || waitingOnOther < 0 || dueThisWeek < 0) {
+    if (needsMe < 0 || waitingOnOther < 0 || dueThisWeek < 0 || dueSoon < 0) {
       throw const FormatException('home entry counts must be non-negative');
     }
   }
@@ -192,6 +193,7 @@ class HomeEntryCounts {
   final int needsMe;
   final int waitingOnOther;
   final int dueThisWeek;
+  final int dueSoon;
 
   factory HomeEntryCounts.fromJson(Object? value) {
     if (value is! Map) {
@@ -200,13 +202,18 @@ class HomeEntryCounts {
     final needsMe = value['needs_me'];
     final waitingOnOther = value['waiting_on_other'];
     final dueThisWeek = value['due_this_week'];
-    if (needsMe is! int || waitingOnOther is! int || dueThisWeek is! int) {
+    final dueSoon = value['due_soon'] ?? 0;
+    if (needsMe is! int ||
+        waitingOnOther is! int ||
+        dueThisWeek is! int ||
+        dueSoon is! int) {
       throw const FormatException('home entry counts have invalid fields');
     }
     return HomeEntryCounts(
       needsMe: needsMe,
       waitingOnOther: waitingOnOther,
       dueThisWeek: dueThisWeek,
+      dueSoon: dueSoon,
     );
   }
 }
@@ -216,13 +223,16 @@ class HomeEntries {
     HomeApprovalSection? needsMe,
     HomeApprovalSection? waitingOnOther,
     HomeTaskSection? dueThisWeek,
+    HomeTaskSection? dueSoon,
   }) : needsMe = needsMe ?? HomeApprovalSection(items: const []),
        waitingOnOther = waitingOnOther ?? HomeApprovalSection(items: const []),
-       dueThisWeek = dueThisWeek ?? HomeTaskSection(items: const []);
+       dueThisWeek = dueThisWeek ?? HomeTaskSection(items: const []),
+       dueSoon = dueSoon ?? HomeTaskSection(items: const []);
 
   final HomeApprovalSection needsMe;
   final HomeApprovalSection waitingOnOther;
   final HomeTaskSection dueThisWeek;
+  final HomeTaskSection dueSoon;
 
   factory HomeEntries.fromJson(Object? value) {
     if (value is! Map ||
@@ -238,6 +248,12 @@ class HomeEntries {
         value['due_this_week'],
         allowedStatuses: _dueStatuses,
       ),
+      dueSoon: value.containsKey('due_soon')
+          ? HomeTaskSection._fromJson(
+              value['due_soon'],
+              allowedStatuses: _dueStatuses,
+            )
+          : null,
     );
   }
 
@@ -344,6 +360,7 @@ class HomeResponse {
     int? needsActionCount,
     int? waitingOnOtherCount,
     int? weekDueCount,
+    int? dueSoonCount,
     bool? hasMomentProjection,
     this.viewerUserId,
     this.asOf,
@@ -363,6 +380,7 @@ class HomeResponse {
     this.needsActionCount = needsActionCount ?? pendingApprovalCount;
     this.waitingOnOtherCount = waitingOnOtherCount ?? 0;
     this.weekDueCount = weekDueCount ?? 0;
+    this.dueSoonCount = dueSoonCount ?? entryCounts?.dueSoon ?? 0;
     this.hasMomentProjection = hasMomentProjection ?? moment != null;
     this.entryCounts =
         entryCounts ??
@@ -370,11 +388,13 @@ class HomeResponse {
           needsMe: this.needsActionCount,
           waitingOnOther: this.waitingOnOtherCount,
           dueThisWeek: this.weekDueCount,
+          dueSoon: this.dueSoonCount,
         );
     this.entries = entries ?? HomeEntries();
     if (this.needsActionCount < 0 ||
         this.waitingOnOtherCount < 0 ||
-        this.weekDueCount < 0) {
+        this.weekDueCount < 0 ||
+        this.dueSoonCount < 0) {
       throw const FormatException('home moment counts must be non-negative');
     }
   }
@@ -387,6 +407,7 @@ class HomeResponse {
   late final int needsActionCount;
   late final int waitingOnOtherCount;
   late final int weekDueCount;
+  late final int dueSoonCount;
   late final bool hasMomentProjection;
   late final String? viewerUserId;
   late final DateTime? asOf;
@@ -473,6 +494,7 @@ class HomeResponse {
         'week_due_count',
         entryCounts?.dueThisWeek ?? 0,
       ),
+      dueSoonCount: _count(value, 'due_soon_count', entryCounts?.dueSoon ?? 0),
       hasMomentProjection: rawMoment != null,
       viewerUserId: rawViewerUserId as String?,
       asOf: asOf,
@@ -492,6 +514,7 @@ class HomeResponse {
       moment.mine,
       moment.other,
       entries.dueThisWeek,
+      entries.dueSoon,
     ];
     if (!taskSections.every(
       (section) =>
@@ -515,6 +538,7 @@ class HomeResponse {
       ...reviewTasks.items,
       ...moment.allTasks,
       ...entries.dueThisWeek.items,
+      ...entries.dueSoon.items,
     ];
     for (final item in entries.needsMe.items) {
       if (item.task != null) tasks.add(item.task!);

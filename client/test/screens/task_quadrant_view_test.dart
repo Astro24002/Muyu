@@ -128,11 +128,26 @@ void main() {
     expect(find.byKey(const Key('task-quadrant-label-filter')), findsNothing);
     expect(find.text('Q1 重要且紧急'), findsOneWidget);
     expect(find.text('Q1 task'), findsOneWidget);
+    expect(find.text('按重要性和紧急程度查看未完成事项。'), findsOneWidget);
+    expect(find.text('让重要的事，有它的位置。'), findsNothing);
 
     final header = tester.widget<Container>(
       find.byKey(const Key('task-quadrant-title-Q1')),
     );
     expect(header.color, isNot(muyuLightTheme().colorScheme.surface));
+    final panel = tester.widget<DecoratedBox>(
+      find.byKey(const Key('task-quadrant-surface-Q1')),
+    );
+    expect(
+      (panel.decoration as BoxDecoration).color,
+      muyuLightTheme().scaffoldBackgroundColor,
+    );
+    expect(
+      tester
+          .widget<Material>(find.byKey(ValueKey('task-card-${task.id}')))
+          .color,
+      muyuLightTheme().scaffoldBackgroundColor,
+    );
   });
 
   testWidgets(

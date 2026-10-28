@@ -39,7 +39,80 @@ TaskItem momentTask(
 );
 
 void main() {
-  testWidgets('renders the server moment counts and compact task groups', (
+  testWidgets(
+    'default moment hides open groups and shows completed archive rows',
+    (tester) async {
+      final mine = momentTask(
+        'active',
+        status: 'IN_PROGRESS',
+        handler: 'user-1',
+      );
+      final done = momentTask('done', status: 'DONE', handler: 'user-2');
+      final cancelled = momentTask(
+        'cancelled',
+        status: 'CANCELLED',
+        handler: 'user-1',
+      );
+      final state = WorkspaceSyncState(
+        snapshot: WorkspaceSnapshot(
+          workspaceId: 'workspace-1',
+          cursor: 1,
+          viewerUserId: 'user-1',
+          tasks: [mine, done, cancelled],
+        ),
+        home: HomeResponse(
+          currentTasks: HomeTaskSection(items: [mine]),
+          blockedTasks: HomeTaskSection(items: const []),
+          reviewTasks: HomeTaskSection(items: const []),
+          pendingApprovalCount: 0,
+          moment: MomentProjection(
+            blocked: HomeTaskSection(items: const []),
+            mine: HomeTaskSection(items: [mine]),
+            other: HomeTaskSection(items: const []),
+          ),
+        ),
+      );
+      TaskItem? tapped;
+      Widget page({bool showCompleted = true}) => MaterialApp(
+        home: Scaffold(
+          body: TaskListView(
+            sync: WorkspaceSyncController.unavailable(),
+            state: state,
+            canWrite: false,
+            showMomentMetrics: false,
+            showCompleted: showCompleted,
+            onTaskTap: (task) => tapped = task,
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(page());
+      expect(find.byKey(const ValueKey('task-card-active')), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('task-list-row-done')),
+        200,
+      );
+      expect(find.text('已完成/已归档'), findsOneWidget);
+      expect(find.byKey(const ValueKey('task-list-row-done')), findsOneWidget);
+      expect(find.byKey(const ValueKey('task-card-done')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('task-list-row-cancelled')),
+        findsNothing,
+      );
+      await tester.tap(find.byKey(const ValueKey('task-list-row-done')));
+      expect(tapped, same(done));
+
+      await tester.pumpWidget(page(showCompleted: false));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('task-section-header-terminal')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('task-list-row-done')), findsNothing);
+    },
+  );
+
+  testWidgets('renders the server moment counts without the task groups', (
     tester,
   ) async {
     final blocked = momentTask(
@@ -93,11 +166,10 @@ void main() {
         needsActionCount: 3,
         waitingOnOtherCount: 1,
         weekDueCount: 2,
+        dueSoonCount: 2,
       ),
       isStale: false,
     );
-    TaskItem? tapped;
-
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -105,7 +177,7 @@ void main() {
             sync: WorkspaceSyncController.unavailable(),
             state: state,
             canWrite: false,
-            onTaskTap: (task) => tapped = task,
+            onTaskTap: (_) {},
           ),
         ),
       ),
@@ -124,37 +196,24 @@ void main() {
       '1',
     );
     expect(
-      tester.widget<Text>(find.byKey(const Key('moment-count-week-due'))).data,
+      tester.widget<Text>(find.byKey(const Key('moment-count-due-soon'))).data,
       '2',
     );
-    expect(find.text('卡住的事情'), findsOneWidget);
-    expect(find.text('我在推进'), findsOneWidget);
-    expect(find.text('TA 在推进'), findsOneWidget);
+    expect(find.text('即将到期'), findsOneWidget);
+    expect(find.text('本周到期'), findsNothing);
+    expect(find.text('卡住的事情'), findsNothing);
+    expect(find.text('我在推进'), findsNothing);
+    expect(find.text('TA 在推进'), findsNothing);
     expect(find.byKey(const Key('moment-summary')), findsOneWidget);
     expect(find.byKey(const Key('moment-greeting')), findsOneWidget);
-    expect(find.byKey(const Key('moment-view-all')), findsOneWidget);
-    expect(find.byKey(const ValueKey('task-card-mine')), findsOneWidget);
-    expect(find.byKey(const ValueKey('task-card-status-mine')), findsOneWidget);
-    expect(find.byKey(const ValueKey('task-card-due-mine')), findsOneWidget);
-    expect(find.byKey(const ValueKey('task-card-quadrant-mine')), findsNothing);
-    expect(find.byKey(const ValueKey('task-card-owner-mine')), findsOneWidget);
-    expect(find.text('酒店'), findsOneWidget);
-    expect(find.text('等待伙伴确认'), findsOneWidget);
-    expect(find.text('收到确认后继续处理'), findsOneWidget);
+    expect(find.byKey(const Key('moment-view-all')), findsNothing);
+    expect(find.byKey(const ValueKey('task-card-mine')), findsNothing);
+    expect(find.text('酒店'), findsNothing);
+    expect(find.text('等待伙伴确认'), findsNothing);
+    expect(find.text('收到确认后继续处理'), findsNothing);
     expect(find.byKey(const Key('task-section-header-upcoming')), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('task-card-mine')));
-    expect(tapped, same(mine));
-
-    await tester.tap(find.byKey(const Key('moment-view-all')));
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('task-section-header-upcoming')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(
-      find.byKey(const Key('task-section-header-upcoming')),
+      find.byKey(const Key('task-section-header-terminal')),
       findsOneWidget,
     );
   });
@@ -194,6 +253,8 @@ void main() {
             sync: WorkspaceSyncController.unavailable(),
             state: state,
             canWrite: false,
+            showMomentMetrics: false,
+            showMomentTaskSections: true,
             onTaskTap: (_) {},
           ),
         ),

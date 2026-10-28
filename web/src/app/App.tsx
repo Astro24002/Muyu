@@ -13,7 +13,7 @@ import { ActivityPage } from '../pages/ActivityPage';
 import { AllTasksPage } from '../pages/AllTasksPage';
 import { CheckinsPage } from '../pages/CheckinsPage';
 import { LedgerPage } from '../pages/LedgerPage';
-import { MattersPage, type MatterView } from '../pages/MattersPage';
+import { createMattersPageUiState, MattersPage, type MatterView, type MattersPageUiState } from '../pages/MattersPage';
 import { MyPage } from '../pages/MyPage';
 import { QrLoginPage } from '../pages/QrLoginPage';
 import { TodayPage } from '../pages/TodayPage';
@@ -41,10 +41,12 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   const [screen, setScreen] = useState<AppScreen>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(() => parseHash(typeof window === 'undefined' ? '' : window.location.hash));
+  const [mattersUiState, setMattersUiState] = useState<MattersPageUiState>(() => createMattersPageUiState());
   const [taskListRoute, setTaskListRoute] = useState<TaskListRoute>({ kind: 'all-tasks' });
   const [taskActivity, setTaskActivity] = useState<TaskActivityState>({ status: 'idle', events: [] });
   const [taskActivityRetry, setTaskActivityRetry] = useState(0);
   const taskListRouteRef = useRef<TaskListRoute>({ kind: 'all-tasks' });
+  const lastMatterViewRef = useRef<MatterView>('moment');
   const taskFocusRef = useRef<{ taskId: string; element: HTMLElement | null } | null>(null);
   const taskActivityRequestSequenceRef = useRef(0);
   const activeRef = useRef(false);
@@ -200,6 +202,10 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
   }, []);
 
   useEffect(() => {
+    if (route.kind === 'matters') lastMatterViewRef.current = route.view ?? 'moment';
+  }, [route]);
+
+  useEffect(() => {
     if (route.kind === 'task') return;
     const pendingFocus = taskFocusRef.current;
     if (!pendingFocus) return;
@@ -291,15 +297,18 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     }
   }, []);
   const onNavigate = useCallback((nextRoute: PrimaryRoute): void => {
+    const targetRoute = nextRoute.kind === 'matters'
+      ? { ...nextRoute, view: lastMatterViewRef.current }
+      : nextRoute;
     taskFocusRef.current = null;
-    if (nextRoute.kind === 'matters' || nextRoute.kind === 'ledger' || nextRoute.kind === 'checkins' || nextRoute.kind === 'me') {
-      if (nextRoute.kind === 'matters') {
-        const nextMatterRoute: TaskListRoute = { kind: 'matters', view: nextRoute.view ?? 'moment' };
+    if (targetRoute.kind === 'matters' || targetRoute.kind === 'ledger' || targetRoute.kind === 'checkins' || targetRoute.kind === 'me') {
+      if (targetRoute.kind === 'matters') {
+        const nextMatterRoute: TaskListRoute = { kind: 'matters', view: targetRoute.view ?? 'moment' };
         taskListRouteRef.current = nextMatterRoute;
         setTaskListRoute(nextMatterRoute);
       }
     }
-    navigate(nextRoute);
+    navigate(targetRoute);
   }, []);
   const openTask = useCallback((task: TaskItem): void => {
     const backgroundRoute = taskRouteFor(route) ?? taskListRouteRef.current;
@@ -334,7 +343,7 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
     canWrite: !workspaceState.loading && !workspaceState.stale && !workspaceState.authRequired,
   } : undefined;
   const taskBackground = taskListRoute.kind === 'matters' || taskListRoute.kind === 'today'
-    ? <MattersPage sync={sync} view={taskListRoute.kind === 'matters' ? taskListRoute.view : 'moment'} onOpenTask={openTask} onCreateTask={createTask} />
+    ? <MattersPage sync={sync} view={taskListRoute.kind === 'matters' ? taskListRoute.view : 'moment'} uiState={mattersUiState} onUiStateChange={setMattersUiState} onOpenTask={openTask} onCreateTask={createTask} />
     : <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />;
 
   return (
@@ -352,11 +361,11 @@ export function App({ api, login, sync, socketFactory }: AppProps): JSX.Element 
             pendingApprovalCount={pendingApprovalCount(workspaceState)}
           >
             {route.kind === 'matters' ? (
-              <MattersPage sync={sync} view={route.view ?? 'moment'} onOpenTask={openTask} onCreateTask={createTask} />
+              <MattersPage sync={sync} view={route.view ?? 'moment'} uiState={mattersUiState} onUiStateChange={setMattersUiState} onOpenTask={openTask} onCreateTask={createTask} />
             ) : route.kind === 'all-tasks' || route.kind === 'tasks' ? (
               <AllTasksPage sync={sync} onOpenTask={openTask} onCreateTask={createTask} />
             ) : route.kind === 'today' ? (
-              <MattersPage sync={sync} view="moment" onOpenTask={openTask} onCreateTask={createTask} />
+              <MattersPage sync={sync} view="moment" uiState={mattersUiState} onUiStateChange={setMattersUiState} onOpenTask={openTask} onCreateTask={createTask} />
             ) : route.kind === 'ledger' ? (
               <LedgerPage
                 api={api}

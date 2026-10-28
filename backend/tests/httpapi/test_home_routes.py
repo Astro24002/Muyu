@@ -542,6 +542,7 @@ def test_home_canonical_projection_exposes_request_directions_and_legacy_aliases
         "needs_me": body["pending_approval_count"],
         "waiting_on_other": body["waiting_on_other_count"],
         "due_this_week": body["week_due_count"],
+        "due_soon": body["due_soon_count"],
     }
 
     moment = body["moment"]
@@ -689,6 +690,7 @@ def test_home_task_action_entries_exclude_taskless_and_deleted_approval_targets(
         "needs_me": 0,
         "waiting_on_other": 0,
         "due_this_week": body["week_due_count"],
+        "due_soon": body["due_soon_count"],
     }
 
     needs_me = body["entries"]["needs_me"]
@@ -750,6 +752,155 @@ def test_home_entry_page_excludes_taskless_and_stale_non_action_approvals(db_eng
     home = client.get("/api/v1/home", headers=owner_headers)
     assert home.status_code == 200, home.text
     assert home.json()["entry_counts"]["needs_me"] == page.json()["count"]
+
+
+def test_home_due_soon_uses_a_rolling_fourteen_day_window(db_engine, monkeypatch) -> None:
+    client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    headers = _headers(owner)
+    now = datetime.now(timezone.utc)
+    at_start = _create_task(client, headers, "Due at window start", due_at=now.isoformat())
+    soon = _create_task(
+        client,
+        headers,
+        "Due soon",
+        due_at=(now + timedelta(days=13)).isoformat(),
+    )
+    outside = _create_task(
+        client,
+        headers,
+        "Outside due-soon window",
+        due_at=(now + timedelta(days=15)).isoformat(),
+    )
+    outside_boundary = _create_task(
+        client,
+        headers,
+        "Just outside the window boundary",
+        due_at=(now + timedelta(days=14)).isoformat(),
+    )
+    before_end = _create_task(
+        client,
+        headers,
+        "Just before the window end",
+        due_at=(now + timedelta(days=14, microseconds=-1)).isoformat(),
+    )
+    overdue = _create_task(
+        client,
+        headers,
+        "Already overdue",
+        due_at=(now - timedelta(microseconds=1)).isoformat(),
+    )
+    completed = _create_task(
+        client,
+        headers,
+        "Already completed",
+        due_at=(now + timedelta(days=2)).isoformat(),
+    )
+    cancelled = _create_task(
+        client, headers, "Already cancelled", due_at=(now + timedelta(days=2)).isoformat()
+    )
+    deleted = _create_task(
+        client, headers, "Already deleted", due_at=(now + timedelta(days=2)).isoformat()
+    )
+    undated = _create_task(client, headers, "Legacy undated task")
+
+    with Session(db_engine) as session:
+        completed_row = session.get(Task, UUID(str(completed["id"])))
+        assert completed_row is not None
+        completed_row.status = TaskStatus.DONE
+        session.get(Task, UUID(str(cancelled["id"]))).status = TaskStatus.CANCELLED
+        session.get(Task, UUID(str(deleted["id"]))).deleted_at = now
+        session.get(Task, UUID(str(undated["id"]))).due_at = None
+        session.commit()
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz is not None else now.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.home.routes.datetime", FrozenDateTime)
+
+    page = client.get("/api/v1/home/entries/due_soon?limit=2", headers=headers)
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert body["count"] == 3
+    assert [item["id"] for item in body["items"]] == [at_start["id"], soon["id"]]
+    assert body["has_more"] is True
+
+    home = client.get("/api/v1/home", headers=headers)
+    assert home.status_code == 200, home.text
+    projection = home.json()
+    assert projection["due_soon_count"] == 3
+    assert projection["entry_counts"]["due_soon"] == 3
+    assert [item["id"] for item in projection["entries"]["due_soon"]["items"]] == [
+        at_start["id"], soon["id"], before_end["id"]
+    ]
+    assert projection["entry_counts"]["due_this_week"] == projection["week_due_count"]
+    assert {
+        outside["id"],
+        outside_boundary["id"],
+        overdue["id"],
+        completed["id"],
+        cancelled["id"],
+        deleted["id"],
+        undated["id"],
+    }.isdisjoint(
+        {item["id"] for item in projection["entries"]["due_soon"]["items"]}
+    )
+
+
+def test_home_entry_page_paginates_due_soon_with_stable_ordering(db_engine, monkeypatch) -> None:
+    client = _client(db_engine)
+    owner, _partner = _ready_workspace(client)
+    headers = _headers(owner)
+    due_at = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    tasks = [
+        _create_task(client, headers, f"Due soon page {index}", due_at=due_at)
+        for index in range(5)
+    ]
+    expected_ids = sorted(task["id"] for task in tasks)
+
+    with Session(db_engine) as session:
+        updated_at = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        for task in tasks:
+            row = session.get(Task, UUID(str(task["id"])))
+            assert row is not None
+            row.updated_at = updated_at
+        session.commit()
+
+    first = client.get("/api/v1/home/entries/due_soon?limit=2", headers=headers)
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert first_body["count"] == 5
+    assert [item["id"] for item in first_body["items"]] == expected_ids[:2]
+    assert first_body["has_more"] is True
+
+    class LaterDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            later = datetime.now(timezone.utc) + timedelta(days=20)
+            return later.astimezone(tz) if tz is not None else later.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.home.routes.datetime", LaterDateTime)
+
+    second = client.get(
+        "/api/v1/home/entries/due_soon?limit=2&after_cursor="
+        + first_body["next_cursor"],
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert second_body["count"] == 5
+    assert [item["id"] for item in second_body["items"]] == expected_ids[2:4]
+    last = client.get(
+        "/api/v1/home/entries/due_soon?limit=2&after_cursor="
+        + second_body["next_cursor"],
+        headers=headers,
+    )
+    assert last.status_code == 200, last.text
+    assert [item["id"] for item in last.json()["items"]] == expected_ids[4:]
+    assert last.json()["has_more"] is False
+    assert last.json()["next_cursor"] is None
 
 
 def test_home_entry_page_paginates_due_tasks_with_stable_ordering(db_engine) -> None:

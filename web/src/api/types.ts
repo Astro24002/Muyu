@@ -72,12 +72,14 @@ export interface HomeEntryCounts {
   needs_me: number;
   waiting_on_other: number;
   due_this_week: number;
+  due_soon?: number;
 }
 
 export interface HomeEntries {
   needs_me: HomeApprovalSection;
   waiting_on_other: HomeApprovalSection;
   due_this_week: HomeTaskSection;
+  due_soon?: HomeTaskSection;
 }
 
 export interface HomeMoment {
@@ -108,6 +110,7 @@ export interface HomeResponse {
   needs_action_count?: number;
   waiting_on_other_count?: number;
   week_due_count?: number;
+  due_soon_count?: number;
 }
 
 export interface TaskComment {

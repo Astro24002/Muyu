@@ -32,6 +32,7 @@ class HomeEntryRepository {
       'needs_me',
       'waiting_on_other',
       'due_this_week',
+      'due_soon',
     }.contains(entry)) {
       throw ArgumentError.value(entry, 'entry');
     }
@@ -62,7 +63,7 @@ class HomeEntryRepository {
         throw const FormatException('home entry item must be an object');
       }
       final item = raw.cast<String, dynamic>();
-      if (entry != 'due_this_week') {
+      if (entry != 'due_this_week' && entry != 'due_soon') {
         final approval = HomeApprovalItem.fromJson(item);
         approvals.add(approval);
         if (approval.task != null) tasks.add(approval.task!);

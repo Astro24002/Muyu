@@ -33,6 +33,14 @@ describe('TopNav', () => {
     expect(onNavigate).toHaveBeenCalledWith({ kind: 'matters', view: 'moment' });
   });
 
+  it.each<Route>([{ kind: 'approvals' }, { kind: 'activity' }])('keeps the My tab active for %s routes', (route) => {
+    render(<TopNav route={route} onNavigate={vi.fn()} />);
+
+    const nav = screen.getByRole('navigation', { name: '主导航' });
+    expect(within(nav).getByRole('link', { name: '我的' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getAllByRole('link', { current: 'page' })).toHaveLength(1);
+  });
+
   it('keeps actions functional and makes the task action contextual', () => {
     const onCreateTask = vi.fn();
     const onLogout = vi.fn();

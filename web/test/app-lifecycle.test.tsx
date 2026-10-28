@@ -246,7 +246,7 @@ describe('React app lifecycle', () => {
     const login = new FakeLogin();
     const fake = createFakeSync({
       ...workspaceState(),
-      snapshot: { ...snapshot, tasks: [minimalTask('stale-task')] },
+      snapshot: { ...snapshot, tasks: [{ ...minimalTask('stale-task'), status: 'DONE' }] },
     });
     const { container, getByRole } = render(
       <App api={{} as ApiClient} login={login as never} sync={fake.sync} />,
@@ -292,7 +292,7 @@ describe('React app lifecycle', () => {
     const logoutRequest = deferred<void>();
     const oldSnapshot = {
       ...snapshot,
-      tasks: [{ ...minimalTask('old-session-task'), workspace_id: 'workspace-1' }],
+      tasks: [{ ...minimalTask('old-session-task'), workspace_id: 'workspace-1', status: 'DONE' as const }],
     };
     const newSnapshot = {
       ...snapshot,
@@ -303,7 +303,7 @@ describe('React app lifecycle', () => {
         id: 'classification-new-work',
         workspace_id: 'workspace-new',
       }],
-      tasks: [{ ...minimalTask('new-session-task'), workspace_id: 'workspace-new' }],
+      tasks: [{ ...minimalTask('new-session-task'), workspace_id: 'workspace-new', status: 'DONE' as const }],
       cursor: 8,
     };
     const syncApi = {

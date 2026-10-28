@@ -161,5 +161,7 @@ export function TopNav({
 }
 
 function isActiveRoute(route: Route, target: PrimaryRoute['kind']): boolean {
-  return route.kind === target || (target === 'matters' && (route.kind === 'task' || route.kind === 'all-tasks' || route.kind === 'today' || route.kind === 'tasks'));
+  return route.kind === target
+    || (target === 'matters' && (route.kind === 'task' || route.kind === 'all-tasks' || route.kind === 'today' || route.kind === 'tasks'))
+    || (target === 'me' && (route.kind === 'approvals' || route.kind === 'activity'));
 }

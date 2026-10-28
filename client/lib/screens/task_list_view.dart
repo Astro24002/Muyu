@@ -19,7 +19,11 @@ String _memberDisplayName(WorkspaceSyncState state, String userId) {
     }
     break;
   }
-  return userId;
+  if (userId.isEmpty) return '协作成员';
+  return userId == state.snapshot?.viewerUserId ||
+          userId == state.home?.viewerUserId
+      ? '我'
+      : 'TA';
 }
 
 List<String> collectTaskLabels(Iterable<TaskItem> tasks) {
@@ -46,26 +50,26 @@ class TaskListView extends StatefulWidget {
     required this.state,
     required this.canWrite,
     required this.onTaskTap,
-    this.onViewAll,
     this.selectedLabel,
     this.sort = TaskListSort.dueAt,
     this.showSubtitle = true,
-    this.showCompleted = false,
+    this.showCompleted = true,
     this.showFailed = false,
     this.showMomentMetrics = true,
+    this.showMomentTaskSections = false,
   });
 
   final WorkspaceSyncController sync;
   final WorkspaceSyncState state;
   final bool canWrite;
   final TaskNavigationCallback onTaskTap;
-  final VoidCallback? onViewAll;
   final String? selectedLabel;
   final TaskListSort sort;
   final bool showSubtitle;
   final bool showCompleted;
   final bool showFailed;
   final bool showMomentMetrics;
+  final bool showMomentTaskSections;
 
   @override
   State<TaskListView> createState() => _TaskListViewState();
@@ -73,14 +77,13 @@ class TaskListView extends StatefulWidget {
 
 class _TaskListViewState extends State<TaskListView> {
   final _collapsedGroups = <String>{'past'};
-  bool _showAllTasks = false;
 
   @override
   Widget build(BuildContext context) {
     final tasks = widget.state.snapshot?.tasks ?? const <TaskItem>[];
     final home = widget.state.home;
     final hasMomentProjection = home?.hasMomentProjection ?? false;
-    final showAllTasks = !hasMomentProjection || _showAllTasks;
+    final showAllTasks = !hasMomentProjection;
     final groups = TaskView.listGroups(
       tasks,
       label: widget.selectedLabel,
@@ -122,40 +125,55 @@ class _TaskListViewState extends State<TaskListView> {
                 MuyuSpacing.xs,
                 MuyuSpacing.sm,
               ),
-              child: Text(
-                widget.state.errorMessage!,
-                key: const Key('task-list-error'),
-              ),
-            ),
-          if (hasMomentProjection && !_showAllTasks)
-            Padding(
-              padding: const EdgeInsets.only(bottom: MuyuSpacing.lg),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      '每件事，都有下一步',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      widget.state.errorMessage!,
+                      key: const Key('task-list-error'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                   TextButton.icon(
-                    key: const Key('moment-view-all'),
-                    onPressed:
-                        widget.onViewAll ??
-                        () => setState(() => _showAllTasks = true),
-                    iconAlignment: IconAlignment.end,
-                    icon: const Icon(Icons.chevron_right, size: 18),
-                    label: const Text('全部事情'),
+                    key: const Key('task-list-retry'),
+                    onPressed: widget.state.loading
+                        ? null
+                        : () => widget.sync.refresh(),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('重试'),
                   ),
                 ],
               ),
             ),
-          if (hasMomentProjection)
+          if (widget.state.snapshot == null &&
+              widget.state.errorMessage == null &&
+              widget.state.loading)
+            const Padding(
+              padding: EdgeInsets.only(bottom: MuyuSpacing.md),
+              child: LinearProgressIndicator(),
+            ),
+          if (widget.state.snapshot == null &&
+              widget.state.errorMessage == null &&
+              !widget.state.loading)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: MuyuSpacing.xl),
+              child: Center(
+                child: Text(
+                  '事项数据尚未就绪，下拉刷新试试。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+          if (hasMomentProjection &&
+              (widget.showMomentMetrics || widget.showMomentTaskSections))
             _MomentSummary(
               home: home!,
               state: widget.state,
               onTaskTap: widget.onTaskTap,
               showMetrics: widget.showMomentMetrics,
+              showTaskSections: widget.showMomentTaskSections,
             ),
           if (!hasMomentProjection && widget.state.home != null)
             _HomeActionSummary(
@@ -163,13 +181,21 @@ class _TaskListViewState extends State<TaskListView> {
               state: widget.state,
               onTaskTap: widget.onTaskTap,
             ),
-          if (showAllTasks && visibleTaskCount == 0)
+          if (showAllTasks &&
+              widget.state.snapshot != null &&
+              visibleTaskCount == 0)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: MuyuSpacing.xxl),
-              child: Center(child: Text('还没有任务')),
+              child: Center(child: Text('暂无符合当前显示条件的事情')),
             ),
-          if (showAllTasks)
-            for (final group in groups)
+          if (widget.state.snapshot != null)
+            for (final group in groups.where(
+              (group) =>
+                  showAllTasks ||
+                  group.key == 'past' ||
+                  group.key == 'terminal' ||
+                  group.key == 'cancelled',
+            ))
               TaskListSection(
                 key: Key('task-section-${group.key}'),
                 headerKey: Key('task-section-header-${group.key}'),
@@ -197,12 +223,14 @@ class _MomentSummary extends StatelessWidget {
     required this.state,
     required this.onTaskTap,
     this.showMetrics = true,
+    this.showTaskSections = true,
   });
 
   final HomeResponse home;
   final WorkspaceSyncState state;
   final TaskNavigationCallback onTaskTap;
   final bool showMetrics;
+  final bool showTaskSections;
 
   @override
   Widget build(BuildContext context) {
@@ -230,7 +258,7 @@ class _MomentSummary extends StatelessWidget {
                 MuyuSpacing.lg,
               ),
               child: Text(
-                '${_memberDisplayName(state, state.snapshot?.viewerUserId ?? '')}，${home.needsActionCount == 0 ? '此刻没有待处理的请求' : '有 ${home.needsActionCount} 件事等你回应'}。一起向前一点点。',
+                '${_memberDisplayName(state, state.snapshot?.viewerUserId ?? '')}，${home.needsActionCount == 0 ? '此刻没有待处理的请求' : '有 ${home.needsActionCount} 件事等你回应'}。',
                 key: const Key('moment-greeting'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -238,34 +266,36 @@ class _MomentSummary extends StatelessWidget {
               ),
             ),
           if (showMetrics) _MomentMetrics(home: home),
-          const SizedBox(height: MuyuSpacing.sm),
-          _MomentTaskSection(
-            key: const Key('moment-section-blocked'),
-            sectionKey: 'blocked',
-            title: '卡住的事情',
-            description: '先把这一步走通',
-            section: blocked,
-            state: state,
-            onTaskTap: onTaskTap,
-          ),
-          _MomentTaskSection(
-            key: const Key('moment-section-mine'),
-            sectionKey: 'mine',
-            title: '我在推进',
-            description: '稳稳地，向前走',
-            section: mine,
-            state: state,
-            onTaskTap: onTaskTap,
-          ),
-          _MomentTaskSection(
-            key: const Key('moment-section-other'),
-            sectionKey: 'other',
-            title: 'TA 在推进',
-            description: '彼此看见，各自负责',
-            section: other,
-            state: state,
-            onTaskTap: onTaskTap,
-          ),
+          if (showTaskSections) ...[
+            const SizedBox(height: MuyuSpacing.sm),
+            _MomentTaskSection(
+              key: const Key('moment-section-blocked'),
+              sectionKey: 'blocked',
+              title: '卡住的事情',
+              description: '需要先解决的阻塞',
+              section: blocked,
+              state: state,
+              onTaskTap: onTaskTap,
+            ),
+            _MomentTaskSection(
+              key: const Key('moment-section-mine'),
+              sectionKey: 'mine',
+              title: '我在推进',
+              description: '我负责的未完成事项',
+              section: mine,
+              state: state,
+              onTaskTap: onTaskTap,
+            ),
+            _MomentTaskSection(
+              key: const Key('moment-section-other'),
+              sectionKey: 'other',
+              title: 'TA 在推进',
+              description: 'TA 负责的未完成事项',
+              section: other,
+              state: state,
+              onTaskTap: onTaskTap,
+            ),
+          ],
         ],
       ),
     );
@@ -282,7 +312,7 @@ class _MomentMetrics extends StatelessWidget {
     final metrics = [
       ('needs-action', '需要我处理', home.needsActionCount, '轮到我回应'),
       ('waiting-on-other', '等对方', home.waitingOnOtherCount, '交给 TA 的下一棒'),
-      ('week-due', '本周到期', home.weekDueCount, '一起留意截止时间'),
+      ('due-soon', '即将到期', home.dueSoonCount, '未来 14 天内截止'),
     ];
     return Row(
       key: const Key('moment-metrics'),
@@ -330,7 +360,9 @@ class _MomentMetric extends StatelessWidget {
     return Container(
       height: 108,
       decoration: BoxDecoration(
-        color: highlighted ? theme.colorScheme.primary : indexColor(metricKey),
+        color: highlighted
+            ? theme.colorScheme.primary
+            : indexColor(context, metricKey),
         border: highlighted
             ? null
             : Border.all(color: theme.colorScheme.outline),
@@ -377,9 +409,12 @@ class _MomentMetric extends StatelessWidget {
     );
   }
 
-  Color indexColor(String key) => key == 'waiting-on-other'
-      ? const Color(0xfff5f8ed)
-      : const Color(0xfffaf6ef);
+  Color indexColor(BuildContext context, String key) =>
+      key == 'waiting-on-other'
+      ? Theme.of(context).extension<MuyuThemeExtension>()?.sageSurface ??
+            Theme.of(context).colorScheme.secondaryContainer
+      : Theme.of(context).extension<MuyuThemeExtension>()?.warmSurface ??
+            Theme.of(context).colorScheme.surfaceContainerHighest;
 }
 
 class _MomentTaskSection extends StatelessWidget {
@@ -453,14 +488,14 @@ class _MomentTaskSection extends StatelessWidget {
           ),
         ),
         if (section.items.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(
               MuyuSpacing.xs,
               MuyuSpacing.xs,
               MuyuSpacing.xs,
               MuyuSpacing.sm,
             ),
-            child: Text('暂无'),
+            child: Text(_emptySectionLabel),
           )
         else
           for (final task in section.items)
@@ -475,6 +510,12 @@ class _MomentTaskSection extends StatelessWidget {
       ],
     ),
   );
+
+  String get _emptySectionLabel => switch (sectionKey) {
+    'blocked' => '暂无阻塞事项',
+    'mine' => '暂无由你负责的未完成事项',
+    _ => '暂无由 TA 负责的未完成事项',
+  };
 }
 
 class _HomeActionSummary extends StatelessWidget {
@@ -498,8 +539,16 @@ class _HomeActionSummary extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: MuyuSpacing.md),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          color:
+              Theme.of(context).extension<MuyuThemeExtension>()?.taskSurface ??
+              Theme.of(context).colorScheme.surface,
+          border: Border.all(
+            color:
+                Theme.of(context)
+                    .extension<MuyuThemeExtension>()
+                    ?.taskOutline ??
+                Theme.of(context).colorScheme.outline,
+          ),
           borderRadius: const BorderRadius.all(Radius.circular(6)),
         ),
         child: _HomeActionSection(
@@ -866,15 +915,19 @@ class TaskListRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subtitle = _subtitle(task, state, subtasks);
+    final theme = Theme.of(context);
+    final extension = theme.extension<MuyuThemeExtension>();
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: extension?.taskSurface ?? theme.colorScheme.surface,
       child: Container(
         key: ValueKey('task-list-row-${task.id}'),
         margin: const EdgeInsets.only(bottom: MuyuSpacing.xs / 2),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+              color: (extension?.taskOutline ?? theme.dividerColor).withValues(
+                alpha: 0.75,
+              ),
             ),
           ),
         ),
@@ -1059,12 +1112,18 @@ class TaskSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final subtitle = _subtitle(task, state);
+    final taskSurface =
+        theme.extension<MuyuThemeExtension>()?.taskSurface ??
+        theme.colorScheme.surface;
+    final taskOutline =
+        theme.extension<MuyuThemeExtension>()?.taskOutline ??
+        theme.colorScheme.outline;
     if (compact) {
       return momentLayout ? _buildMomentCompact(theme) : _buildCompact(theme);
     }
     return Material(
       key: ValueKey('task-card-${task.id}'),
-      color: theme.colorScheme.surface,
+      color: taskSurface,
       elevation: 0,
       child: InkWell(
         onTap: onTap,
@@ -1075,9 +1134,7 @@ class TaskSummaryCard extends StatelessWidget {
             vertical: compact ? MuyuSpacing.xs : MuyuSpacing.sm,
           ),
           decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: theme.colorScheme.outline),
-            ),
+            border: Border(bottom: BorderSide(color: taskOutline)),
           ),
           child: Row(
             children: [
@@ -1149,6 +1206,8 @@ class TaskSummaryCard extends StatelessWidget {
 
   Widget _buildCompact(ThemeData theme) {
     final extension = theme.extension<MuyuThemeExtension>();
+    final taskSurface = extension?.taskSurface ?? theme.colorScheme.surface;
+    final taskOutline = extension?.taskOutline ?? theme.colorScheme.outline;
     final owner = _memberDisplayName(state, task.currentHandlerId);
     final status = taskStatusLabel(task.status);
     final classification = task.labels.isEmpty ? null : task.labels.first;
@@ -1173,7 +1232,7 @@ class TaskSummaryCard extends StatelessWidget {
 
     return Material(
       key: ValueKey('task-card-${task.id}'),
-      color: theme.colorScheme.surface,
+      color: taskSurface,
       elevation: 0,
       child: InkWell(
         onTap: onTap,
@@ -1184,9 +1243,7 @@ class TaskSummaryCard extends StatelessWidget {
             vertical: MuyuSpacing.xs,
           ),
           decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: theme.colorScheme.outline),
-            ),
+            border: Border(bottom: BorderSide(color: taskOutline)),
           ),
           child: Row(
             children: [
@@ -1271,10 +1328,11 @@ class TaskSummaryCard extends StatelessWidget {
     ].join('，');
     final normalizedStatus = normalizeTaskStatus(task.status);
     final coral = extension?.coral ?? theme.colorScheme.error;
+    final taskSurface = extension?.taskSurface ?? theme.colorScheme.surface;
     final border = Border.all(
       color: normalizedStatus == 'BLOCKED'
           ? coral.withValues(alpha: 0.45)
-          : theme.colorScheme.outline,
+          : extension?.taskOutline ?? theme.colorScheme.outline,
     );
 
     return Semantics(
@@ -1282,11 +1340,12 @@ class TaskSummaryCard extends StatelessWidget {
       label: cardLabel,
       child: Material(
         key: ValueKey('task-card-${task.id}'),
-        color: theme.colorScheme.surface,
+        color: taskSurface,
         elevation: 0,
         child: InkWell(
           onTap: onTap,
           child: Container(
+            key: ValueKey('task-card-surface-${task.id}'),
             constraints: const BoxConstraints(minHeight: 48),
             padding: const EdgeInsets.symmetric(
               horizontal: MuyuSpacing.sm,
@@ -1295,12 +1354,7 @@ class TaskSummaryCard extends StatelessWidget {
             decoration: BoxDecoration(
               border: border,
               borderRadius: const BorderRadius.all(Radius.circular(12)),
-              color: normalizedStatus == 'BLOCKED'
-                  ? Color.alphaBlend(
-                      coral.withValues(alpha: 0.025),
-                      theme.colorScheme.surface,
-                    )
-                  : theme.colorScheme.surface,
+              color: taskSurface,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

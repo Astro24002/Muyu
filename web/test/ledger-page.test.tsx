@@ -17,6 +17,7 @@ const entry = (type: LedgerEntry['type']): LedgerEntry => ({
 
 describe('LedgerPage', () => {
   it('loads the summary once and filters only the visible detail list', async () => {
+    vi.setSystemTime(new Date('2026-09-17T12:00:00.000Z'));
     const api = {
       getLedgerSummary: vi.fn().mockResolvedValue(summary),
       listLedger: vi.fn().mockImplementation(({ type }: { type?: LedgerEntry['type'] }) => (

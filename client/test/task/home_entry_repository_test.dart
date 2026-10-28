@@ -65,7 +65,7 @@ void main() {
                 {
                   'id': 'task-1',
                   'parent_task_id': null,
-                  'title': '本周事项',
+                  'title': '即将到期事项',
                   'description': '',
                   'status': 'TODO',
                   'current_handler_id': 'user-1',
@@ -93,12 +93,12 @@ void main() {
     );
 
     final page = await repository.load(
-      entry: 'due_this_week',
+      entry: 'due_soon',
       afterCursor: 'previous.cursor',
     );
-    expect(requested.path, '/api/v1/home/entries/due_this_week');
+    expect(requested.path, '/api/v1/home/entries/due_soon');
     expect(requested.queryParameters['after_cursor'], 'previous.cursor');
-    expect(page.tasks.single.title, '本周事项');
+    expect(page.tasks.single.title, '即将到期事项');
     expect(page.count, 2);
     expect(page.nextCursor, 'home-entry.v1');
   });

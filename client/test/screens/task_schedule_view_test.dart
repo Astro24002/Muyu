@@ -59,6 +59,26 @@ int weekNumber(DateTime value) {
 }
 
 void main() {
+  testWidgets('schedule uses factual copy and a date-specific empty state', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      scheduleApp(
+        TaskScheduleView(
+          sync: WorkspaceSyncController.unavailable(),
+          state: scheduleState(const []),
+          canWrite: true,
+          onTaskTap: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.text('按截止日期查看未完成事项。'), findsOneWidget);
+    expect(find.text('所选日期没有到期事项'), findsOneWidget);
+    expect(find.text('把日子看清楚，一起从容一点。'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('omits completed tasks from the active calendar', (tester) async {
     final today = dateOnly(DateTime.now().toLocal());
     final active = scheduleTask('active', '今天要做', dueAt: today);
@@ -202,6 +222,11 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('task-schedule-month-previous')));
     await tester.pump();
+
+    if (nextWeek.year != today.year || nextWeek.month != today.month) {
+      await tester.tap(find.byKey(const Key('task-schedule-month-next')));
+      await tester.pump();
+    }
 
     await tester.tap(
       find.byKey(Key('task-schedule-week-${weekNumber(nextWeek)}')),

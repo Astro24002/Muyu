@@ -33,6 +33,22 @@ device acceptance.
 - [ ] Real-account writes, two-person E2E, authorized device acceptance,
       rollback/restore drill and signed APK/AAB release remain pending.
 
+## 2026-10-28 v0.2.1 Release Candidate (Awaiting CI)
+
+- [x] Client version set to `0.2.1+2`.
+- [x] Local `make verify` passed in a disposable PostgreSQL 16 environment:
+      backend `306 passed, 3 skipped, 1 warning`; Flutter `287 passed` with
+      format/analyze clean; Web `308 passed` with typecheck and Vite build;
+      migration, deployment topology, legacy-runtime and client-boundary checks
+      passed.
+- [ ] Create and push `v0.2.1`; protected GitHub Actions must build and verify
+      the signed `Muyu-v0.2.1.apk` before creating the GitHub Release.
+- [ ] Record the release commit, Action run, APK signature verification and
+      SHA-256 after the remote workflow completes.
+- [ ] Real Android device acceptance, production Web deployment, real-account
+      and two-person acceptance remain pending; no AAB is claimed by this
+      version-APK workflow.
+
 - `RUN_CLOUD_PROTOCOL=1` focused two-user task E2E: `1 passed`.
 - `make backend-test` with disposable PostgreSQL: `64 passed, 3 skipped`;
   `compileall` completed successfully. One existing Starlette/httpx

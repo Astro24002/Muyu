@@ -10,11 +10,13 @@ class CheckinsScreen extends StatefulWidget {
     required this.controller,
     required this.viewerId,
     required this.canWrite,
+    this.members = const [],
     this.onOpenTask,
   });
   final LifeController controller;
   final String? viewerId;
   final bool canWrite;
+  final List<Map<String, dynamic>> members;
   final ValueChanged<String>? onOpenTask;
 
   @override
@@ -45,16 +47,11 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
               key: const PageStorageKey('checkins-list'),
               padding: const EdgeInsets.fromLTRB(
                 MuyuSpacing.lg,
-                MuyuSpacing.md,
+                MuyuSpacing.sm,
                 MuyuSpacing.lg,
                 MuyuSpacing.xxl,
               ),
               children: [
-                Text(
-                  '好习惯慢慢养，重要的日子好好记。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: MuyuSpacing.xl),
                 SegmentedButton<bool>(
                   segments: const [
                     ButtonSegment(value: false, label: Text('日常打卡')),
@@ -70,11 +67,27 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                     padding: const EdgeInsets.symmetric(
                       vertical: MuyuSpacing.sm,
                     ),
-                    child: Text(
-                      controller.checkinsError!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          controller.checkinsError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            key: const Key('checkins-retry'),
+                            onPressed: controller.loadingCheckins
+                                ? null
+                                : controller.loadCheckins,
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('重试'),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 const SizedBox(height: MuyuSpacing.lg),
@@ -87,7 +100,13 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                         Container(
                           padding: const EdgeInsets.all(MuyuSpacing.lg),
                           decoration: BoxDecoration(
-                            color: const Color(0xfff6ede2),
+                            color:
+                                Theme.of(context)
+                                    .extension<MuyuThemeExtension>()
+                                    ?.warmSurface ??
+                                Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -130,8 +149,8 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                   ),
                   const SizedBox(height: MuyuSpacing.md),
                   if (controller.anniversaries.isEmpty &&
-                      !controller.loadingCheckins)
-                    const Center(child: Text('暂无纪念日')),
+                      controller.hasLoadedCheckins)
+                    const Center(child: Text('还没有纪念日记录')),
                   for (final item in controller.anniversaries) ...[
                     Material(
                       color: Theme.of(context).colorScheme.surface,
@@ -164,7 +183,11 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                     key: const Key('checkins-current-period'),
                     padding: const EdgeInsets.all(MuyuSpacing.lg),
                     decoration: BoxDecoration(
-                      color: const Color(0xffeff4e5),
+                      color:
+                          Theme.of(context)
+                              .extension<MuyuThemeExtension>()
+                              ?.sageSurface ??
+                          Theme.of(context).colorScheme.secondaryContainer,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: Theme.of(context).colorScheme.outline,
@@ -178,20 +201,17 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                controller.habitOwner == 'mine'
-                                    ? '属于你的，一点小坚持'
-                                    : '各自坚持，彼此看见',
+                                '本期进度',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                               const SizedBox(height: MuyuSpacing.sm),
                               Text(
-                                '今天，向喜欢的自己靠近。',
+                                controller.hasLoadedCheckins
+                                    ? '本期已完成 ${controller.habits.where((habit) => habit.checkedIn).length} / ${controller.habits.length} 项'
+                                    : controller.checkinsError != null
+                                    ? '暂时无法读取'
+                                    : '正在加载',
                                 style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: MuyuSpacing.sm),
-                              Text(
-                                '本期已完成 ${controller.habits.where((habit) => habit.checkedIn).length} / ${controller.habits.length} 项',
-                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
                           ),
@@ -232,8 +252,8 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                         : (values) => controller.changeHabitOwner(values.first),
                   ),
                   const SizedBox(height: MuyuSpacing.md),
-                  if (controller.habits.isEmpty && !controller.loadingCheckins)
-                    const Center(child: Text('暂无打卡项目')),
+                  if (controller.habits.isEmpty && controller.hasLoadedCheckins)
+                    Center(child: Text(_habitEmptyMessage)),
                   for (final habit in controller.habits) ...[
                     Material(
                       color: Theme.of(context).colorScheme.surface,
@@ -249,7 +269,7 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
                             key: Key('habit-${habit.id}'),
                             leading: const Icon(Icons.spa_outlined),
                             title: Text(habit.title),
-                            subtitle: Text(_frequency(habit.frequency)),
+                            subtitle: Text(_habitSubtitle(habit)),
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => _openHabit(habit),
                           ),
@@ -343,8 +363,11 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
       );
     });
     if (!success && mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('操作失败，请刷新后重试')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.controller.checkinsError ?? '操作失败，请刷新后重试'),
+        ),
+      );
     }
   }
 
@@ -378,6 +401,27 @@ class _CheckinsScreenState extends State<CheckinsScreen> {
     'IMPORTANT_DAY' => '重要日子',
     _ => '纪念日',
   };
+
+  String get _habitEmptyMessage => switch (widget.controller.habitOwner) {
+    'mine' => '你还没有打卡习惯',
+    'other' => 'TA 还没有打卡习惯',
+    _ => '这个共享空间还没有打卡习惯',
+  };
+
+  String _habitSubtitle(HabitItem habit) {
+    final frequency = _frequency(habit.frequency);
+    if (widget.controller.habitOwner != 'all') return frequency;
+    if (habit.ownerId == widget.viewerId) return '$frequency · 我';
+    for (final member in widget.members) {
+      if (member['user_id'] != habit.ownerId) continue;
+      final name = member['display_name'];
+      if (name is String && name.trim().isNotEmpty) {
+        return '$frequency · ${name.trim()}';
+      }
+      break;
+    }
+    return '$frequency · TA';
+  }
 }
 
 class _RecentCheckinHistory extends StatelessWidget {

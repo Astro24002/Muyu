@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -46,6 +47,32 @@ void main() {
     expect(find.byKey(const Key('workspace-brand-mark')), findsNothing);
     expect(find.byKey(const Key('task-list-drawer')), findsNothing);
     expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
+  });
+
+  testWidgets('app chrome shares one page surface without separator bands', (
+    tester,
+  ) async {
+    await tester.pumpWidget(shell());
+    await tester.pumpAndSettle();
+
+    final pageColor = muyuLightTheme().scaffoldBackgroundColor;
+    final appBar = tester.widget<AppBar>(
+      find.byKey(const Key('task-system-app-bar')),
+    );
+    final navigationShell = tester.widget<DecoratedBox>(
+      find.byKey(const Key('workspace-navigation-shell')),
+    );
+    final navigationDecoration = navigationShell.decoration as BoxDecoration;
+    final systemOverlay = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+      find.byKey(const Key('workspace-system-ui-overlay')),
+    );
+
+    expect(appBar.backgroundColor, pageColor);
+    expect(appBar.bottom, isNull);
+    expect(navigationDecoration.color, pageColor);
+    expect(navigationDecoration.border, isNull);
+    expect(systemOverlay.value.statusBarColor, pageColor);
+    expect(systemOverlay.value.systemNavigationBarColor, pageColor);
   });
 
   testWidgets(

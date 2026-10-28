@@ -200,10 +200,10 @@ class _AllTasksScreenState extends State<AllTasksScreen> {
                 key: const Key('all-tasks-list'),
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  if (_items.isEmpty && !_loading)
+                  if (_items.isEmpty && !_loading && _error == null)
                     const Padding(
                       padding: EdgeInsets.all(MuyuSpacing.xxl),
-                      child: Center(child: Text('没有符合条件的事情')),
+                      child: Center(child: Text('没有符合当前筛选条件的事情')),
                     ),
                   for (final task in _items)
                     ListTile(

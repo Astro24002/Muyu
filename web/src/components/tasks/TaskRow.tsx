@@ -11,9 +11,10 @@ export interface TaskRowProps {
   onOpen: (task: TaskItem) => void;
   onComplete: (task: TaskItem) => void;
   busy: boolean;
+  showPrimaryAction?: boolean;
 }
 
-export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.Element {
+export function TaskRow({ task, onOpen, onComplete, busy, showPrimaryAction = true }: TaskRowProps): JSX.Element {
   const titleId = useId();
   const metaId = useId();
   const action = primaryAction(task.status);
@@ -31,7 +32,7 @@ export function TaskRow({ task, onOpen, onComplete, busy }: TaskRowProps): JSX.E
       className="task-row"
       data-task-row={task.id}
     >
-      {action ? (
+      {action && showPrimaryAction ? (
         <Button
           className="task-row__complete"
           tone="quiet"

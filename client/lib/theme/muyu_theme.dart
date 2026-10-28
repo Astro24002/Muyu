@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
   const MuyuThemeExtension({
     required this.focusSurface,
+    required this.sageSurface,
+    required this.warmSurface,
+    required this.taskSurface,
+    required this.taskOutline,
     required this.coral,
     required this.coralSurface,
     required this.sync,
@@ -15,6 +19,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
   });
 
   final Color focusSurface;
+  final Color sageSurface;
+  final Color warmSurface;
+  final Color taskSurface;
+  final Color taskOutline;
   final Color coral;
   final Color coralSurface;
   final Color sync;
@@ -27,6 +35,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
   @override
   MuyuThemeExtension copyWith({
     Color? focusSurface,
+    Color? sageSurface,
+    Color? warmSurface,
+    Color? taskSurface,
+    Color? taskOutline,
     Color? coral,
     Color? coralSurface,
     Color? sync,
@@ -37,6 +49,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
     Color? quadrantQ4,
   }) => MuyuThemeExtension(
     focusSurface: focusSurface ?? this.focusSurface,
+    sageSurface: sageSurface ?? this.sageSurface,
+    warmSurface: warmSurface ?? this.warmSurface,
+    taskSurface: taskSurface ?? this.taskSurface,
+    taskOutline: taskOutline ?? this.taskOutline,
     coral: coral ?? this.coral,
     coralSurface: coralSurface ?? this.coralSurface,
     sync: sync ?? this.sync,
@@ -52,6 +68,10 @@ class MuyuThemeExtension extends ThemeExtension<MuyuThemeExtension> {
     if (other == null) return this;
     return MuyuThemeExtension(
       focusSurface: Color.lerp(focusSurface, other.focusSurface, t)!,
+      sageSurface: Color.lerp(sageSurface, other.sageSurface, t)!,
+      warmSurface: Color.lerp(warmSurface, other.warmSurface, t)!,
+      taskSurface: Color.lerp(taskSurface, other.taskSurface, t)!,
+      taskOutline: Color.lerp(taskOutline, other.taskOutline, t)!,
       coral: Color.lerp(coral, other.coral, t)!,
       coralSurface: Color.lerp(coralSurface, other.coralSurface, t)!,
       sync: Color.lerp(sync, other.sync, t)!,
@@ -75,6 +95,17 @@ class MuyuSpacing {
   static const double xxl = 32;
 }
 
+class MuyuChartPalette {
+  const MuyuChartPalette._();
+
+  static const categories = <Color>[
+    Color(0xff6b8565),
+    Color(0xffadbfa0),
+    Color(0xffd2b796),
+    Color(0xffc7d3c5),
+  ];
+}
+
 // Paper and surface tokens from the confirmed prototype palette.
 const _page = Color(0xfff7f7f1);
 const _surface = Color(0xffffffff);
@@ -84,6 +115,10 @@ const _muted = Color(0xff7c8783);
 const _brand = Color(0xff225f50);
 const _interactive = Color(0xff2e7663);
 const _focusSurface = Color(0xffe7f0ed);
+const _sageSurface = Color(0xffe4ebd9);
+const _warmSurface = Color(0xfff2eee5);
+const _taskSurface = _page;
+const _taskOutline = Color(0xffebece5);
 const _coral = Color(0xffb2573b);
 const _coralSurface = Color(0xfff3dfd7);
 const _outline = Color(0xffdce3e0);
@@ -178,7 +213,7 @@ ThemeData muyuLightTheme() {
     canvasColor: _page,
     textTheme: textTheme,
     appBarTheme: AppBarTheme(
-      backgroundColor: _surface,
+      backgroundColor: _page,
       foregroundColor: _text,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
@@ -223,7 +258,7 @@ ThemeData muyuLightTheme() {
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: _surface,
+      backgroundColor: _page,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       indicatorColor: _focusSurface,
@@ -251,6 +286,10 @@ ThemeData muyuLightTheme() {
     extensions: const [
       MuyuThemeExtension(
         focusSurface: _focusSurface,
+        sageSurface: _sageSurface,
+        warmSurface: _warmSurface,
+        taskSurface: _taskSurface,
+        taskOutline: _taskOutline,
         coral: _coral,
         coralSurface: _coralSurface,
         sync: _sync,

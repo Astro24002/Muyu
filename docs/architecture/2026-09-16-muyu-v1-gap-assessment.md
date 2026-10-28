@@ -1,6 +1,6 @@
 # Muyu v1 接手差异清单
 
-日期：2026-09-16；初次文档与定点代码复核：2026-09-17；最近状态复核：2026-09-24
+日期：2026-09-16；初次文档与定点代码复核：2026-09-17；最近事项首页复核：2026-10-27
 
 2026-09-24 API 更新：生产 API 已部署服务端 Habit 近七日读取投影，未改变 schema，Alembic head 仍为 `0018_task_invitations`；API healthy、公网 live/ready 为 200，未授权生活领域请求为 401。此次没有更新 Caddy/Web bundle，也未完成真实账号、双用户或真机验收。
 
@@ -27,12 +27,12 @@
 | --- | --- | --- |
 | 底部导航 | 原实现为 `清单 / 四象限 / 日程 / 我的` | Android/Web 本地壳层已改为 `事项 / 记账 / 打卡 / 我的`；四象限和日程成为事项标题内视图，账本/打卡已接入正式 REST 页面和统一 snapshot/changes 消费，完整领域验收仍待完成。 |
 | 事项标题 | 原实现为 `清单→此刻`、品牌栏和抽屉 | Android/Web 已改为可点击的 `此刻` 标题菜单并移除主事项页品牌/抽屉入口；真机视觉证据仍 pending。 |
-| 首页 | 已有三指标和互斥 `blocked/mine/other` 投影 | 后端 canonical 计数/分页已收敛到交接/验收，旧广义审批字段继续兼容；Android/Web 已消费目标三段，首版业务时区已冻结为 `Asia/Shanghai`，Workspace 可配置时区仍待设计。 |
+| 首页 | 服务端保留三指标和互斥 `blocked/mine/other` 投影 | 2026-10-27 用户反馈后，Android/Web 默认此刻页隐藏三段任务列表与“全部事情”快捷入口；以同一 snapshot 显示默认折叠的“已经过期”和“已完成/已归档”。服务端 Home 投影和旧客户端兼容不变。首版业务时区已冻结为 `Asia/Shanghai`，Workspace 可配置时区仍待设计。 |
 | 任务状态 | 历史兼容的 `TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED` 加审批请求 | 暂不破坏生产状态与迁移；Android 展示层先映射为 v1 文案。`CANCELLED`、重开和旧兼容路径保留；若收敛需另行设计，v1 不新增这些操作。 |
 | 任务字段 | 现有分类、象限、`due_at`、负责人、审批与活动事实；已新增可空 `next_step_text` 和 `acceptance_criteria` | 字段、snapshot/changes、查询、Header、`proposed_next_step`、独立完成标准、创建邀请和整组 agreement/cancellation 申请已落地；业务时区可配置和完整来源筛选仍待后续批次。 |
 | 记账、打卡、纪念日 | 后端独立模型/API、Android 页面和 Web 正式 REST 页面已存在；两端已补齐四类资源的 snapshot/changes 模型和游标合并 | 继续沿用独立领域模块；补齐并发/恢复/无障碍回归和线上/双用户验收，不能用任务数据或浏览器本地存储替代。 |
 | 打卡页本期进度 | 当前原型含浅绿汇总块和圆形叶片标记；Android 原有汇总数但缺标记；Web 原有逐项 `checked_in` 与最近七日轨迹但缺整个汇总块 | 已补 Android 叶片标记和 Web 浅绿汇总块；Web 数量按当前 owner 筛选后的正式 Habit 集合计算，不新增服务端字段或事实源。Web 全量 291 passed，Flutter 全量 267 passed/analyze；真机验收 pending。 |
-| 全部事情 | 原有列表可显示终态任务，但没有规范化查询入口 | 已增加服务端搜索/状态/负责人/历史/keyset 查询、`next_step_text` 搜索和事项次级入口；完整来源筛选和查询 UI 依赖批次 2。 |
+| 全部事情 | 服务端已有搜索/状态/负责人/历史/keyset 查询；Web 曾只有列表筛选，没有 v1 检索面板 | 2026-10-10 Web 已加入 snapshot 内标题/分类/负责人显示名/下一步搜索、我/TA/全部负责人筛选及未完成/全部/阻塞/验收/接棒/完成范围；开发预览复用只读页面。Web keyset endpoint 接入、详情返回筛选/任务锚点恢复和大列表分页仍待批次 2 收口。 |
 
 ## 复用与阻塞
 
@@ -47,6 +47,7 @@
 | 目标 | 复核证据/现状 | 后续方案 |
 | --- | --- | --- |
 | 回应指标按申请计数 | Home 对 `TASK_INVITATION` 无 task_id 申请和带 marker 的 `TASK_UPDATE`/`TASK_DELETE` 使用同一申请 ID 口径纳入 action count/page；本周到期仍只查询已成立任务 | 保留申请谓词、去重和旧字段兼容；线上双用户和旧运行时回归仍待执行 |
+| 即将到期、逾期与归档分组 | 2026-10-27 已实现服务端 `due_soon` 计数、预取和稳定 keyset 分页；默认此刻页从 snapshot 展示开放且已过期的顶层任务和 DONE 归档，逾期组默认折叠 | 旧 `due_this_week` 自然周契约保留；已过期使用任务的 `due_at`，不改变服务端状态或建立新资源；客户端兼容 `Asia/Shanghai`/旧 `UTC` 标签并沿用服务端边界；真实账户和 Android 真机验收仍 pending |
 | 统一业务时区自然周 | Home 返回 `HomeWeek(timezone="Asia/Shanghai")`，周边界以 UTC 瞬时表示 | 首版冻结时区和集中日期转换已落地并通过跨 UTC 日期测试；Workspace 可配置时区、LocalDate/时间点兼容和完整 DST 验证仍待施工 |
 | 明确下一步、新建给 TA、完成标准、整组约定 | `next_step_text`、`acceptance_criteria`、目标成员、Header、交接拟议值和 agreement/cancellation endpoint 均已接入；新客户端邀请使用独立 `/task-invitations` | 邀请接受与约定批准的任务/审批/活动/Operation/cursor/幂等本地回归通过；业务时区可配置、线上双用户和设备验收仍 pending |
 | 70/90/500/1000 长度 | 当前标题 200、描述 10000、review_content 5000 | 客户端/服务端统一计数，兼容历史长文本 |

@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-HomeEntryName = Literal["needs_me", "waiting_on_other", "due_this_week"]
+HomeEntryName = Literal["needs_me", "waiting_on_other", "due_this_week", "due_soon"]
 
 
 class HomeTaskSection(BaseModel):
@@ -45,6 +45,7 @@ class HomeEntryCounts(BaseModel):
     needs_me: int = Field(ge=0)
     waiting_on_other: int = Field(ge=0)
     due_this_week: int = Field(ge=0)
+    due_soon: int = Field(ge=0)
 
 
 class HomeEntries(BaseModel):
@@ -53,6 +54,7 @@ class HomeEntries(BaseModel):
     needs_me: HomeApprovalSection = Field(default_factory=HomeApprovalSection)
     waiting_on_other: HomeApprovalSection = Field(default_factory=HomeApprovalSection)
     due_this_week: HomeTaskSection = Field(default_factory=HomeTaskSection)
+    due_soon: HomeTaskSection = Field(default_factory=HomeTaskSection)
 
 
 class HomeEntriesPage(BaseModel):
@@ -93,6 +95,7 @@ class HomeResponse(BaseModel):
     needs_action_count: int = Field(default=0, ge=0)
     waiting_on_other_count: int = Field(default=0, ge=0)
     week_due_count: int = Field(default=0, ge=0)
+    due_soon_count: int = Field(default=0, ge=0)
     entries: HomeEntries = Field(default_factory=HomeEntries)
 
 

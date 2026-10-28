@@ -1033,7 +1033,7 @@ void main() {
   });
 
   testWidgets(
-    '清单 defaults to collapsed delayed tasks and expanded upcoming tasks',
+    '清单 defaults to collapsed expired tasks and shows completed archive history',
     (tester) async {
       final repo = FakeTaskRepository()
         ..tasks.addAll([
@@ -1060,24 +1060,40 @@ void main() {
         tester
             .widget<Text>(find.byKey(const Key('task-section-title-past')))
             .data,
-        '已经延期',
+        '已经过期',
       );
       expect(
         tester
-            .widget<Text>(find.byKey(const Key('task-section-title-upcoming')))
+            .widget<Text>(find.byKey(const Key('task-section-title-terminal')))
             .data,
-        '即将到期',
+        '已完成/已归档',
       );
       expect(find.text('Delayed'), findsNothing);
       expect(find.text('Upcoming'), findsOneWidget);
-      expect(find.text('Done'), findsNothing);
-      expect(find.text('已完成 / 已取消'), findsNothing);
+      expect(find.text('Done'), findsOneWidget);
+      expect(
+        find.byKey(const Key('task-section-title-upcoming')),
+        findsNothing,
+      );
     },
   );
 
-  testWidgets('清单更多菜单打开终止任务后显示已完成/已取消分组', (tester) async {
+  testWidgets('事项首页第三指标名称为即将到期', (tester) async {
+    final sync = await readyController(FakeTaskRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+      ),
+    );
+
+    expect(find.byKey(const Key('workspace-summary-due-soon')), findsOneWidget);
+    expect(find.text('即将到期'), findsOneWidget);
+    expect(find.text('本周到期'), findsNothing);
+  });
+
+  testWidgets('清单更多菜单显示独立的已取消历史分组', (tester) async {
     final repo = FakeTaskRepository()
-      ..tasks.add(task('done', 'Done', status: 'DONE'));
+      ..tasks.add(task('cancelled', 'Cancelled', status: 'CANCELLED'));
     final sync = await readyController(repo);
     await tester.pumpWidget(
       MaterialApp(
@@ -1085,19 +1101,22 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const ValueKey('task-list-row-done')), findsNothing);
+    expect(find.byKey(const ValueKey('task-list-row-cancelled')), findsNothing);
     await tester.tap(find.byKey(const Key('task-list-more-button')));
     await tester.pumpAndSettle();
     await tester.tap(
       find.ancestor(
-        of: find.text('显示已完成任务'),
+        of: find.text('显示已取消任务'),
         matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已完成 / 已取消'), findsOneWidget);
-    expect(find.byKey(const ValueKey('task-list-row-done')), findsOneWidget);
+    expect(find.text('已取消'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('task-list-row-cancelled')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -1155,15 +1174,15 @@ void main() {
     );
 
     expect(find.byKey(const Key('task-section-header-past')), findsOneWidget);
-    expect(
-      find.byKey(const Key('task-section-header-upcoming')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('task-section-header-upcoming')), findsNothing);
     expect(
       find.byKey(const Key('task-section-header-unscheduled')),
       findsNothing,
     );
-    expect(find.byKey(const Key('task-section-header-terminal')), findsNothing);
+    expect(
+      find.byKey(const Key('task-section-header-terminal')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('create-task-fab')), findsOneWidget);
   });
 
@@ -1217,7 +1236,7 @@ void main() {
     },
   );
 
-  testWidgets('all matters opens a separate page and returns to moment', (
+  testWidgets('all matters stays in My and is not linked from moment', (
     tester,
   ) async {
     final sync = await readyController(FakeTaskRepository());
@@ -1232,16 +1251,23 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        home: CloudWorkspaceScreen(api: testApi(), syncController: sync),
+        home: CloudWorkspaceScreen(
+          api: profileTestApi(),
+          syncController: sync,
+          session: loggedInSession,
+        ),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('moment-view-all')));
+    expect(find.byKey(const Key('moment-view-all')), findsNothing);
+    await tester.tap(find.byKey(const Key('task-profile-destination')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('profile-all-tasks')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('all-tasks-search')), findsOneWidget);
     expect(find.byKey(const Key('matter-view-menu')), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('matter-view-menu')), findsOneWidget);
+    expect(find.byKey(const Key('profile-all-tasks')), findsOneWidget);
   });
 }

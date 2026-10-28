@@ -16,35 +16,79 @@ test.describe('行动工作台视觉工作流', () => {
     await capture(page, testInfo, 'qr-login.png');
   });
 
-  test('今天页面支持有重点任务的主线', async ({ page, workbench }, testInfo) => {
+  test('旧 /today 路由兼容到此刻并保留当前事项', async ({ page, workbench }, testInfo) => {
     await workbench.setup({ todayFocus: true });
     await workbench.goto('#/today');
 
-    await expect(page.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeVisible();
-    await expect(page.locator('[data-focus-task]')).toContainText('整理周末晚餐');
-    await expect(page.getByRole('button', { name: '继续处理' })).toBeVisible();
+    await expect(page.locator('[data-matters-page][data-matters-view="moment"]')).toBeVisible();
+    await expect(page.getByRole('button', { name: '此刻' })).toBeVisible();
+    await expect(page.locator('[data-task-row="task-focus"]')).toContainText('整理周末晚餐');
     await assertMigratedSurface(page);
     await capture(page, testInfo, 'today-with-focus.png');
   });
 
-  test('今天页面在没有重点任务时仍保留任务列表', async ({ page, workbench }, testInfo) => {
+  test('旧 /today 路由在任务待开始时仍展示事项列表', async ({ page, workbench }, testInfo) => {
     await workbench.setup({ todayFocus: false });
     await workbench.goto('#/today');
 
-    await expect(page.getByRole('heading', { name: '今天，先让一件事向前走' })).toBeVisible();
-    await expect(page.locator('[data-focus-task]')).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '接下来' })).toBeVisible();
+    await expect(page.locator('[data-matters-page][data-matters-view="moment"]')).toBeVisible();
+    await expect(page.getByRole('button', { name: '此刻' })).toBeVisible();
     await expect(page.locator('[data-task-row="task-next"]')).toBeVisible();
     await assertMigratedSurface(page);
     await capture(page, testInfo, 'today-without-focus.png');
+  });
+
+  test('事项视图支持标题菜单、指标入口、负责人筛选和月历', async ({ page, workbench }, testInfo) => {
+    await page.clock.install({ time: new Date('2026-09-01T12:00:00Z') });
+    await workbench.setup();
+    await workbench.goto('#/matters/moment');
+
+    await expect(page.getByRole('button', { name: '此刻' })).toBeVisible();
+    await page.getByRole('button', { name: /即将到期/ }).click();
+    await expect(page.getByRole('region', { name: '即将到期' })).toContainText('整理周末晚餐');
+    await page.getByRole('button', { name: '收起指标详情' }).click();
+    await expect(page.getByRole('region', { name: '已完成/已归档' })).toContainText('已完成的整理');
+    await expect(page.locator('[data-task-row="task-done"]')).toHaveCount(1);
+
+    await page.getByRole('button', { name: '此刻' }).click();
+    await expect(page.getByRole('menuitemradio', { name: '清单' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-matters-view="quadrant"]')).toBeVisible();
+    await page.getByRole('button', { name: 'TA 负责' }).click();
+    await expect(page.getByRole('region', { name: '紧急不重要' })).toContainText('等待书单确认');
+
+    await page.getByRole('button', { name: '四象限' }).click();
+    await page.getByRole('menuitemradio', { name: '日程' }).click();
+    await expect(page.getByRole('heading', { name: '2026年9月' })).toBeVisible();
+    await page.getByRole('button', { name: /2026年9月2日/ }).click();
+    await expect(page.getByRole('region', { name: /9月2日.*到期事项/ })).toContainText('整理周末晚餐');
+    await expect(page.getByRole('button', { name: '2026年9月2日' })).toHaveAttribute('aria-pressed', 'true');
+
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '我的' }).click();
+    await page.getByRole('button', { name: '全部事情' }).click();
+    await expect(page.getByRole('heading', { name: '全部事情' })).toBeVisible();
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '事项' }).click();
+    await expect(page.locator('[data-matters-view="schedule"]')).toBeVisible();
+    await expect(page.getByRole('button', { name: '2026年9月2日' })).toHaveAttribute('aria-pressed', 'true');
+
+    const originalViewport = page.viewportSize();
+    for (const width of [320, 360, 393, 412]) {
+      await page.setViewportSize({ width, height: 851 });
+      await assertNoHorizontalOverflow(page);
+      await expect(page.getByRole('heading', { name: '2026年9月' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '回到今天' })).toBeVisible();
+    }
+    if (originalViewport) await page.setViewportSize(originalViewport);
+    await capture(page, testInfo, 'matters-schedule-workflow.png');
   });
 
   test('所有任务筛选保持线性列表布局', async ({ page, workbench }, testInfo) => {
     await workbench.setup();
     await workbench.goto('#/tasks');
 
-    await expect(page.getByRole('heading', { name: '所有任务' })).toBeVisible();
-    await page.getByRole('combobox', { name: '状态', exact: true }).selectOption('WAITING');
+    await expect(page.getByRole('heading', { name: '全部事情' })).toBeVisible();
+    await page.getByRole('combobox', { name: '状态', exact: true }).selectOption('BLOCKED');
     await expect(page.locator('[data-task-row="task-waiting"]')).toBeVisible();
     await expect(page.locator('[data-task-row="task-focus"]')).toHaveCount(0);
     await assertMigratedSurface(page);
@@ -56,9 +100,9 @@ test.describe('行动工作台视觉工作流', () => {
     await workbench.goto('#/approvals');
 
     await expect(page.getByRole('heading', { name: '审批', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '待我审批' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '我发起的请求' })).toBeVisible();
-    await expect(page.getByText('待处理审批：1')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '需要我确认' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '等待对方确认' })).toBeVisible();
+    await expect(page.getByText('待确认：1')).toBeVisible();
     await expect(page.getByText('伙伴提出的新标题')).toBeVisible();
     await expect(page.getByRole('button', { name: '批准' })).toBeVisible();
     await expect(page.getByRole('button', { name: '拒绝' })).toBeVisible();
@@ -139,7 +183,7 @@ test.describe('行动工作台视觉工作流', () => {
     await workbench.setup();
     for (const route of ['#/today', '#/tasks', '#/approvals', '#/activity', '#/tasks/task-focus']) {
       await workbench.goto(route);
-      if (route === '#/today') await expect(page.locator('[data-today-page]')).toBeVisible();
+      if (route === '#/today') await expect(page.locator('[data-matters-page][data-matters-view="moment"]')).toBeVisible();
       if (route === '#/tasks') await expect(page.locator('[data-all-tasks-page]')).toBeVisible();
       if (route === '#/approvals') await expect(page.locator('[data-approvals-page]')).toBeVisible();
       if (route === '#/activity') await expect(page.locator('[data-activity-page]')).toBeVisible();
@@ -148,7 +192,7 @@ test.describe('行动工作台视觉工作流', () => {
     }
 
     await page.goto('/#/today');
-    await expect(page.locator('[data-today-page]')).toBeVisible();
+    await expect(page.locator('[data-matters-page][data-matters-view="moment"]')).toBeVisible();
     const userMenuButton = page.getByRole('button', { name: '用户菜单' });
     await userMenuButton.click();
     const userDialog = page.getByRole('dialog', { name: '用户菜单' });
@@ -191,11 +235,25 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
       .filter((element) => getComputedStyle(element).whiteSpace !== 'nowrap')
       .map((element) => element.textContent?.trim().slice(0, 80) ?? '');
     return {
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
       documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       textOverflow,
+      rightOverflow: Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter(visible)
+        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.right > document.documentElement.clientWidth + 1)
+        .slice(0, 8)
+        .map(({ element, rect }) => ({
+          node: `${element.tagName.toLowerCase()}.${typeof element.className === 'string' ? element.className : ''}`,
+          id: element.id,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+        })),
     };
   });
-  expect(result.documentOverflow).toBe(false);
+  expect(result.documentOverflow, JSON.stringify(result)).toBe(false);
   expect(result.textOverflow).toEqual([]);
 }
 
@@ -240,8 +298,10 @@ async function assertAccessibilityContract(page: Page): Promise<void> {
   expect(result.currentNavigation).toBe(1);
   await expect(page.locator('[aria-live]')).not.toHaveCount(0);
   const newTaskButton = page.getByRole('button', { name: '新建任务' });
-  await expect(newTaskButton).not.toBeDisabled();
-  expect(await newTaskButton.evaluate((element) => (element as HTMLButtonElement).tabIndex)).toBeGreaterThanOrEqual(0);
+  if (await newTaskButton.count() > 0) {
+    await expect(newTaskButton).not.toBeDisabled();
+    expect(await newTaskButton.evaluate((element) => (element as HTMLButtonElement).tabIndex)).toBeGreaterThanOrEqual(0);
+  }
 }
 
 async function capture(page: Page, testInfo: TestInfo, name: string): Promise<void> {

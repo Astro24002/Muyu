@@ -11,8 +11,11 @@ void main() {
     expect(theme.scaffoldBackgroundColor, const Color(0xfff7f7f1));
     expect(scheme.surface, const Color(0xffffffff));
     expect(theme.cardTheme.color, scheme.surface);
-    expect(theme.appBarTheme.backgroundColor, scheme.surface);
-    expect(theme.navigationBarTheme.backgroundColor, scheme.surface);
+    expect(theme.appBarTheme.backgroundColor, theme.scaffoldBackgroundColor);
+    expect(
+      theme.navigationBarTheme.backgroundColor,
+      theme.scaffoldBackgroundColor,
+    );
     expect(theme.inputDecorationTheme.fillColor, scheme.surface);
     expect(scheme.onSurface, const Color(0xff1d2d29));
     expect(scheme.onSurfaceVariant, const Color(0xff7c8783));
@@ -23,6 +26,10 @@ void main() {
     expect(scheme.errorContainer, const Color(0xfffbeae7));
     expect(extension, isNotNull);
     expect(extension!.focusSurface, const Color(0xffe7f0ed));
+    expect(extension.sageSurface, const Color(0xffe4ebd9));
+    expect(extension.warmSurface, const Color(0xfff2eee5));
+    expect(extension.taskSurface, const Color(0xfff7f7f1));
+    expect(extension.taskOutline, const Color(0xffebece5));
     expect(extension.coral, const Color(0xffb2573b));
     expect(extension.coralSurface, const Color(0xfff3dfd7));
     expect(extension.sync, const Color(0xff52a083));

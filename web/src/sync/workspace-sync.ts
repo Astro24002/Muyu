@@ -1364,6 +1364,7 @@ function normalizeHomeResponse(
   normalizeOptionalHomeCount(value.needs_action_count, 'needs_action_count');
   normalizeOptionalHomeCount(value.waiting_on_other_count, 'waiting_on_other_count');
   normalizeOptionalHomeCount(value.week_due_count, 'week_due_count');
+  normalizeOptionalHomeCount(value.due_soon_count, 'due_soon_count');
   return normalized;
 }
 
@@ -1459,7 +1460,7 @@ function normalizeHomeEntries(
     || !hasOwn(value, 'due_this_week')) {
     throw new Error('home entries are invalid');
   }
-  return {
+  const normalized: HomeEntries = {
     needs_me: normalizeHomeApprovalSection(value.needs_me, workspaceId, classifications),
     waiting_on_other: normalizeHomeApprovalSection(value.waiting_on_other, workspaceId, classifications),
     due_this_week: normalizeHomeTaskSection(
@@ -1469,6 +1470,15 @@ function normalizeHomeEntries(
       new Set(['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW']),
     ),
   };
+  if (hasOwn(value, 'due_soon')) {
+    normalized.due_soon = normalizeHomeTaskSection(
+      value.due_soon,
+      workspaceId,
+      classifications,
+      new Set(['TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW']),
+    );
+  }
+  return normalized;
 }
 
 function normalizeHomeApprovalSection(
@@ -1519,26 +1529,28 @@ function normalizeHomeApprovalItem(
 }
 
 function normalizeHomeWeek(value: Record<string, unknown>): HomeWeek {
-  if (value.timezone !== 'UTC' || !isIsoTimestamp(value.start) || !isIsoTimestamp(value.end)) {
+  if ((value.timezone !== 'UTC' && value.timezone !== 'Asia/Shanghai') || !isIsoTimestamp(value.start) || !isIsoTimestamp(value.end)) {
     throw new Error('home week is invalid');
   }
   if (Date.parse(value.end) <= Date.parse(value.start)) {
     throw new Error('home week boundaries are invalid');
   }
-  return { timezone: 'UTC', start: value.start, end: value.end };
+  return { timezone: value.timezone, start: value.start, end: value.end };
 }
 
 function normalizeHomeEntryCounts(value: unknown): HomeEntryCounts {
   if (!isRecord(value)
     || !isNonNegativeSafeInteger(value.needs_me)
     || !isNonNegativeSafeInteger(value.waiting_on_other)
-    || !isNonNegativeSafeInteger(value.due_this_week)) {
+    || !isNonNegativeSafeInteger(value.due_this_week)
+    || (value.due_soon !== undefined && !isNonNegativeSafeInteger(value.due_soon))) {
     throw new Error('home entry counts are invalid');
   }
   return {
     needs_me: value.needs_me,
     waiting_on_other: value.waiting_on_other,
     due_this_week: value.due_this_week,
+    ...(value.due_soon === undefined ? {} : { due_soon: value.due_soon }),
   };
 }
 

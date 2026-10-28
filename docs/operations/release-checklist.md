@@ -33,7 +33,7 @@ device acceptance.
 - [ ] Real-account writes, two-person E2E, authorized device acceptance,
       rollback/restore drill and signed APK/AAB release remain pending.
 
-## 2026-10-28 v0.2.1 Release Candidate (Awaiting CI)
+## 2026-10-28 v0.2.1 Release Candidate (Actions Quota Recovery)
 
 - [x] Client version set to `0.2.1+2`.
 - [x] Local `make verify` passed in a disposable PostgreSQL 16 environment:
@@ -41,8 +41,18 @@ device acceptance.
       format/analyze clean; Web `308 passed` with typecheck and Vite build;
       migration, deployment topology, legacy-runtime and client-boundary checks
       passed.
-- [ ] Create and push `v0.2.1`; protected GitHub Actions must build and verify
-      the signed `Muyu-v0.2.1.apk` before creating the GitHub Release.
+- [x] Release commit `3989247004c292acd5c481f1eadf684e06feb9d5` and tag
+      `v0.2.1` were pushed. Actions run
+      [40628403821](https://github.com/Astro24002/Muyu/actions/runs/40628403821)
+      passed backend tests, Android format/analyze/tests and signed APK build
+      verification, plus Web typecheck/tests/build. Its Web and Android artifact
+      uploads failed because the repository Actions artifact storage quota was
+      exhausted; the publish job was skipped and no Release was created.
+- [x] Release workflow changed to build the signed APK after all validation jobs
+      and attach it directly to the GitHub Release, without Actions artifact
+      transfer.
+- [ ] Push recovery trigger `release-recovery/v0.2.1`; verify it publishes the
+      original `v0.2.1` Release with the signed APK.
 - [ ] Record the release commit, Action run, APK signature verification and
       SHA-256 after the remote workflow completes.
 - [ ] Real Android device acceptance, production Web deployment, real-account

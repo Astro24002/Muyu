@@ -12,7 +12,8 @@
     "test": "vitest",
     "build": "vite build",
     "build:website": "vite build --config vite.website.config.ts",
-    "test:website": "playwright test --config playwright.website.config.ts"
+    "test:website": "playwright test --config playwright.website.config.ts",
+    "export:website": "vite build --config vite.website.config.ts --outDir ../../website"
   },
   "keywords": [],
   "author": "",

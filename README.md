@@ -65,6 +65,7 @@ PostgreSQL 是共享事实源。REST snapshot / cursor changes 保证同步正�
 ```text
 backend/        API、领域服务、迁移与服务端测试
 client/         Flutter Android 客户端
+website/        main 分支中的官网静态发布包（生成文件）
 web/            Web 应用与 /about/ 项目介绍官网
   about/        官网 HTML 入口
   src/website/  官网组件与样式
@@ -126,11 +127,25 @@ make client-build API_BASE_URL=http://10.0.2.2:8080
 
 ### GitHub Pages 静态页面
 
-- **仓库发布源：`gh-pages` 分支 → `/ (root)`。** 该分支根目录的 `index.html` 是官网首页，`assets/` 是配套资源。
-- **本地静态目录：`web/dist-website/`。** 在 `web/` 运行 `npm ci && npm run build:website` 生成；上传整个目录，不要只上传 HTML。
-- Pages 设置由仓库所有者操作：Settings → Pages → Deploy from a branch → `gh-pages` → `/ (root)`。
-- 启用成功后的预期地址：`https://astro24002.github.io/Muyu/`。是否启用及可用性以 GitHub 设置/部署结果为准。
-- 此构建仅包含介绍官网，使用相对资源路径；“打开 Web”指向 `https://muyu.bkverse.space/`。源码保留在 `main`，生成目录不加入 main。
-- `npm run test:website` 验证独立产物在 `/Muyu/` 子路径下的资源、交互和手机布局。后续修改须重新构建并更新 `gh-pages` 分支。
+**main 分支静态目录：[website/](website/)，首页：[website/index.html](website/index.html)。**
 
-仓库当前为私有，GitHub Releases 与项目文档链接仅对有仓库访问权的人可用；本次不更改仓库可见性。
+该目录包含可直接托管的 `index.html` 和 `assets/`，只存放生成文件。源码位于 `web/src/website/`；更新后在 `web/` 执行：
+
+```sh
+npm ci
+npm run export:website
+```
+
+此命令重建仓库根目录的 `website/`（请勿在其中手工维护文件），将更新后的目录一同提交。`npm run build:website` 仍可生成忽略版本控制的 `web/dist-website/`，用于 `npm run test:website` 子路径验证。
+
+GitHub Pages 的分支发布只支持根目录或 `/docs`，不能直接选择 `website/`；已有 `docs/` 是工程文档，不作为官网发布包。[GitHub 发布源说明](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+
+使用 main 中的静态目录：
+
+1. Settings → Pages → Source 选择 **GitHub Actions**。
+2. Actions → **Publish project website** → Run workflow，分支选择 **main**。
+3. 工作流只上传 `website/`，无需在 CI 安装依赖或重建；发布成功后的默认地址为 `https://astro24002.github.io/Muyu/`。
+
+工作流只接受手动触发，本次不修改 Pages 设置或触发部署。此前 `gh-pages` 分支根目录的静态版本仍保留，后续以 main 的 `website/` 为维护位置。
+
+官网使用相对资源路径；“打开 Web”指向 `https://muyu.bkverse.space/`。仓库当前为私有，Releases 与项目文档链接仅对有仓库访问权的人可用；本次不更改仓库可见性。

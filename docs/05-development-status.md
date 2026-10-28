@@ -4,6 +4,8 @@
 
 ## 当前状态
 
+- 2026-10-28（main 静态目录交付）：根据用户追加要求，将官网静态包纳入 main 的 `website/`（首页 `website/index.html`，配套 `website/assets/`）。新增 `npm run export:website` 可重建该目录，源码仍在 `web/src/website/`。GitHub 分支发布不支持任意目录，现有 docs/ 为工程资料，因此提供仅 workflow_dispatch 触发、只从 main 上传 website/ 的 `Publish project website` 工作流；用户自行选择 Pages 的 GitHub Actions 来源并手动触发。本轮未改 Pages 设置、未触发部署，旧 gh-pages 分支保留。验证：export 构建成功；静态包与上一批已通过子路径 E2E 的 dist-website 逐文件完全一致，HTML 引用文件均存在；以本机 Python 静态服务直接托管 main/website，Chromium 验证首页、资源无 4xx、记账切换、正式 Web 链接、320px 无溢出与刷新通过；`git diff --check` 通过。未修改业务代码，未重复全量领域测试；线上启用仍由用户完成。
+
 - 2026-10-28（GitHub Pages 静态交付）：用户授权更新仓库并使用 Pages，随后明确 Pages 设置由用户自行完成。新增 `npm run build:website`，独立打包官网到 `web/dist-website/`；`index.html` 与 `assets/` 使用相对链接，Pages Web 按钮指向正式应用。静态文件和 `.nojekyll` 已推送到 `gh-pages` 分支根目录（静态提交 `a0bfef8`），配置入口为 Deploy from a branch → gh-pages → / (root)。本次不设置 Pages、不修改仓库私有属性；Releases/源码仍受仓库访问权限约束。新增配置的首次 typecheck 因 Playwright reducedMotion 选项位置失败，修正到 contextOptions 后 typecheck、独立构建、`npm run test:website`（1 passed）、原 Web build 与原官网 E2E（1 passed）全部通过；Pages 用例覆盖 `/Muyu/` 子路径、资源加载、刷新、正式 Web 链接、无 API 请求与四种功能在 320/360/393/412/1440 下无溢出。沿用上一批 308 项 Web 回归证据，不重复声称本轮执行。GitHub Pages 线上启用与访问验证由用户设置后进行。
 
 - 2026-10-28（README 与项目介绍官网）：新增根 `README.md`，补齐产品能力、架构、运行/验证命令、Android 发布与现存验收限制。审计发现工程入口的 2026-09-17 状态较旧，本次介绍采用本状态页后续的 Web 生活领域、`0018_task_invitations`、默认此刻调整及 v0.2.1 发布事实，没有把旧缺口重新写成当前状态。官网通过现有 React/TypeScript/Vite 多页面入口 `/about/` 交付，根路径继续承载 Web 应用；暖白/珊瑚色响应式页面包含四类功能切换、协作闭环、Releases 下载与同源 Web 入口，示意明确标注且不发起业务 API 请求。规格及计划见 [官网规格](superpowers/specs/2026-10-28-project-website.md)、[官网计划](superpowers/plans/2026-10-28-project-website.md)。
